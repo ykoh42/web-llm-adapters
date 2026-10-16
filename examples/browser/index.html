@@ -33,21 +33,41 @@
   </head>
   <body>
     <h1>Strands + WebLLM</h1>
-    <p>Run Gemma 4 E2B in your browser. The first load downloads several GB of model files.</p>
-    <label for="model">Model</label>
-    <select id="model">
-      <option value="gemma-4-E2B-it-q4f16_1-MLC">Gemma 4 E2B · FP16</option>
-      <option value="gemma-4-E2B-it-q4f32_1-MLC">Gemma 4 E2B · FP32</option>
+    <p>Choose an example, then load its model. The first load can download several GB.</p>
+    <p>Unload before changing settings. Each run starts a new conversation.</p>
+    <label for="example">Example</label>
+    <select id="example"></select>
+    <label for="engine">Engine</label>
+    <select id="engine">
+      <option value="main">Main thread</option>
+      <option value="worker">Web Worker</option>
+      <option value="service-worker">Service Worker</option>
     </select>
+    <label for="cache">Cache</label>
+    <select id="cache">
+      <option value="cache">Cache API</option>
+      <option value="indexeddb">IndexedDB</option>
+      <option value="opfs">OPFS</option>
+    </select>
+    <label for="model">Model</label>
+    <select id="model" style="max-width: 100%"></select>
     <button id="load">Load model</button>
     <button id="unload" disabled>Unload</button>
+    <button id="check-cache">Check cache</button>
+    <button id="delete-cache">Delete cached model</button>
     <p id="status" role="status">Ready to load</p>
     <progress id="progress" max="1" value="0" aria-label="Model loading"></progress>
     <label for="prompt">Message</label>
     <textarea id="prompt" rows="3">Reply with a short greeting.</textarea>
+    <label id="file-label" for="file" hidden>Input file</label>
+    <input id="file" type="file" hidden />
     <button id="run" disabled>Send</button>
     <button id="stop" disabled>Stop</button>
     <pre id="output" aria-label="Response"></pre>
+    <details>
+      <summary>Details</summary>
+      <pre id="details" aria-label="Details"></pre>
+    </details>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
