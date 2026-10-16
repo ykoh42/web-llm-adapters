@@ -56,8 +56,8 @@ export function toolPrompt(
         '<|tool_response>response:' +
         name +
         writeValue({
-          value: message.response !== undefined ? message.response : message.content,
           ...(message.context !== undefined && { context: message.context }),
+          value: message.response !== undefined ? message.response : message.content,
         }) +
         '<tool_response|>'
       pending.delete(message.tool_call_id)

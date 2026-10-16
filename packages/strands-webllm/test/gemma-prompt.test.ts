@@ -118,7 +118,7 @@ describe('Gemma tool prompts', () => {
       true,
     )
     expect(prompt).toContain('<|channel>thought\nFind x.<channel|>')
-    expect(prompt).toContain('value:{answer:42},context:<|"|>Current todo: verify x.<|"|>')
+    expect(prompt).toContain('context:<|"|>Current todo: verify x.<|"|>,value:{answer:42}')
     expect(prompt.endsWith('<tool_response|>')).toBe(true)
     expect(prompt.match(/<\|turn>user/g)).toHaveLength(1)
     expect(JSON.stringify(injected)).toBe(snapshot)
