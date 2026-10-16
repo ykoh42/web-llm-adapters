@@ -35,10 +35,22 @@ answer. The example keeps Harness's system prompt and has no forced end-turn hoo
 The adapter uses Gemma's native function-call format through raw completions,
 because WebLLM 0.2.86 restricts its separate `tools` API to Hermes.
 
+Add `--think` to enable Gemma thinking, with or without `--read`:
+
+```sh
+npm run start --workspace @webllm-adapters/harness -- --think --read 'Read /absolute/path/to/note.txt using read, then summarize it.'
+```
+
+Thinking streams as Strands reasoning events and stays in Agent history. The
+model prompt retains it between tool calls and strips old thoughts at the next
+user turn. The CLI prints only the model's final text blocks. It adds no completion
+message or forced end-turn hook. The browser example shows reasoning separately
+in **Details**.
+
 The example explicitly configures the tools it uses and turns off background task
 tools, memory, sessions, skills, context management, and built-in plugins. It does
 not demonstrate every Harness default. The browser bridge is a small local example
-for text and tool JSON, not a network service or a separate published provider.
+for text, reasoning, and tool JSON, not a network service or a separate published provider.
 Browser-only native APIs and media are demonstrated in [the browser app](../browser/README.md).
 
 `npm run test:browser -- examples/harness/test` runs real Harness checks for
@@ -50,3 +62,7 @@ code, and recall in the next conversation turn. A separate legacy Hermes check
 still ends after its tool batch.
 A second Gemma check sends nested arguments, passes a random code from one tool to
 another, and requires the final answer to use the second tool's random receipt.
+The thinking check observes the actual Worker completion requests: it requires
+thinking before the real file read, a final answer using the file's random code,
+preserved thoughts after the tool result, and stripped thoughts at the next user
+turn. It also cancels a reasoning delta and checks that the engine can run again.

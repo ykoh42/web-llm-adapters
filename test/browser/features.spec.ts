@@ -119,6 +119,29 @@ test('Gemma calls the clock and writes its own final answer', async ({ page }) =
   await unload(page)
 })
 
+test('Gemma thinking stays in Details while its clock answer stays in Response', async ({
+  page,
+}) => {
+  await load(page, 'thinking-tools')
+  await run(page)
+  const details = await page.getByLabel('Details', { exact: true }).textContent()
+  expect(details).toContain('"reasoning"')
+  expect(details).toContain('"toolResultEvent"')
+  const time = details!.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/)![0]
+  await expect(page.getByLabel('Response')).toContainText(time.slice(11))
+  await expect(page.getByLabel('Response')).not.toContainText('Reasoning:')
+  await expect(page.getByLabel('Response')).not.toContainText(/<\|channel>|<channel\|>/)
+  await unload(page)
+})
+
+test('Gemma can enable thinking without registering tools', async ({ page }) => {
+  await load(page, 'gemma-thinking')
+  await run(page)
+  await expect(page.getByLabel('Response')).toContainText('4')
+  await expect(page.getByLabel('Details', { exact: true })).toContainText('"reasoning"')
+  await unload(page)
+})
+
 test('Phi vision describes a red image', async ({ page }) => {
   await load(page, 'image')
   const png = await page.evaluate(() => {

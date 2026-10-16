@@ -61,77 +61,95 @@ test('Harness streams browser WebLLM output and keeps conversation history', asy
   }
 })
 
-test('Gemma passes nested arguments and uses one tool result in a second call', async ({
-  page,
-}) => {
-  const modelId = 'gemma-4-E2B-it-q4f16_1-MLC'
-  const code = 'code-' + crypto.randomUUID().slice(0, 8)
-  const receipt = 'receipt-' + crypto.randomUUID().slice(0, 8)
-  const inputs: unknown[] = []
-  const lookup = new FunctionTool({
-    name: 'lookup',
-    description: 'Get the code for a city and options.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        city: { type: 'string' },
-        options: {
-          type: 'object',
-          properties: {
-            days: { type: 'array', items: { type: 'number' } },
-            active: { type: 'boolean' },
+for (const thinking of [false, true]) {
+  test(`Gemma nested tools with thinking ${thinking} use a result in the next call`, async ({
+    page,
+  }) => {
+    const modelId = 'gemma-4-E2B-it-q4f16_1-MLC'
+    const code = 'code-' + crypto.randomUUID().slice(0, 8)
+    const receipt = 'receipt-' + crypto.randomUUID().slice(0, 8)
+    const inputs: unknown[] = []
+    const lookup = new FunctionTool({
+      name: 'lookup',
+      description: 'Get the code for a city and options.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          city: { type: 'string' },
+          options: {
+            type: 'object',
+            properties: {
+              days: { type: 'array', items: { type: 'number' } },
+              active: { type: 'boolean' },
+            },
+            required: ['days', 'active'],
           },
-          required: ['days', 'active'],
         },
+        required: ['city', 'options'],
       },
-      required: ['city', 'options'],
-    },
-    callback: (input) => {
-      inputs.push(input)
-      return { code }
-    },
-  })
-  const confirm = new FunctionTool({
-    name: 'confirm',
-    description: 'Confirm a code returned by lookup and get a receipt.',
-    inputSchema: {
-      type: 'object',
-      properties: { code: { type: 'string' } },
-      required: ['code'],
-    },
-    callback: (input) => {
-      inputs.push(input)
-      expect(input).toEqual({ code })
-      return { receipt }
-    },
-  })
-  await page.goto('http://127.0.0.1:4173/harness.html')
-  await page.waitForFunction(() => Boolean(window.harness))
-  await page.evaluate((id) => window.harness.open(id), modelId)
-  try {
-    const agent = await createHarness({
-      ...defaults,
-      model: new BrowserModel(page, { modelId, maxTokens: 512, temperature: 0 }),
-      tools: [lookup, confirm],
+      callback: (input) => {
+        inputs.push(input)
+        return { code }
+      },
     })
-    let modelCalls = 0
-    agent.addHook(BeforeModelCallEvent, () => {
-      modelCalls++
+    const confirm = new FunctionTool({
+      name: 'confirm',
+      description: 'Confirm a code returned by lookup and get a receipt.',
+      inputSchema: {
+        type: 'object',
+        properties: { code: { type: 'string' } },
+        required: ['code'],
+      },
+      callback: (input) => {
+        inputs.push(input)
+        expect(input).toEqual({ code })
+        return { receipt }
+      },
     })
-    const result = await agent.invoke(
-      'Call lookup with city Seoul and options {days:[1,2],active:true}. ' +
-        'Wait for its code, then call confirm with that code. Finally tell me the receipt.',
-      { limits: { turns: 4 } },
-    )
-    console.log('Gemma receipt:', String(result))
-    expect(inputs).toEqual([{ city: 'Seoul', options: { days: [1, 2], active: true } }, { code }])
-    expect(modelCalls).toBe(3)
-    expect(result.stopReason).toBe('endTurn')
-    expect(String(result)).toContain(receipt)
-  } finally {
-    await page.evaluate(() => window.harness.close())
-  }
-})
+    await page.goto('http://127.0.0.1:4173/harness.html')
+    await page.waitForFunction(() => Boolean(window.harness))
+    await page.evaluate((id) => window.harness.open(id), modelId)
+    try {
+      const agent = await createHarness({
+        ...defaults,
+        model: new BrowserModel(page, {
+          modelId,
+          maxTokens: 1024,
+          temperature: 0,
+          request: { extra_body: { enable_thinking: thinking } },
+        }),
+        tools: [lookup, confirm],
+      })
+      let modelCalls = 0
+      agent.addHook(BeforeModelCallEvent, () => {
+        modelCalls++
+      })
+      const result = await agent.invoke(
+        'Call lookup with city Seoul and options {days:[1,2],active:true}. ' +
+          'Wait for its code, then call confirm with that code. Finally tell me the receipt.',
+        { limits: { turns: 4 } },
+      )
+      console.log('Gemma receipt:', String(result))
+      expect(inputs).toEqual([{ city: 'Seoul', options: { days: [1, 2], active: true } }, { code }])
+      expect(modelCalls).toBe(3)
+      expect(result.stopReason).toBe('endTurn')
+      expect(result.lastMessage.content).toContainEqual(
+        expect.objectContaining({
+          type: 'textBlock',
+          text: expect.stringContaining(receipt),
+        }),
+      )
+      if (thinking)
+        expect(
+          agent.messages
+            .flatMap((message) => message.content)
+            .some((block) => block.type === 'reasoningBlock' && block.text),
+        ).toBe(true)
+    } finally {
+      await page.evaluate(() => window.harness.close())
+    }
+  })
+}
 
 test('Harness reads a Node.js file using its built-in tool selected by WebLLM', async ({
   page,

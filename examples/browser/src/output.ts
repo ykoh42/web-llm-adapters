@@ -18,6 +18,13 @@ export async function runAgent(agent: Agent, prompt: InvokeArgs, input: ExampleI
     limits: { turns: 3 },
   })) {
     if (update.type === 'toolResultEvent') input.info(update)
+    if (update.type === 'agentResultEvent') {
+      const reasoning = agent.messages
+        .flatMap((message) => message.content)
+        .filter((block) => block.type === 'reasoningBlock')
+        .map((block) => block.text ?? '')
+      if (reasoning.length) input.info({ reasoning })
+    }
     // Hooks can end a turn with a final message that has no streamed deltas.
     if (update.type === 'agentResultEvent' && !text) {
       text = update.result.lastMessage.content

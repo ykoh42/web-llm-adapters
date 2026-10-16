@@ -44,7 +44,7 @@ export class BrowserModel extends Model<WebLLMModelConfig> {
         ...(toolChoice !== undefined && { toolChoice }),
       },
     }
-    // This example carries text and tool JSON. Browser media stays in the browser example.
+    // This carries text, reasoning, and tool JSON. Media stays in the browser example.
     await this.page.evaluate(
       (json) => window.harness.start(JSON.parse(json)),
       JSON.stringify(request),

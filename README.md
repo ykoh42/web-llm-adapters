@@ -105,6 +105,10 @@ inference, not transcription quality. Save/resume checks an orderly interruption
 The Gemma Harness test reads a random code from a temporary file, checks the actual
 tool result, and requires Gemma's final answer to contain that code. It also checks
 a later conversation turn. No hook supplies the answer or ends the tool turn.
+The thinking check also observes actual Worker prompts to verify that Gemma's
+reasoning survives the tool call and is stripped before the next user turn.
+Use `--think --read` in the Harness example, or choose **Gemma thinking + tools**
+in the browser app.
 
 For the extension checks, install Playwright's Chromium and run:
 

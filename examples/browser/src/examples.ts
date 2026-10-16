@@ -63,6 +63,22 @@ export const examples: Example[] = [
     run: tools,
   },
   {
+    id: 'gemma-thinking',
+    name: 'Gemma thinking on and off',
+    model: gemma,
+    prompt: 'What is 2 + 2? Answer briefly.',
+    contextWindow: 4096,
+    run: thinking,
+  },
+  {
+    id: 'thinking-tools',
+    name: 'Gemma thinking + tools',
+    model: gemma,
+    prompt: 'Use the clock tool to get the current UTC time, then tell me the time.',
+    contextWindow: 4096,
+    run: (input) => tools(input, true),
+  },
+  {
     id: 'hermes-tools',
     name: 'Hermes tool batch',
     model: 'Hermes-3-Llama-3.1-8B-q4f16_1-MLC',

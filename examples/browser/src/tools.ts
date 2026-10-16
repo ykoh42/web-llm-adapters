@@ -2,7 +2,7 @@ import { AfterToolsEvent, Agent, FunctionTool } from '@strands-agents/sdk'
 import { WebLLMModel } from 'strands-webllm'
 import { runAgent, type ExampleInput } from './output.js'
 
-export async function tools(input: ExampleInput) {
+export async function tools(input: ExampleInput, thinking = false) {
   const clock = new FunctionTool({
     name: 'clock',
     description: 'Get the current UTC date and time.',
@@ -12,9 +12,10 @@ export async function tools(input: ExampleInput) {
   const model = new WebLLMModel({
     engine: input.engine,
     modelId: input.modelId,
-    contextWindowLimit: 2048,
-    maxTokens: 256,
+    contextWindowLimit: thinking ? 4096 : 2048,
+    maxTokens: thinking ? 1024 : 256,
     temperature: 0,
+    ...(thinking && { request: { extra_body: { enable_thinking: true } } }),
   })
   const agent = new Agent({ model, tools: [clock], printer: false })
   // Legacy Hermes mode always generates tool JSON, so it needs an explicit end.
