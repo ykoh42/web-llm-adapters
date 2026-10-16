@@ -21,6 +21,7 @@ export async function* readStream(
     return
   }
   for await (const chunk of chunks) {
+    if (signal?.aborted) break
     onChunk?.(chunk)
     if (chunk.usage) usage = chunk.usage
     const choice = chunk.choices[0]

@@ -126,25 +126,55 @@ describe('messages', () => {
     ).toThrow()
   })
 
-  it('passes named tool choice and JSON output settings to WebLLM', async () => {
+  it('passes JSON settings in a request WebLLM accepts', async () => {
     const { engine, create } = setup(chunk({}, 'stop'))
     const model = new WebLLMModel({
       engine,
-      modelId: 'test-model',
+      modelId: 'gemma-4-E2B-it-q4f16_1-MLC',
       request: {
         response_format: { type: 'json_object', schema: '{"type":"object"}' },
       },
     })
+    await collect(model.stream([new Message({ role: 'user', content: [new TextBlock('JSON')] })]))
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        response_format: { type: 'json_object', schema: '{"type":"object"}' },
+      }),
+    )
+    expect(() =>
+      postInitAndCheckFieldsChatCompletion(
+        structuredClone(create.mock.calls[0]![0]),
+        model.modelId!,
+        ModelType.LLM,
+      ),
+    ).not.toThrow()
+  })
+
+  it('passes named tool choice in a request WebLLM accepts', async () => {
+    const { engine, create } = setup(
+      chunk(
+        { tool_calls: [{ index: 0, function: { name: 'weather', arguments: '{}' } }] },
+        'tool_calls',
+      ),
+    )
+    const model = new WebLLMModel({ engine, modelId: 'Hermes-3-Llama-3.1-8B-q4f16_1-MLC' })
     await collect(
-      model.stream([new Message({ role: 'user', content: [new TextBlock('JSON')] })], {
+      model.stream([new Message({ role: 'user', content: [new TextBlock('Weather?')] })], {
+        toolSpecs: [{ name: 'weather', description: 'Get weather' }],
         toolChoice: { tool: { name: 'weather' } },
       }),
     )
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
         tool_choice: { type: 'function', function: { name: 'weather' } },
-        response_format: { type: 'json_object', schema: '{"type":"object"}' },
       }),
     )
+    expect(() =>
+      postInitAndCheckFieldsChatCompletion(
+        structuredClone(create.mock.calls[0]![0]),
+        model.modelId!,
+        ModelType.LLM,
+      ),
+    ).not.toThrow()
   })
 })

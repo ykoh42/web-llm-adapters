@@ -282,6 +282,111 @@ describe('WebLLMModel', () => {
     expect(stop).not.toHaveBeenCalled()
   })
 
+  it('releases a cancelled stream even when the Agent leaves its iterator suspended', async () => {
+    const { model, create } = setup()
+    let closed = false
+    create.mockResolvedValueOnce(
+      (async function* () {
+        try {
+          yield chunk({ content: 'Partial' })
+        } finally {
+          closed = true
+        }
+      })(),
+    )
+    const controller = new AbortController()
+    const agent = new Agent({ model, printer: false })
+    for await (const update of agent.stream('Hi', { cancelSignal: controller.signal })) {
+      if (
+        update.type === 'modelStreamUpdateEvent' &&
+        update.event.type === 'modelContentBlockDeltaEvent'
+      )
+        controller.abort()
+    }
+    create.mockResolvedValueOnce(chunks(chunk({ content: 'Recovered' }, 'stop')))
+    const next = await new Agent({ model, printer: false }).invoke('Try again')
+    expect(next.lastMessage.content).toEqual([new TextBlock('Recovered')])
+    expect(closed).toBe(true)
+  })
+
+  it('waits for native cleanup before reusing an abandoned cancelled stream', async () => {
+    const { model, create } = setup()
+    const closing = pause()
+    create.mockResolvedValueOnce(
+      (async function* () {
+        try {
+          yield chunk({ content: 'Partial' })
+        } finally {
+          await closing.wait
+        }
+      })(),
+    )
+    const controller = new AbortController()
+    const first = model.stream(messages, { cancelSignal: controller.signal })
+    await first.next()
+    await first.next()
+    await first.next()
+    controller.abort()
+    create.mockResolvedValueOnce(chunks(chunk({ content: 'Recovered' }, 'stop')))
+    const next = aggregate(model)
+    expect(create).toHaveBeenCalledTimes(1)
+    closing.resume()
+    await expect(next).resolves.toMatchObject({ stopReason: 'endTurn' })
+    await first.return(undefined)
+  })
+
+  it('closes a stream cancelled while the backend is still opening it', async () => {
+    const { model, create } = setup()
+    const opening = pause()
+    const started = pause()
+    const close = vi.fn(async () => ({ done: true as const, value: undefined }))
+    create.mockImplementationOnce(async () => {
+      started.resume()
+      await opening.wait
+      return {
+        [Symbol.asyncIterator]: () => ({
+          next: async () => ({ done: false as const, value: chunk({}, 'stop') }),
+          return: close,
+        }),
+      }
+    })
+    const controller = new AbortController()
+    const response = collect(model.stream(messages, { cancelSignal: controller.signal }))
+    await started.wait
+    controller.abort()
+    opening.resume()
+    await expect(response).rejects.toThrow()
+    expect(close).toHaveBeenCalledTimes(1)
+    create.mockResolvedValueOnce(chunks(chunk({ content: 'Hi' }, 'stop')))
+    await expect(aggregate(model)).resolves.toMatchObject({ stopReason: 'endTurn' })
+  })
+
+  it('closes the native stream when a chunk callback fails', async () => {
+    const { engine, create } = setup()
+    let closed = false
+    create.mockResolvedValueOnce(
+      (async function* () {
+        try {
+          yield chunk({ content: 'Hi' })
+        } finally {
+          closed = true
+        }
+      })(),
+    )
+    const model = new WebLLMModel({
+      engine,
+      modelId: 'test-model',
+      onChunk: () => {
+        throw new Error('Callback failed')
+      },
+    })
+    await expect(aggregate(model)).rejects.toThrow('Callback failed')
+    expect(closed).toBe(true)
+    create.mockResolvedValueOnce(chunks(chunk({ content: 'Hi' }, 'stop')))
+    const next = new WebLLMModel({ engine, modelId: 'test-model' })
+    await expect(aggregate(next)).resolves.toMatchObject({ stopReason: 'endTurn' })
+  })
+
   it('does not start generation when cancelled after the message start', async () => {
     const { model, stop } = setup(chunk({ content: 'Hi' }), chunk({}, 'stop'))
     const controller = new AbortController()
