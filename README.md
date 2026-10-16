@@ -11,13 +11,12 @@ keeps Harness and its tools in Node.js and runs WebLLM in a controlled browser.
 
 ```text
 packages/
-  strands-webllm/     Strands model provider
+  strands-webllm/     Strands model provider and package tests
 examples/
-  browser/           Strands and native WebLLM examples
-  harness/           Node.js Harness with browser inference
+  browser/           Browser examples and their GPU/extension tests
+  harness/           Node.js Harness example and its integration tests
 test/
-  browser/           Real GPU model checks
-  extensions/        Real extension worker and shared-cache checks
+  browser.ts         Shared Chrome fixture
 ```
 
 Packages have their own source, build output, and peer dependencies. The root owns
@@ -91,7 +90,7 @@ npm run test:browser
 This opens Chrome and runs the browser examples with real model inference.
 It can take several minutes and downloads Gemma, Hermes, Phi vision, and Snowflake
 model files, including Qwen3, on the first run. To run only the basic Gemma check, use
-`npm run test:browser -- test/browser/gemma.spec.ts`.
+`npm run test:browser -- examples/browser/test/gemma.spec.ts`.
 The test keeps a browser profile in `.cache/chrome` so later runs can reuse model
 files. Set `HEADLESS=1` to run without a window if your system supports headless
 WebGPU. This test runs separately from CI because it needs a GPU and large model
@@ -123,7 +122,9 @@ and disables its optional telemetry. The cache check uses two localhost origins
 and blocks a second download of the model weights. These checks need a window,
 WebGPU, and additional model storage. They run separately from CPU-only CI.
 
-Verification is recorded in executable tests under `test/` and `examples/harness/test/`.
+Package tests live under `packages/<name>/test/`; example integration tests live
+under `examples/<name>/test/`. The root holds only the shared Chrome fixture and
+test runner settings. Each new adapter keeps its tests in its own workspace.
 Target versions are WebLLM **0.2.86**, Strands SDK **1.21.0**, and Harness **0.3.0**.
 These checks cover specific models and Harness flows; they do not guarantee a
 model's tool-selection or answer accuracy for every task.
@@ -135,6 +136,8 @@ model's tool-selection or answer accuracy for every task.
 3. Put framework and WebLLM versions in that package's peer dependencies and dev
    dependencies. Keep framework code inside its adapter.
 4. Add tests in `test/*.test.ts` inside the package. The root test runner finds them.
+   GPU integration tests use `test/**/*.browser.ts`; example UI tests use
+   `examples/<name>/test/*.spec.ts`.
 5. Run `npm install` at the root to update the workspace links and lockfile.
 
 Packages and examples are found through `packages/*` and `examples/*` workspaces.

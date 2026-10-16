@@ -1,7 +1,7 @@
 import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
-  testDir: './test/extensions',
+  testDir: './examples/browser/test/extensions',
   timeout: 15 * 60 * 1000,
   workers: 1,
   webServer: [

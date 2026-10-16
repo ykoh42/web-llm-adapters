@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Message, TextBlock } from '@strands-agents/sdk'
-import { test, expect } from '../../../test/browser/helpers.js'
+import { test, expect } from '../../../test/browser.js'
 import { openHarness, useTool } from './setup.js'
 
 test('concurrent Harness agents keep tools and answers isolated on one Gemma engine', async ({

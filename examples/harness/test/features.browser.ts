@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { join } from 'node:path'
 import { FunctionTool } from '@strands-agents/sdk'
-import { test, expect } from '../../../test/browser/helpers.js'
+import { test, expect } from '../../../test/browser.js'
 import { openHarness, useTool, finalText } from './setup.js'
 
 test('Gemma activates a Harness skill and updates the default todo plugin', async ({ page }) => {

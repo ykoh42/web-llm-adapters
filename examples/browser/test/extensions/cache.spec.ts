@@ -1,5 +1,5 @@
 import { test, expect } from './helpers.js'
-import { run, unload } from '../browser/helpers.js'
+import { run, unload } from '../helpers.js'
 
 // Ports create different origins; only the real extension can share these model weights.
 test('two origins share model weights without fetching them again', async ({ page, context }) => {

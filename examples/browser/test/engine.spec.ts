@@ -1,9 +1,9 @@
 import type { Page } from '@playwright/test'
 import { test, expect } from './helpers.js'
-import type { models } from '../../examples/browser/src/checks/models.js'
-import type { processor } from '../../examples/browser/src/checks/processor.js'
-import type { state } from '../../examples/browser/src/checks/state.js'
-import type { integrity } from '../../examples/browser/src/checks/integrity.js'
+import type { models } from '../src/checks/models.js'
+import type { processor } from '../src/checks/processor.js'
+import type { state } from '../src/checks/state.js'
+import type { integrity } from '../src/checks/integrity.js'
 
 async function run(page: Page, name: string) {
   await page.goto('http://127.0.0.1:4173/engine.html')

@@ -1,5 +1,5 @@
 import { resolve } from 'node:path'
-import { test as base, expect } from '../browser/helpers.js'
+import { test as base, expect } from '../../../../test/browser.js'
 export { expect }
 
 export const test = base.extend<{ extensionId: string }>({

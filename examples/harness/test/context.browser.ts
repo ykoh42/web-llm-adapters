@@ -1,5 +1,5 @@
 import { Message, TextBlock, FunctionTool, AfterModelCallEvent } from '@strands-agents/sdk'
-import { test, expect } from '../../../test/browser/helpers.js'
+import { test, expect } from '../../../test/browser.js'
 import { openHarness, useTool, finalText } from './setup.js'
 
 test('default context management preserves facts in an auxiliary summary and continues', async ({

@@ -24,7 +24,7 @@
     "check:unused": "knip",
     "check:packages": "npm run check:package --workspaces --if-present",
     "check": "npm run format:check && npm run lint && npm run build && npm run typecheck && npm run test:coverage && npm run check:unused && npm run check:packages",
-    "test:extensions": "node test/extensions/setup.ts && playwright test --config playwright.extension.config.ts"
+    "test:extensions": "node examples/browser/test/extensions/setup.ts && playwright test --config playwright.extension.config.ts"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",

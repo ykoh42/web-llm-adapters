@@ -2,7 +2,11 @@ import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
   testDir: '.',
-  testMatch: ['test/browser/**/*.spec.ts', 'examples/harness/test/**/*.browser.ts'],
+  testMatch: [
+    'examples/*/test/*.spec.ts',
+    'examples/*/test/**/*.browser.ts',
+    'packages/*/test/**/*.browser.ts',
+  ],
   timeout: 15 * 60 * 1000,
   workers: 1,
   webServer: {

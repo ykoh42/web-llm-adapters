@@ -1,7 +1,7 @@
 import { TextBlock } from '@strands-agents/sdk'
 import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import { test, expect } from '../../../test/browser/helpers.js'
+import { test, expect } from '../../../test/browser.js'
 import { openHarness, useTool, finalText } from './setup.js'
 import { createMemory } from '../memory.js'
 

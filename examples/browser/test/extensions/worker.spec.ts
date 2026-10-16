@@ -1,5 +1,5 @@
 import { test, expect } from './helpers.js'
-import { load, run, unload } from '../browser/helpers.js'
+import { load, run, unload } from '../helpers.js'
 
 test('Strands streams, stops and reuses a real Chrome extension worker', async ({
   page,
