@@ -32,6 +32,11 @@ test('concurrent Harness agents keep tools and answers isolated on one Gemma eng
       expect(agents[i]!.messages.flatMap((m) => m.content)).toContainEqual(
         expect.objectContaining({ type: 'toolResultBlock', status: 'success' }),
       )
+      expect(
+        agents[i]!.messages.flatMap((message) => message.content).some(
+          (block) => block.type === 'reasoningBlock' && block.text,
+        ),
+      ).toBe(true)
     }
   } finally {
     await harness.close()

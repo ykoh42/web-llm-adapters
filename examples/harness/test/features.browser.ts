@@ -95,7 +95,7 @@ test('default file tools, shell and programmatic tool caller run in Node with Ge
   }
 })
 
-test('web_fetch uses the auxiliary browser model to answer over a real HTTP response', async ({
+test('web_fetch uses the same Gemma weights to answer over a real HTTP response', async ({
   page,
 }) => {
   const harness = await openHarness(page)
@@ -112,7 +112,14 @@ test('web_fetch uses the auxiliary browser model to answer over a real HTTP resp
       { limits: { turns: 4 } },
     )
     expect(finalText(result)).toContain(code)
-    expect(JSON.stringify(agent.messages)).toContain('web_fetch')
+    const blocks = agent.messages.flatMap((message) => message.content)
+    const call = blocks.find((block) => block.type === 'toolUseBlock' && block.name === 'web_fetch')
+    if (!call || call.type !== 'toolUseBlock') throw new Error('Gemma did not call web_fetch')
+    const fetched = blocks.find(
+      (block) => block.type === 'toolResultBlock' && block.toolUseId === call.toolUseId,
+    )
+    expect(fetched).toMatchObject({ type: 'toolResultBlock', status: 'success' })
+    expect(JSON.stringify(fetched)).toContain(code)
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),

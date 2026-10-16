@@ -5,6 +5,7 @@ import { chromium } from '@playwright/test'
 import { BrowserModel } from './browser-model.ts'
 import { useTool } from './tool-choice.ts'
 import { createMemory } from './memory.ts'
+import { SummaryModel } from './summary-model.ts'
 
 const { values, positionals } = parseArgs({
   options: { think: { type: 'boolean' }, tool: { type: 'string' } },
@@ -12,7 +13,6 @@ const { values, positionals } = parseArgs({
 })
 const thinking = values.think ?? false
 const modelId = 'gemma-4-E2B-it-q4f16_1-MLC'
-const auxId = 'Qwen3-0.6B-q4f16_1-MLC'
 const contextWindow = 16384
 const browser = await chromium.launchPersistentContext(
   fileURLToPath(new URL('../../.cache/chrome', import.meta.url)),
@@ -25,20 +25,15 @@ try {
   const page = browser.pages()[0] ?? (await browser.newPage())
   await page.goto('http://127.0.0.1:4173/harness.html')
   await page.waitForFunction(() => Boolean(window.harness))
-  await page.evaluate(
-    ({ modelIds, contextWindow }) => window.harness.open(modelIds, contextWindow),
-    {
-      modelIds: [modelId, auxId],
-      contextWindow,
-    },
-  )
+  await page.evaluate(({ modelId, contextWindow }) => window.harness.open(modelId, contextWindow), {
+    modelId,
+    contextWindow,
+  })
   const config = { modelId, contextWindowLimit: contextWindow }
-  const auxModel = new BrowserModel(page, {
+  const auxModel = new SummaryModel(page, {
     ...config,
-    modelId: auxId,
     maxTokens: 512,
     temperature: 0,
-    request: { extra_body: { enable_thinking: false } },
   })
   const agent = await createHarness({
     model: new BrowserModel(page, {

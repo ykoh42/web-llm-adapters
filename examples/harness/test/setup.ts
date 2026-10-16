@@ -2,29 +2,36 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHarness, type HarnessAgentOptions } from '@strands-agents/harness'
-import type { Page } from '@playwright/test'
+import { expect, type Page } from '@playwright/test'
 import type { AgentResult } from '@strands-agents/sdk'
 import { BrowserModel } from '../browser-model.js'
 import { createMemory } from '../memory.js'
+import { SummaryModel } from '../summary-model.js'
 export { useTool } from '../tool-choice.js'
 
 declare global {
   interface Window {
     gemmaPrompts: string[]
+    gemmaModels: string[]
   }
 }
 
 /** Every test gets real defaults, isolated files, and one shared WebGPU engine. */
 export async function openHarness(page: Page, contextWindow = 16384) {
   const modelId = 'gemma-4-E2B-it-q4f16_1-MLC'
-  const auxId = 'Qwen3-0.6B-q4f16_1-MLC'
   const dir = await mkdtemp(join(process.platform === 'win32' ? tmpdir() : '/tmp', 'gemma-'))
   const agents: Awaited<ReturnType<typeof createHarness>>[] = []
   await page.addInitScript(() => {
     window.gemmaPrompts = []
+    window.gemmaModels = []
     const send = Worker.prototype.postMessage
     Worker.prototype.postMessage = function (this: Worker, message: unknown) {
-      const request = message as { kind?: string; content?: { request?: { prompt?: string } } }
+      const request = message as {
+        kind?: string
+        content?: { modelId?: string[]; request?: { prompt?: string } }
+      }
+      if (request.kind === 'reload' && request.content?.modelId)
+        window.gemmaModels = request.content.modelId
       if (request.kind === 'completionStreamInit' && request.content?.request?.prompt)
         window.gemmaPrompts.push(request.content.request.prompt)
       send.call(this, message)
@@ -32,13 +39,11 @@ export async function openHarness(page: Page, contextWindow = 16384) {
   })
   await page.goto('http://127.0.0.1:4173/harness.html')
   await page.waitForFunction(() => Boolean(window.harness))
-  await page.evaluate(
-    ({ modelIds, contextWindow }) => window.harness.open(modelIds, contextWindow),
-    {
-      modelIds: [modelId, auxId],
-      contextWindow,
-    },
-  )
+  await page.evaluate(({ modelId, contextWindow }) => window.harness.open(modelId, contextWindow), {
+    modelId,
+    contextWindow,
+  })
+  expect(await page.evaluate(() => window.gemmaModels)).toEqual([modelId])
   const config = { modelId, contextWindowLimit: contextWindow, maxTokens: 4096, temperature: 0 }
   const model = new BrowserModel(page, {
     ...config,
@@ -46,11 +51,9 @@ export async function openHarness(page: Page, contextWindow = 16384) {
     topP: 0.95,
     request: { seed: 7, repetition_penalty: 1.05, extra_body: { enable_thinking: true } },
   })
-  const auxModel = new BrowserModel(page, {
+  const auxModel = new SummaryModel(page, {
     ...config,
-    modelId: auxId,
     maxTokens: 512,
-    request: { extra_body: { enable_thinking: false } },
   })
   const memory = createMemory(page, modelId, contextWindow, join(dir, 'memory'))
   return {

@@ -28,8 +28,9 @@ using Strands's standard named tool choice. Gemma writes the arguments, receives
 the actual tool result, and writes the final answer. Later calls use auto choice.
 E2B does not reliably select tools from the full default tool set, so the named
 choice is useful for a specific first step. It supplies no argument values or
-completion message and uses no forced end-turn hook. E2B can also alter identifiers
-in generated answers; use the actual tool result when an exact value matters.
+completion message and uses no forced end-turn hook. E2B can alter identifiers
+in generated answers or miss facts in dense repetitive history, even when a
+summary preserves them. Use the actual tool result when an exact value matters.
 
 The example leaves sessions, skills, memory, context management, built-in plugins,
 background tasks, subagents, and the default text tools enabled. `printer: false`
@@ -37,38 +38,39 @@ keeps SDK printing out of the CLI's final output. `read.media: false` is require
 because this bridge carries text, reasoning, and tool JSON. Browser media and
 other native APIs have [separate examples](../browser/README.md).
 
-The main model is Gemma 4 E2B. Qwen3 0.6B handles summaries and `web_fetch` without
-thinking; Gemma missed key facts in long summary checks. Memory extraction uses a
-separate Gemma request with a native JSON schema. [createMemory](./memory.ts) sets
-up that file store while keeping the Harness memory policy. Both models share one
-engine and queue. The extra model needs its own weights and GPU memory. Both use
-a 16,384-token context window.
+Gemma 4 E2B handles the main conversation, summaries, `web_fetch`, and memory.
+Only one set of weights is loaded. The main, auxiliary, and memory models are
+request configurations sharing that engine and queue, with a 16,384-token window.
+The auxiliary model uses WebLLM's native chat path for tool-free summaries.
+[SummaryModel](./summary-model.ts) reads long Harness context summaries in small
+parts, then combines the actual model summaries. Gemma missed identifiers when
+reading the entire repetitive transcript at once. This costs extra inference
+calls, keeps words intact, and leaves ordinary requests unchanged. Empty or
+unfinished partial summaries fail instead of being silently combined.
+Memory extraction uses the native JSON API. [createMemory](./memory.ts) sets up
+that file store while keeping the Harness memory policy.
 
-The memory request omits the thinking option so Gemma uses WebLLM's native chat
-JSON API. Setting that option to either true or false selects Gemma protocol mode,
-which does not combine with JSON constraints. The main agent still uses thinking.
+The auxiliary and memory requests omit the thinking option. Setting it to either
+true or false selects Gemma protocol mode, which does not combine with JSON
+constraints. The main agent can still use thinking and tools.
 
-After the page has loaded both models into its engine, the important setup is
+After the page has loaded Gemma into its engine, the important setup is
 below. [main.ts](./main.ts) has the complete runnable setup.
 
 ```ts
-const config = { contextWindowLimit: 16384 }
 const modelId = 'gemma-4-E2B-it-q4f16_1-MLC'
+const config = { modelId, contextWindowLimit: 16384 }
 const model = new BrowserModel(page, {
   ...config,
-  modelId,
   maxTokens: 4096,
   temperature: 1,
   topP: 0.95,
   request: { repetition_penalty: 1.05, extra_body: { enable_thinking: true } },
 })
-const auxId = 'Qwen3-0.6B-q4f16_1-MLC'
-const auxModel = new BrowserModel(page, {
+const auxModel = new SummaryModel(page, {
   ...config,
-  modelId: auxId,
   maxTokens: 512,
   temperature: 0,
-  request: { extra_body: { enable_thinking: false } },
 })
 const options = {
   model,
@@ -102,7 +104,7 @@ from sessions and is searched for a new session too. Put skills under
 `.agent/skills/<name>/SKILL.md`, or set `skills` to another directory. Always shut
 agents down before closing the browser so pending memory extraction can finish.
 
-Multiple agents can share the same models and browser page:
+Multiple agents can share these configurations and the browser page:
 
 ```ts
 const agents = await Promise.all([createHarness(options), createHarness(options)])

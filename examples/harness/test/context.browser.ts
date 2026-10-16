@@ -2,43 +2,48 @@ import { Message, TextBlock, FunctionTool, AfterModelCallEvent } from '@strands-
 import { test, expect } from '../../../test/browser.js'
 import { openHarness, useTool, finalText } from './setup.js'
 
-test('default context management preserves facts in an auxiliary summary and continues', async ({
-  page,
-}) => {
-  const harness = await openHarness(page)
-  try {
-    harness.model.updateConfig({ contextWindowLimit: 8192 })
-    const code = 'audit-' + crypto.randomUUID().slice(0, 8)
-    const messages = Array.from(
-      { length: 12 },
-      (_, i) =>
-        new Message({
+for (const longRecent of [false, true]) {
+  test(`default context summary preserves facts with ${longRecent ? 'long' : 'short'} recent messages`, async ({
+    page,
+  }) => {
+    const harness = await openHarness(page)
+    try {
+      harness.model.updateConfig({ contextWindowLimit: 8192 })
+      const code = 'audit-' + crypto.randomUUID().slice(0, 8)
+      const messages = Array.from({ length: 12 }, (_, i) => {
+        let text = longRecent
+          ? 'These archived notes repeat a stable project fact.\n'.repeat(65)
+          : 'We will use the saved audit label for the next check.'
+        if (i === 0) text = 'We are reviewing old project notes.'
+        if (i > 0 && i < 8)
+          text =
+            `The audit label is ${code}.\n` +
+            'These archived notes repeat a stable project fact.\n'.repeat(65)
+        return new Message({
           role: i % 2 ? 'assistant' : 'user',
-          content: [
-            new TextBlock(
-              i === 0
-                ? 'We are reviewing old project notes.'
-                : `The audit label is ${code}.\n` +
-                    'These archived notes repeat a stable project fact.\n'.repeat(65),
-            ),
-          ],
-        }),
-    )
-    const agent = await harness.create({ messages })
-    const result = await agent.invoke('Reply with the word ready.', {
-      limits: { turns: 3 },
-    })
-    const summaries = agent.messages
-      .flatMap((m) => m.content)
-      .filter((b) => b.type === 'textBlock' && b.text.includes('[Summarized:'))
-    expect(JSON.stringify(summaries)).toContain(code)
-    expect(finalText(result)).toMatch(/ready/i)
-    expect(agent.messages.length).toBeLessThan(14)
-    expect((await agent.contextManager?.stash?.list())?.length).toBeGreaterThan(0)
-  } finally {
-    await harness.close()
-  }
-})
+          content: [new TextBlock(text)],
+        })
+      })
+      const agent = await harness.create({ messages })
+      const result = await agent.invoke(
+        longRecent
+          ? 'Reply with the word ready.'
+          : 'Read the audit label from the summarized notes. Reply with its exact audit- value, including the full suffix.',
+        { limits: { turns: 3 } },
+      )
+      const summaries = agent.messages
+        .flatMap((m) => m.content)
+        .filter((b) => b.type === 'textBlock' && b.text.includes('[Summarized:'))
+      expect(JSON.stringify(summaries)).toContain(code)
+      if (longRecent) expect(finalText(result)).toMatch(/ready/i)
+      else expect(finalText(result)).toContain(code)
+      expect(agent.messages.length).toBeLessThan(14)
+      expect((await agent.contextManager?.stash?.list())?.length).toBeGreaterThan(0)
+    } finally {
+      await harness.close()
+    }
+  })
+}
 
 test('a real WebLLM context overflow reaches Harness and recovers by trimming history', async ({
   page,
@@ -48,7 +53,8 @@ test('a real WebLLM context overflow reaches Harness and recovers by trimming hi
     // Deliberately overestimate the loaded window to exercise provider-error recovery.
     harness.model.updateConfig({ contextWindowLimit: 131072 })
     const messages = Array.from(
-      { length: 24 },
+      // The default manager retries at most three times; keep this overflow recoverable.
+      { length: 20 },
       (_, i) =>
         new Message({
           role: i % 2 ? 'assistant' : 'user',
@@ -70,7 +76,7 @@ test('a real WebLLM context overflow reaches Harness and recovers by trimming hi
     expect(result.lastMessage.content).toContainEqual(
       expect.objectContaining({ type: 'textBlock', text: expect.stringMatching(/ready/i) }),
     )
-    expect(agent.messages.length).toBeLessThan(26)
+    expect(agent.messages.length).toBeLessThan(22)
   } finally {
     await harness.close()
   }
