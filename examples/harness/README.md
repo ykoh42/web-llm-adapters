@@ -28,7 +28,8 @@ using Strands's standard named tool choice. Gemma writes the arguments, receives
 the actual tool result, and writes the final answer. Later calls use auto choice.
 E2B does not reliably select tools from the full default tool set, so the named
 choice is useful for a specific first step. It supplies no argument values or
-completion message and uses no forced end-turn hook.
+completion message and uses no forced end-turn hook. E2B can also alter identifiers
+in generated answers; use the actual tool result when an exact value matters.
 
 The example leaves sessions, skills, memory, context management, built-in plugins,
 background tasks, subagents, and the default text tools enabled. `printer: false`

@@ -39,7 +39,7 @@ export async function openHarness(page: Page, contextWindow = 16384) {
       contextWindow,
     },
   )
-  const config = { modelId, contextWindowLimit: contextWindow, maxTokens: 1536, temperature: 0 }
+  const config = { modelId, contextWindowLimit: contextWindow, maxTokens: 4096, temperature: 0 }
   const model = new BrowserModel(page, {
     ...config,
     temperature: 1,

@@ -52,7 +52,7 @@ test('default file tools, shell and programmatic tool caller run in Node with Ge
   try {
     const agent = await harness.create()
     const path = join(harness.dir, 'note.txt')
-    const code = 'file-' + crypto.randomUUID().slice(0, 8)
+    const code = 'file-' + Math.floor(Math.random() * 1_000_000)
     useTool(agent, 'write')
     await agent.invoke(`Use write to create ${path} with exactly "old" as its content.`, {
       limits: { turns: 3 },
@@ -63,20 +63,25 @@ test('default file tools, shell and programmatic tool caller run in Node with Ge
       limits: { turns: 3 },
     })
     expect(await readFile(path, 'utf8')).toBe(code)
-    const shellCode = 'shell-' + crypto.randomUUID().slice(0, 8)
+    const shellCode = 'shell-' + Math.floor(Math.random() * 1_000_000)
     await writeFile(path, shellCode)
     useTool(agent, 'shell')
     const shell = await agent.invoke(`Use shell to run cat '${path}' and tell me its output.`, {
       limits: { turns: 3 },
     })
     expect(finalText(shell)).toContain(shellCode)
-    const pythonCode = 'python-' + crypto.randomUUID().slice(0, 8)
+    const pythonCode = 'python-' + Math.floor(Math.random() * 1_000_000)
     await writeFile(path, pythonCode)
     useTool(agent, 'programmatic_tool_caller')
     const result = await agent.invoke(
-      `Use programmatic_tool_caller with Python code: print(await read(path="${path}"))\nTell me the file's content from that result.`,
+      `The file has changed. Use programmatic_tool_caller to run exactly this Python code: print(await read(path='${path}'))\nTell me the file's content from the new result.`,
       { limits: { turns: 3 } },
     )
+    const results = agent.messages
+      .flatMap((message) => message.content)
+      .filter((block) => block.type === 'toolResultBlock')
+    expect(JSON.stringify(results)).toContain(pythonCode)
+    expect((await page.evaluate(() => window.gemmaPrompts)).at(-1)).toContain(pythonCode)
     expect(finalText(result)).toContain(pythonCode)
     const calls = agent.messages
       .flatMap((m) => m.content)
@@ -121,7 +126,6 @@ test('a default background subagent shares the Gemma engine and delivers its fin
 }) => {
   const harness = await openHarness(page)
   try {
-    harness.model.updateConfig({ maxTokens: 4096 })
     const childAnswers: string[] = []
     const stream = harness.model.stream.bind(harness.model)
     // The parent has a session; the default child does not. Observe actual child text.
@@ -166,7 +170,7 @@ test('a tool runs in the default background policy and returns data unknown to G
 }) => {
   const harness = await openHarness(page)
   try {
-    const code = 'task-' + crypto.randomUUID().slice(0, 8)
+    const code = 'task-' + Math.floor(Math.random() * 1_000_000)
     let calls = 0
     const label = new FunctionTool({
       name: 'get_label',
