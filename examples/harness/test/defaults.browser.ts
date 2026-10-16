@@ -2,7 +2,7 @@ import { TextBlock } from '@strands-agents/sdk'
 import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test, expect } from '../../../test/browser/helpers.js'
-import { openHarness, finalText } from './setup.js'
+import { openHarness, useTool, finalText } from './setup.js'
 import { createMemory } from '../memory.js'
 
 test('default sessions and memory save and recall a real Gemma conversation', async ({ page }) => {
@@ -56,14 +56,25 @@ test('default sessions and memory save and recall a real Gemma conversation', as
     )
     expect(JSON.stringify(await store.search('release tag'))).toContain(code)
     const fresh = await harness.create({ memory: { stores: [store] } })
+    const start = await page.evaluate(() => window.gemmaPrompts.length)
+    useTool(fresh, 'search_memory')
     const recall = await fresh.invoke(
-      'What release tag does our project use? Reply with only that tag.',
+      'Use search_memory with query "release tag". Reply with only our project release tag from that result.',
       {
         limits: { turns: 3 },
       },
     )
     expect(fresh.messages[0]?.content).not.toContainEqual(expect.objectContaining({ text }))
-    expect((await page.evaluate(() => window.gemmaPrompts)).at(-1)).toContain(code)
+    expect((await page.evaluate(() => window.gemmaPrompts))[start]).toContain(code)
+    const call = fresh.messages
+      .flatMap((message) => message.content)
+      .find((block) => block.type === 'toolUseBlock' && block.name === 'search_memory')
+    if (!call || call.type !== 'toolUseBlock') throw new Error('Gemma did not call search_memory')
+    const saved = fresh.messages
+      .flatMap((message) => message.content)
+      .find((block) => block.type === 'toolResultBlock' && block.toolUseId === call.toolUseId)
+    expect(saved).toMatchObject({ type: 'toolResultBlock', status: 'success' })
+    expect(JSON.stringify(saved)).toContain(code)
     expect(finalText(recall)).toContain(code)
   } finally {
     await harness.close()
