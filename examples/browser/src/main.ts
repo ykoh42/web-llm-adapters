@@ -23,6 +23,10 @@ let loaded: Awaited<ReturnType<typeof openEngine>> | undefined
 let controller: AbortController | undefined
 let busy = false
 
+if (globalThis.chrome?.runtime?.id)
+  engineSelect.add(new Option('Chrome extension worker', 'extension'))
+cacheSelect.add(new Option('Cross-origin storage (extension)', 'cross-origin'))
+
 for (const example of examples) exampleSelect.add(new Option(example.name, example.id))
 for (const model of prebuiltAppConfig.model_list) {
   modelSelect.add(new Option(model.model_id, model.model_id))
@@ -41,7 +45,7 @@ function updateButtons() {
   runButton.disabled = busy || !loaded
   stopButton.disabled = !controller
   cacheButton.disabled = busy
-  deleteButton.disabled = busy || Boolean(loaded)
+  deleteButton.disabled = busy || Boolean(loaded) || cacheSelect.value === 'cross-origin'
   file.disabled = busy
   prompt.disabled = busy
 }
@@ -64,6 +68,7 @@ exampleSelect.onchange = () => {
   file.hidden = !example.accept
   document.querySelector<HTMLLabelElement>('#file-label')!.hidden = !example.accept
 }
+cacheSelect.onchange = updateButtons
 exampleSelect.dispatchEvent(new Event('change'))
 
 loadButton.onclick = async () => {

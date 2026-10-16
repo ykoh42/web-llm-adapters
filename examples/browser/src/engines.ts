@@ -2,6 +2,7 @@ import {
   MLCEngine,
   WebWorkerMLCEngine,
   ServiceWorkerMLCEngine,
+  ExtensionServiceWorkerMLCEngine,
   prebuiltAppConfig,
 } from '@mlc-ai/web-llm'
 import type { AppConfig, InitProgressCallback, MLCEngineInterface } from '@mlc-ai/web-llm'
@@ -14,6 +15,9 @@ export async function openEngine(
   appConfig: AppConfig,
   initProgressCallback: InitProgressCallback,
 ) {
+  if (appConfig.cacheBackend === 'cross-origin' && kind !== 'main') {
+    throw new Error('Use Main thread for the Cross-Origin Storage extension.')
+  }
   const config = { appConfig, initProgressCallback }
   let worker: Worker | undefined
   let engine: MLCEngineInterface
@@ -27,6 +31,11 @@ export async function openEngine(
       await waitForController()
       engine = new ServiceWorkerMLCEngine(config)
       break
+    case 'extension':
+      if (!globalThis.chrome?.runtime?.id)
+        throw new Error('Open the example inside its Chrome extension.')
+      engine = new ExtensionServiceWorkerMLCEngine(config)
+      break
     case 'main':
       engine = new MLCEngine(config)
       break
@@ -38,6 +47,7 @@ export async function openEngine(
       await engine.unload()
     } finally {
       worker?.terminate()
+      if (engine instanceof ExtensionServiceWorkerMLCEngine) engine.port.disconnect()
     }
   }
   try {
@@ -67,8 +77,27 @@ function waitForController(): Promise<void> {
 }
 
 export function cacheConfig(backend: string): AppConfig {
-  if (backend !== 'cache' && backend !== 'indexeddb' && backend !== 'opfs') {
+  if (
+    backend !== 'cache' &&
+    backend !== 'indexeddb' &&
+    backend !== 'opfs' &&
+    backend !== 'cross-origin'
+  ) {
     throw new Error('Choose Cache API, IndexedDB, or OPFS.')
   }
+  if (backend === 'cross-origin' && !hasSharedCache()) {
+    throw new Error('Install the Cross-Origin Storage extension and open this page on localhost.')
+  }
   return { ...prebuiltAppConfig, cacheBackend: backend }
+}
+
+// WebLLM otherwise falls back silently to Cache API. Show the missing requirement instead.
+function hasSharedCache() {
+  return (
+    'crossOriginStorage' in navigator &&
+    typeof navigator.crossOriginStorage === 'object' &&
+    navigator.crossOriginStorage !== null &&
+    'getFileHandle' in navigator.crossOriginStorage &&
+    typeof navigator.crossOriginStorage.getFileHandle === 'function'
+  )
 }

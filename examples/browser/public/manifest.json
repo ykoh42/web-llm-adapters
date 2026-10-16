@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Strands WebLLM example",
+  "version": "0.0.1",
+  "description": "Runs WebLLM in an extension service worker for Strands.",
+  "background": {
+    "service_worker": "extension-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "index.html"
+  },
+  "permissions": ["unlimitedStorage"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+  }
+}
