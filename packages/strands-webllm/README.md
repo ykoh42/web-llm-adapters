@@ -1,6 +1,8 @@
 # strands-webllm
 
-A community-maintained WebLLM model provider for Strands Agents.
+A community-maintained WebLLM model provider for Strands Harness and its SDK.
+The [Harness example](../../examples/harness/README.md) connects Node.js Harness
+to browser inference; this provider itself runs beside the WebLLM engine.
 
 ## Use
 
@@ -70,7 +72,8 @@ console.log(cached)
 await deleteModelAllInfoInCache(modelId)
 ```
 
-Pass a `WebWorkerMLCEngine` or `ServiceWorkerMLCEngine` in the same way. Workers
+Pass a `WebWorkerMLCEngine`, `ServiceWorkerMLCEngine`, or
+`ExtensionServiceWorkerMLCEngine` in the same way. Workers
 must be created and connected with WebLLM's own factories and handlers.
 
 Generation options that Strands does not name go in `request`. To keep native
@@ -112,7 +115,27 @@ outer iterator suspended. The next call waits for that cleanup. Other overlappin
 adapter calls are rejected. Do not mix native calls or model reloads with an
 active adapter call.
 
-See the [complete support table](../../docs/support.md) for model restrictions,
-unsupported Strands content, native-only APIs, and exact verification coverage.
-The [browser examples](../../examples/browser/README.md) show the supported paths.
-Native access does not imply 100% Strands integration or verification of every model.
+## Limits
+
+WebLLM 0.2.86 accepts native tool calls only on its listed Hermes models. Gemma
+4 E2B handles text and audio; use Phi vision for images. Hermes tool mode supplies
+its own system prompt and JSON grammar. Set Harness `systemPrompt: ''` to disable
+its prompt for this mode. Empty prompts are omitted by the adapter. The tool example
+ends after the tool batch because Hermes retains the tool grammar on subsequent calls.
+Strands `toolChoice.any` has no native WebLLM equivalent and is rejected.
+
+Supported media use image URLs/bytes or WAV bytes. Raw PCM uses the native engine.
+S3 media, video, documents, guardrails, reasoning blocks, and media in tool results
+raise explicit errors. Text blocks are joined into WebLLM's single text part.
+Cache-point hints do not configure the native KV cache. Qwen's thinking toggle
+controls generated thinking text; it does not create Strands reasoning blocks.
+
+Multiple choices, non-streaming requests, text completion, embeddings, cache,
+loading, token-level sampling, and save/resume keep WebLLM's native APIs. Native
+persistence does not restore a Strands Agent, its tools, or its history. Our resume
+example checks an orderly interruption. Shared cross-origin cache needs its separate
+extension; this example uses it on the main thread and disables unsupported deletion.
+
+The [browser examples](../../examples/browser/README.md) and their executable GPU
+tests demonstrate each feature group. Native access does not imply that every
+feature has a Strands counterpart or that every model and device is supported.
