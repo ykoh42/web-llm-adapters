@@ -36,7 +36,16 @@ export class WebLLMModel extends Model<WebLLMModelConfig> {
     const signal = options.cancelSignal
     signal?.throwIfAborted()
     const config = this.getConfig()
-    if (/^gemma-4-/i.test(config.modelId) && options.toolSpecs?.length) {
+    const gemma = /^gemma-4-/i.test(config.modelId)
+    const hasThoughts = messages.some((message) =>
+      message.content.some((block) => block.type === 'reasoningBlock'),
+    )
+    if (
+      gemma &&
+      (options.toolSpecs?.length ||
+        config.request?.extra_body?.enable_thinking != null ||
+        hasThoughts)
+    ) {
       yield* gemmaStream(this.engine, config, messages, options, this.onChunk)
       return
     }

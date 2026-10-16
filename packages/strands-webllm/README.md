@@ -117,6 +117,35 @@ outer iterator suspended. The next call waits for that cleanup. Other overlappin
 adapter calls are rejected. Do not mix native calls or model reloads with an
 active adapter call.
 
+## Gemma thinking
+
+Enable thinking with the existing request option:
+
+```ts
+const model = new WebLLMModel({
+  engine,
+  modelId: 'gemma-4-E2B-it-q4f16_1-MLC',
+  maxTokens: 1024,
+  request: { extra_body: { enable_thinking: true } },
+})
+```
+
+The adapter uses Gemma's raw prompt protocol with or without tools. Thinking
+streams as `reasoningContentDelta` and is stored in Strands `ReasoningBlock`
+objects; answers remain text blocks. `onChunk` still receives the original raw
+WebLLM chunks, including control tokens.
+
+Following [Google's thinking rules](https://ai.google.dev/gemma/docs/capabilities/thinking),
+thoughts stay in the prompt throughout the current tool loop. A new user turn
+removes older thoughts from the next model prompt. The Agent's stored messages
+are not changed. Disabling thinking does not discard thoughts from a tool loop
+that is still in progress. Signed and redacted reasoning are rejected.
+
+To show only the final answer, select text blocks from `result.lastMessage.content`.
+Strands `String(result)` includes reasoning too. The browser examples put reasoning
+in **Details** and only answer text in **Response**. Thinking shares the output
+token limit, so allow more tokens than you would for a short plain answer.
+
 ## Limits
 
 Gemma 4 models with IDs starting with `gemma-4-` use the adapter's Gemma protocol
@@ -127,13 +156,14 @@ it, and the result returns to Gemma for another call or a final answer. Calls ar
 validated before execution; incomplete or truncated calls do not execute tools.
 The real GPU test uses `gemma-4-E2B-it-q4f16_1-MLC`.
 
-Gemma tool mode supports text, JSON tool arguments/results, system prompts, auto
+Gemma protocol mode supports text, JSON tool arguments/results, system prompts, auto
 or named tool choice, sampling, usage, cancellation, and streamed answer text.
-It rejects media, `response_format`, the thinking flag, resume, and `ignore_eos`.
+It rejects media, `response_format`, resume, and `ignore_eos`.
 It rebuilds the raw prompt on each call, so it does not reuse chat KV state.
 Use the standard WebLLM Gemma 4 catalog records, whose artifact loader supplies BOS;
-custom aliases and older Gemma templates are not covered. Without tools, Gemma
-uses WebLLM's normal chat API, including its text and audio support.
+custom aliases and older Gemma templates are not covered. Gemma uses WebLLM's
+normal chat API when there are no tools, no explicit thinking flag, and no reasoning
+blocks in history; this path includes its text and audio support.
 
 WebLLM 0.2.86's native `tools` API accepts only its listed Hermes models. That path
 remains available: Hermes supplies its own system prompt and JSON grammar. Set
@@ -142,8 +172,9 @@ tool batch because Hermes retains the tool grammar on subsequent calls.
 Strands `toolChoice.any` is rejected in both modes. Use Phi vision for images.
 
 Supported media use image URLs/bytes or WAV bytes. Raw PCM uses the native engine.
-S3 media, video, documents, guardrails, reasoning blocks, and media in tool results
+S3 media, video, documents, guardrails, and media in tool results
 raise explicit errors. Text blocks are joined into WebLLM's single text part.
+Reasoning blocks are supported only by the Gemma protocol path.
 Cache-point hints do not configure the native KV cache. Qwen's thinking toggle
 controls generated thinking text; it does not create Strands reasoning blocks.
 

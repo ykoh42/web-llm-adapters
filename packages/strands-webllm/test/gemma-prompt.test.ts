@@ -6,6 +6,7 @@ import {
   ToolUseBlock,
   ToolResultBlock,
   JsonBlock,
+  ReasoningBlock,
   type ToolSpec,
 } from '@strands-agents/sdk'
 import { toolPrompt } from '../src/gemma/prompt.js'
@@ -47,6 +48,39 @@ const result = new Message({
 })
 
 describe('Gemma tool prompts', () => {
+  it('preserves all thoughts in a tool loop, including when thinking is later disabled', () => {
+    const thoughtCall = new Message({
+      role: 'assistant',
+      content: [new ReasoningBlock({ text: 'Find x.' }), ...call.content],
+    })
+    const second = new Message({
+      role: 'assistant',
+      content: [new ReasoningBlock({ text: 'Check again.' }), ...call.content],
+    })
+    const history = [user('Find'), thoughtCall, result, second, result]
+    const snapshot = JSON.stringify(history)
+    const prompt = toolPrompt(history, tools, {}, true)
+    expect(prompt).toContain('<|turn>system\n<|think|>\n')
+    expect(prompt).toContain('<|channel>thought\nFind x.<channel|>')
+    expect(prompt).toContain('<tool_response|><|channel>thought\nCheck again.<channel|>')
+    expect(toolPrompt(history, tools, {}, false)).toContain('<|channel>thought\nFind x.<channel|>')
+    const injected = new Message({
+      role: 'user',
+      content: [...result.content, new TextBlock('New input')],
+    })
+    expect(toolPrompt([history[0]!, thoughtCall, injected], tools, {}, true)).not.toContain(
+      'Find x.',
+    )
+    expect(JSON.stringify(history)).toBe(snapshot)
+  })
+
+  it.each([{ signature: 'signed' }, { redactedContent: new Uint8Array([1]) }])(
+    'rejects reasoning that Gemma cannot carry: %s',
+    (value) => {
+      const message = new Message({ role: 'assistant', content: [new ReasoningBlock(value)] })
+      expect(() => toolPrompt([message], tools, {})).toThrow('signed or redacted')
+    },
+  )
   it('uses native declarations, preserves the system prompt and keeps schema data unchanged', () => {
     const prompt = toolPrompt([user('Find x')], tools, { systemPrompt: 'Be brief.' })
     expect(prompt.startsWith('<|turn>system\nBe brief.<|tool>declaration:lookup')).toBe(true)

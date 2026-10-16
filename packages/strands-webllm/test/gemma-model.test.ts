@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Agent, FunctionTool, MaxTokensError, Message, TextBlock } from '@strands-agents/sdk'
+import {
+  Agent,
+  FunctionTool,
+  MaxTokensError,
+  Message,
+  TextBlock,
+  ReasoningBlock,
+} from '@strands-agents/sdk'
 import type { ToolSpec } from '@strands-agents/sdk'
 import { MLCEngine, type Completion } from '@mlc-ai/web-llm'
 import { WebLLMModel } from '../src/index.js'
@@ -42,6 +49,175 @@ async function aggregate(model: WebLLMModel) {
 }
 
 describe('Gemma tool model', () => {
+  it('separates streamed thinking, preserves it through tools, and strips it on the next user turn', async () => {
+    const { model, create, chat } = setup()
+    model.updateConfig({ request: { extra_body: { enable_thinking: true } } })
+    const thought = 'Check x. A quoted example is <|tool_call>call:lookup{}<tool_call|>.'
+    const source = '<|channel>thought\n' + thought + '<channel|>' + call
+    const lookup = vi.fn(() => 'secret-42')
+    create.mockResolvedValueOnce(
+      parts(...Array.from(source, (text) => part(text)), part('', 'stop')),
+    )
+    // The prompt after a tool response already opens the next thought channel.
+    create.mockResolvedValueOnce(parts(part('Use the result.<channel|>secret-42', 'stop')))
+    const agent = new Agent({
+      model,
+      printer: false,
+      tools: [new FunctionTool({ ...tools[0]!, callback: lookup })],
+    })
+    await agent.invoke('Find x.')
+    expect(lookup).toHaveBeenCalledTimes(1)
+    expect(agent.messages[1]?.content).toEqual([
+      new ReasoningBlock({ text: thought }),
+      expect.objectContaining({ type: 'toolUseBlock', name: 'lookup' }),
+    ])
+    expect(agent.messages[3]?.content).toEqual([
+      new ReasoningBlock({ text: 'Use the result.' }),
+      new TextBlock('secret-42'),
+    ])
+    const prompt = create.mock.calls[1]![0].prompt
+    expect(prompt).toContain('<|channel>thought\n' + thought + '<channel|>' + call)
+    expect(prompt.endsWith('<tool_response|><|channel>thought\n')).toBe(true)
+    expect(create.mock.calls[0]![0].extra_body).toBeUndefined()
+    const snapshot = JSON.stringify(agent.messages)
+    create.mockResolvedValueOnce(
+      parts(part('<|channel>thought\nRecall.<channel|>secret-42', 'stop')),
+    )
+    expect((await agent.invoke('What did we find?')).lastMessage.content).toEqual([
+      new ReasoningBlock({ text: 'Recall.' }),
+      new TextBlock('secret-42'),
+    ])
+    const next = create.mock.calls[2]![0].prompt
+    expect(next).not.toContain(thought)
+    expect(next).not.toContain('Use the result.')
+    expect(next).toContain('<tool_response|>secret-42<turn|>')
+    expect(JSON.stringify(agent.messages.slice(0, 4))).toBe(snapshot)
+    expect(chat).not.toHaveBeenCalled()
+  })
+
+  it('streams thinking before generation finishes and closes blocks when the channel changes', async () => {
+    const { model, create } = setup()
+    const hold = pause()
+    create.mockResolvedValueOnce(
+      (async function* () {
+        yield part('Before<|channel>thought\nConsider x.')
+        await hold.wait
+        yield part('<channel|>After', 'stop')
+      })(),
+    )
+    const stream = model.stream(messages, { toolSpecs: tools })
+    try {
+      const events = []
+      for (;;) {
+        const event = (await stream.next()).value!
+        events.push(event)
+        if (
+          event.type === 'modelContentBlockDeltaEvent' &&
+          event.delta.type === 'reasoningContentDelta'
+        )
+          break
+      }
+      expect(events).toContainEqual({
+        type: 'modelContentBlockDeltaEvent',
+        delta: { type: 'textDelta', text: 'Before' },
+      })
+      expect(events.at(-1)).toEqual({
+        type: 'modelContentBlockDeltaEvent',
+        delta: { type: 'reasoningContentDelta', text: 'Consider x.' },
+      })
+      hold.resume()
+      const remaining = await collect(stream)
+      expect(remaining.slice(0, 3)).toEqual([
+        { type: 'modelContentBlockStopEvent' },
+        { type: 'modelContentBlockStartEvent' },
+        { type: 'modelContentBlockDeltaEvent', delta: { type: 'textDelta', text: 'After' } },
+      ])
+    } finally {
+      hold.resume()
+      await stream.return(undefined)
+    }
+  })
+
+  it('treats control markers inside tool arguments as literal data', async () => {
+    const { model } = setup(
+      ...Array.from(
+        '<|tool_call>call:lookup{key:<|"|><|channel>thought\ntext<channel|><|"|>}<tool_call|>',
+        (text) => part(text),
+      ),
+      part('', 'stop'),
+    )
+    const result = await aggregate(model)
+    expect(result.message.content).toEqual([
+      expect.objectContaining({
+        type: 'toolUseBlock',
+        input: { key: '<|channel>thought\ntext<channel|>' },
+      }),
+    ])
+  })
+
+  it.each(['<|channel>analysis\nx<channel|>', '<|channel>thought', '<|channel>thought\nunclosed'])(
+    'rejects malformed thinking without executing tools: %s',
+    async (source) => {
+      const { model } = setup(part(source, 'stop'))
+      const callback = vi.fn()
+      const agent = new Agent({
+        model,
+        printer: false,
+        tools: [new FunctionTool({ ...tools[0]!, callback })],
+      })
+      await expect(agent.invoke('Find x.')).rejects.toThrow(/thinking/)
+      expect(callback).not.toHaveBeenCalled()
+    },
+  )
+
+  it('does not execute tool syntax inside truncated thinking', async () => {
+    const { model } = setup(part('<|channel>thought\n' + call, 'length'))
+    const callback = vi.fn()
+    const agent = new Agent({
+      model,
+      printer: false,
+      tools: [new FunctionTool({ ...tools[0]!, callback })],
+    })
+    await expect(agent.invoke('Find x.')).rejects.toBeInstanceOf(MaxTokensError)
+    expect(callback).not.toHaveBeenCalled()
+  })
+
+  it('supports thinking without tools and can turn it off with reasoning still in Agent history', async () => {
+    const { model, create } = setup(part('<|channel>thought\nCheck.<channel|>42', 'stop'))
+    model.updateConfig({ request: { extra_body: { enable_thinking: true } } })
+    const agent = new Agent({ model, printer: false })
+    expect((await agent.invoke('Answer.')).lastMessage.content).toEqual([
+      new ReasoningBlock({ text: 'Check.' }),
+      new TextBlock('42'),
+    ])
+    model.updateConfig({ request: {} })
+    create.mockResolvedValueOnce(parts(part('Still 42', 'stop')))
+    expect(String(await agent.invoke('Again.'))).toBe('Still 42')
+    expect(create.mock.calls[1]![0].prompt).not.toContain('<|think|>')
+    expect(create.mock.calls[1]![0].prompt).not.toContain('Check.')
+  })
+
+  it('can cancel a reasoning delta, then reuse the engine without leaking parser state', async () => {
+    const { model, create, stop } = setup(part('<|channel>thought\nPartial'), part('', 'stop'))
+    model.updateConfig({ request: { extra_body: { enable_thinking: true } } })
+    const controller = new AbortController()
+    const agent = new Agent({ model, printer: false })
+    for await (const update of agent.stream('Think.', { cancelSignal: controller.signal })) {
+      if (
+        update.type === 'modelStreamUpdateEvent' &&
+        update.event.type === 'modelContentBlockDeltaEvent' &&
+        update.event.delta.type === 'reasoningContentDelta'
+      )
+        controller.abort()
+    }
+    expect(controller.signal.aborted).toBe(true)
+    expect(stop).toHaveBeenCalledTimes(1)
+    create.mockResolvedValueOnce(parts(part('<|channel>thought\nNew.<channel|>Recovered', 'stop')))
+    expect((await aggregate(model)).message.content).toEqual([
+      new ReasoningBlock({ text: 'New.' }),
+      new TextBlock('Recovered'),
+    ])
+  })
   it('runs an actual Strands tool loop through raw completions and returns the model answer', async () => {
     const { model, create, chat } = setup()
     const lookup = vi.fn<(input: unknown) => string>(
@@ -219,13 +395,12 @@ describe('Gemma tool model', () => {
 
   it.each([
     { response_format: { type: 'json_object' as const } },
-    { extra_body: { enable_thinking: true } },
     { extra_body: { resumable: { enabled: true } } },
     { ignore_eos: true },
   ])('rejects incompatible options before opening a native call', async (request) => {
     const { model, create } = setup()
     model.updateConfig({ request })
-    await expect(aggregate(model)).rejects.toThrow('Gemma tool mode does not support')
+    await expect(aggregate(model)).rejects.toThrow('Gemma protocol mode does not support')
     expect(create).not.toHaveBeenCalled()
   })
 

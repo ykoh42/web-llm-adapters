@@ -11,7 +11,7 @@ import { readStream } from '../stream.js'
 import { toolPrompt } from './prompt.js'
 import { gemmaChunks } from './stream.js'
 
-/** Gemma's own protocol, without WebLLM's Hermes-only tools API. */
+/** Gemma's native thinking and tool protocol through raw completions. */
 export async function* gemmaStream(
   engine: MLCEngineInterface,
   config: WebLLMModelConfig,
@@ -20,16 +20,12 @@ export async function* gemmaStream(
   onChunk?: (chunk: WebLLMChunk) => void,
 ): AsyncGenerator<ModelStreamEvent> {
   const { response_format, extra_body, ...sampling } = config.request ?? {}
-  if (
-    response_format != null ||
-    extra_body?.resumable ||
-    extra_body?.enable_thinking != null ||
-    sampling.ignore_eos
-  ) {
+  if (response_format != null || extra_body?.resumable || sampling.ignore_eos) {
     throw new ModelError(
-      'Gemma tool mode does not support response_format, resume, the thinking flag, or ignore_eos.',
+      'Gemma protocol mode does not support response_format, resume, or ignore_eos.',
     )
   }
+  const thinking = extra_body?.enable_thinking === true
   const tools = options.toolSpecs ?? []
   let prefix = ''
   if (options.toolChoice) {
@@ -42,10 +38,12 @@ export async function* gemmaStream(
       prefix = '<|tool_call>call:' + name
     }
   }
+  const prompt = toolPrompt(messages, tools, options, thinking)
+  if (thinking && !prefix && prompt.endsWith('<tool_response|>')) prefix = '<|channel>thought\n'
   const request: CompletionCreateParamsStreaming = {
     ...sampling,
     model: config.modelId,
-    prompt: toolPrompt(messages, tools, options) + prefix,
+    prompt: prompt + prefix,
     stream: true,
     stream_options: { include_usage: true },
     n: 1,

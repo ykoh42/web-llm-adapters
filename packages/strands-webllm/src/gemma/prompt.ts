@@ -1,14 +1,19 @@
 import { ModelError, type Message, type StreamOptions, type ToolSpec } from '@strands-agents/sdk'
-import { formatMessages } from '../messages.js'
+import { gemmaHistory } from './history.js'
 import { writeValue } from './value.js'
 
 // Tool format: https://huggingface.co/google/gemma-4-E2B-it/blob/main/chat_template.jinja
-export function toolPrompt(messages: Message[], tools: ToolSpec[], options: StreamOptions) {
-  const history = formatMessages(messages, options.systemPrompt)
+export function toolPrompt(
+  messages: Message[],
+  tools: ToolSpec[],
+  options: StreamOptions,
+  thinking = false,
+) {
+  const history = gemmaHistory(messages, options.systemPrompt)
   const first = history[0]
   const system = first?.role === 'system' ? first.content : ''
   if (first?.role === 'system') history.shift()
-  let prompt = '<|turn>system\n' + system
+  let prompt = '<|turn>system\n' + (thinking ? '<|think|>\n' : '') + system
   for (const tool of tools) {
     prompt +=
       '<|tool>declaration:' +
@@ -38,7 +43,7 @@ export function toolPrompt(messages: Message[], tools: ToolSpec[], options: Stre
     if (message.role === 'user') {
       if (pending.size) throw new ModelError('Gemma is missing a tool result.')
       if (typeof message.content !== 'string')
-        throw new ModelError('Gemma tool mode supports text and tool results only.')
+        throw new ModelError('Gemma protocol mode supports text and tool results only.')
       if (modelOpen) prompt += '<turn|>\n'
       prompt += '<|turn>user\n' + message.content + '<turn|>\n'
       modelOpen = false
@@ -49,6 +54,7 @@ export function toolPrompt(messages: Message[], tools: ToolSpec[], options: Stre
     if (pending.size) throw new ModelError('Gemma is missing a tool result.')
     if (!modelOpen) prompt += '<|turn>model\n'
     modelOpen = true
+    if (message.reasoning) prompt += '<|channel>thought\n' + message.reasoning + '<channel|>'
     prompt += message.content ?? ''
     for (const call of message.tool_calls ?? []) {
       if (pending.has(call.id)) throw new ModelError('Gemma received a duplicate tool call ID.')

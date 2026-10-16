@@ -2,14 +2,16 @@ import { ModelError, type ModelStreamEvent, type StopReason } from '@strands-age
 import type { ChatCompletionChunk, CompletionUsage } from '@mlc-ai/web-llm'
 
 type ToolCall = { id: string; name: string; input: string }
+/** Normalized chat chunks can carry a separate reasoning part. */
+export type StreamChunk = ChatCompletionChunk & { reasoning?: string }
 
 export async function* readStream(
-  chunks: AsyncIterable<ChatCompletionChunk>,
+  chunks: AsyncIterable<StreamChunk>,
   hasTools: boolean,
   signal?: AbortSignal,
   onChunk?: (chunk: ChatCompletionChunk) => void,
 ): AsyncGenerator<ModelStreamEvent> {
-  let textStarted = false
+  let block: 'textDelta' | 'reasoningContentDelta' | undefined
   let toolText = ''
   let stopReason: StopReason | undefined
   let usage: CompletionUsage | undefined
@@ -30,17 +32,19 @@ export async function* readStream(
       throw new ModelError('Strands needs one response per request.')
     }
     const text = choice.delta.content
-    if (text) {
-      if (hasTools) {
-        // WebLLM streams raw tool JSON, then supplies parsed calls in the last choice.
-        toolText += text
-      } else {
-        if (!textStarted) {
-          yield { type: 'modelContentBlockStartEvent' }
-          textStarted = true
-        }
-        yield { type: 'modelContentBlockDeltaEvent', delta: { type: 'textDelta', text } }
+    // WebLLM's native tools API streams JSON before its parsed calls arrive.
+    if (hasTools && text) toolText += text
+    for (const [type, value] of [
+      ['reasoningContentDelta', chunk.reasoning],
+      ['textDelta', hasTools ? undefined : text],
+    ] as const) {
+      if (!value) continue
+      if (block !== type) {
+        if (block) yield { type: 'modelContentBlockStopEvent' }
+        yield { type: 'modelContentBlockStartEvent' }
+        block = type
       }
+      yield { type: 'modelContentBlockDeltaEvent', delta: { type, text: value } }
     }
     for (const delta of choice.delta.tool_calls ?? []) {
       const call = calls.get(delta.index) ?? { id: crypto.randomUUID(), name: '', input: '' }
@@ -67,7 +71,7 @@ export async function* readStream(
 
   if (signal?.aborted) stopReason = 'cancelled'
   if (!stopReason) throw new ModelError('WebLLM ended the stream without a stop reason.')
-  if (textStarted) yield { type: 'modelContentBlockStopEvent' }
+  if (block) yield { type: 'modelContentBlockStopEvent' }
 
   const useTools = stopReason !== 'maxTokens' && stopReason !== 'cancelled' && calls.size > 0
   if (useTools) {

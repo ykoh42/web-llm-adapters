@@ -1,6 +1,8 @@
 import { ModelError, type ToolSpec } from '@strands-agents/sdk'
 import type { ChatCompletionChunk, Completion } from '@mlc-ai/web-llm'
 import { readArguments } from './value.js'
+import { splitThinking } from './thinking.js'
+import type { StreamChunk } from '../stream.js'
 
 const begin = '<|tool_call>'
 const end = '<tool_call|>'
@@ -10,14 +12,11 @@ export async function* gemmaChunks(
   tools: ToolSpec[],
   onChunk?: (chunk: Completion) => void,
   prefix = '',
-): AsyncGenerator<ChatCompletionChunk> {
-  let pending = prefix
+): AsyncGenerator<StreamChunk> {
+  let pending = ''
   let toolText = ''
-  for await (const chunk of chunks) {
-    onChunk?.(chunk)
+  for await (const chunk of splitThinking(chunks, onChunk, prefix)) {
     const choice = chunk.choices[0]
-    if (chunk.choices.length > 1 || (choice && choice.index !== 0))
-      throw new ModelError('Strands needs one response per request.')
     let content = ''
     let calls: ChatCompletionChunk.Choice.Delta.ToolCall[] = []
     if (choice) {
