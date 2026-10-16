@@ -11,7 +11,7 @@ WebLLM engine to Strands Agents without Vercel AI SDK or a hosted model API.
 packages/
   strands-webllm/     Strands model provider
 examples/
-  browser/           Gemma 4 E2B playground
+  browser/           Chat, tools, JSON, media, and native API examples
 test/
   browser/           Real model smoke test
 ```
@@ -36,8 +36,10 @@ downloads several GB. Later loads use WebLLM's browser cache. WebGPU and enough
 GPU memory are required. FP16 needs `shader-f16`; choose FP32 when it is absent.
 
 The model runs on your device. Model files are downloaded from the URLs in
-WebLLM's model catalog. The example uses no tools: WebLLM 0.2.86 does not yet
-accept native tool calls for Gemma 4 E2B.
+WebLLM's model catalog. The page starts with Gemma text chat. Choose another
+example for JSON, tools, media, or native APIs, and another engine for a Worker.
+See [examples](examples/browser/README.md) and the full [support table](docs/support.md).
+Gemma does not accept native tool calls in this WebLLM release; that example uses Hermes.
 
 ## Work on a package
 
@@ -81,8 +83,10 @@ Install Google Chrome, then run:
 npm run test:browser
 ```
 
-This opens Chrome, loads Gemma 4 E2B FP16, sends a message through a real Strands
-Agent, checks the response, and unloads the model. It can take several minutes.
+This opens Chrome and runs the browser examples with real model inference.
+It can take several minutes and downloads Gemma, Hermes, Phi vision, and Snowflake
+model files on the first run. To run only the basic Gemma check, use
+`npm run test:browser -- test/browser/gemma.spec.ts`.
 The test keeps a browser profile in `.cache/chrome` so later runs can reuse model
 files. Set `HEADLESS=1` to run without a window if your system supports headless
 WebGPU. This test runs separately from CI because it needs a GPU and large model
@@ -114,8 +118,8 @@ interfaces, with a real model check for the browser path.
 
 ## Status
 
-This repository is private. `strands-webllm` is marked `private` too and has not
-been published to npm. Choose a license and release version, review the support
+This is a public community project. `strands-webllm` is marked `private` and has
+not been published to npm. Choose a license and release version, review the support
 matrix, and remove the package's `private` flag before publishing.
 
 References: [Strands issue #2481](https://github.com/strands-agents/harness-sdk/issues/2481),

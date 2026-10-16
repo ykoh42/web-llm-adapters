@@ -103,28 +103,16 @@ model. Call `engine.reload()` first to load a new one, and set a matching
 
 Target versions: Strands SDK **1.21.0**, WebLLM **0.2.86**.
 
-| Feature                                      | Strands adapter                             | Check                                |
-| -------------------------------------------- | ------------------------------------------- | ------------------------------------ |
-| Text, system prompt, streaming               | Supported                                   | Unit tests and Gemma browser test    |
-| Tool calls and results                       | Mapped to native WebLLM tools               | Agent loop with a mocked engine      |
-| Stop reason, token counts, cancel            | Supported                                   | Unit tests                           |
-| JSON output, sampling options                | Passed to WebLLM                            | Request mapping tests                |
-| Image URLs and bytes                         | User messages only; requires a vision model | Message mapping tests                |
-| WAV bytes                                    | User messages only; requires an audio model | Message mapping tests                |
-| Progress and cache management                | Native WebLLM API                           | Browser load; native API access      |
-| Web Workers and Service Workers              | Accept their native engine interface        | Not yet tested in a worker           |
-| Embeddings, text completion, resume, raw PCM | Native engine API                           | Not mapped or tested by this adapter |
+Text, system prompts, streaming, usage, tools, JSON settings, image bytes/URLs,
+and WAV bytes map to Strands. Each feature still requires a compatible WebLLM
+model. Other WebLLM operations keep their native API through `model.engine`.
 
-WebLLM 0.2.86 only accepts native tools for its listed Hermes models. Gemma 4 E2B
-supports text and audio in this release, but is not in that tool list. The adapter
-does not add prompt-based tool parsing. WebLLM's Hermes tool mode also rejects
-custom system prompts and custom response formats. Strands `toolChoice.any` has
-no WebLLM equivalent and raises an error; auto and named choices are mapped.
+The adapter closes the native stream on cancellation even if Strands leaves an
+outer iterator suspended. The next call waits for that cleanup. Other overlapping
+adapter calls are rejected. Do not mix native calls or model reloads with an
+active adapter call.
 
-Strands cache-point hints are ignored because they do not control WebLLM's KV
-cache. Unsupported content, including S3 media, video, documents, guardrails,
-reasoning blocks, and images inside tool results, raises an error rather than
-being dropped. Multiple user text blocks are joined into one text field, followed
-by image/audio parts, to fit WebLLM's one-text-part limit.
-
-This is not a claim of 100% Strands integration for every WebLLM feature or model.
+See the [complete support table](../../docs/support.md) for model restrictions,
+unsupported Strands content, native-only APIs, and exact verification coverage.
+The [browser examples](../../examples/browser/README.md) show the supported paths.
+Native access does not imply 100% Strands integration or verification of every model.
