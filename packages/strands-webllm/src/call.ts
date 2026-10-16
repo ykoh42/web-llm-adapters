@@ -1,5 +1,5 @@
 import { ModelError } from '@strands-agents/sdk'
-import type { ChatCompletionRequestStreaming, MLCEngineInterface } from '@mlc-ai/web-llm'
+import type { MLCEngineInterface } from '@mlc-ai/web-llm'
 
 interface ActiveCall {
   signal: AbortSignal | undefined
@@ -9,9 +9,9 @@ interface ActiveCall {
 const activeCalls = new WeakMap<MLCEngineInterface, ActiveCall>()
 
 /** Own the native stream until it closes, even if Strands abandons its iterator on abort. */
-export async function startCall(
+export async function startCall<T>(
   engine: MLCEngineInterface,
-  request: ChatCompletionRequestStreaming,
+  open: () => Promise<AsyncIterable<T>>,
   signal?: AbortSignal,
 ) {
   for (;;) {
@@ -28,7 +28,7 @@ export async function startCall(
   activeCalls.set(engine, { signal, closed })
 
   const source = Promise.resolve()
-    .then(() => engine.chat.completions.create(request))
+    .then(open)
     .then((chunks) => chunks[Symbol.asyncIterator]())
   let closing: Promise<void> | undefined
   function close(interrupt: boolean) {

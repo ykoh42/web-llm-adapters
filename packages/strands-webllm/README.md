@@ -78,6 +78,8 @@ must be created and connected with WebLLM's own factories and handlers.
 
 Generation options that Strands does not name go in `request`. To keep native
 chunks, including log probabilities and extra timing data, use `onChunk`.
+Its `WebLLMChunk` type is a union: `object === 'text_completion'` identifies a raw
+Gemma tool-mode chunk; other requests produce `chat.completion.chunk` chunks.
 
 ```ts
 const model = new WebLLMModel({
@@ -117,12 +119,27 @@ active adapter call.
 
 ## Limits
 
-WebLLM 0.2.86 accepts native tool calls only on its listed Hermes models. Gemma
-4 E2B handles text and audio; use Phi vision for images. Hermes tool mode supplies
-its own system prompt and JSON grammar. Set Harness `systemPrompt: ''` to disable
-its prompt for this mode. Empty prompts are omitted by the adapter. The tool example
-ends after the tool batch because Hermes retains the tool grammar on subsequent calls.
-Strands `toolChoice.any` has no native WebLLM equivalent and is rejected.
+Gemma 4 models with IDs starting with `gemma-4-` use the adapter's Gemma protocol
+when tools are registered. This follows Google's
+[native function-call template](https://huggingface.co/google/gemma-4-E2B-it/blob/main/chat_template.jinja)
+through WebLLM raw completions. The model selects a tool, Strands or Harness runs
+it, and the result returns to Gemma for another call or a final answer. Calls are
+validated before execution; incomplete or truncated calls do not execute tools.
+The real GPU test uses `gemma-4-E2B-it-q4f16_1-MLC`.
+
+Gemma tool mode supports text, JSON tool arguments/results, system prompts, auto
+or named tool choice, sampling, usage, cancellation, and streamed answer text.
+It rejects media, `response_format`, the thinking flag, resume, and `ignore_eos`.
+It rebuilds the raw prompt on each call, so it does not reuse chat KV state.
+Use the standard WebLLM Gemma 4 catalog records, whose artifact loader supplies BOS;
+custom aliases and older Gemma templates are not covered. Without tools, Gemma
+uses WebLLM's normal chat API, including its text and audio support.
+
+WebLLM 0.2.86's native `tools` API accepts only its listed Hermes models. That path
+remains available: Hermes supplies its own system prompt and JSON grammar. Set
+Harness `systemPrompt: ''` for this legacy mode. The Hermes example ends after the
+tool batch because Hermes retains the tool grammar on subsequent calls.
+Strands `toolChoice.any` is rejected in both modes. Use Phi vision for images.
 
 Supported media use image URLs/bytes or WAV bytes. Raw PCM uses the native engine.
 S3 media, video, documents, guardrails, reasoning blocks, and media in tool results

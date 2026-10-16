@@ -1,30 +1,11 @@
 import { Model, type Message, type StreamOptions } from '@strands-agents/sdk'
-import type { BaseModelConfig, ModelStreamEvent } from '@strands-agents/sdk'
-import type {
-  ChatCompletionChunk,
-  ChatCompletionRequestBase,
-  MLCEngineInterface,
-} from '@mlc-ai/web-llm'
+import type { ModelStreamEvent } from '@strands-agents/sdk'
+import type { ChatCompletionRequestBase, MLCEngineInterface } from '@mlc-ai/web-llm'
 import { formatMessages, formatTools, formatToolChoice } from './messages.js'
 import { readStream } from './stream.js'
 import { startCall } from './call.js'
-
-/** Native options that do not change the Strands message or tool contract. */
-export type WebLLMRequest = Omit<
-  ChatCompletionRequestBase,
-  'messages' | 'model' | 'stream' | 'stream_options' | 'tools' | 'tool_choice' | 'n'
->
-
-export interface WebLLMModelConfig extends BaseModelConfig {
-  modelId: string
-  request?: WebLLMRequest
-}
-
-export interface WebLLMModelOptions extends WebLLMModelConfig {
-  engine: MLCEngineInterface
-  /** Receives native chunks, including log probabilities and WebLLM metadata. */
-  onChunk?: (chunk: ChatCompletionChunk) => void
-}
+import { gemmaStream } from './gemma/model.js'
+import type { WebLLMModelConfig, WebLLMModelOptions } from './types.js'
 
 /** Connects a loaded WebLLM engine to Strands. The caller owns the engine. */
 export class WebLLMModel extends Model<WebLLMModelConfig> {
@@ -55,6 +36,10 @@ export class WebLLMModel extends Model<WebLLMModelConfig> {
     const signal = options.cancelSignal
     signal?.throwIfAborted()
     const config = this.getConfig()
+    if (/^gemma-4-/i.test(config.modelId) && options.toolSpecs?.length) {
+      yield* gemmaStream(this.engine, config, messages, options, this.onChunk)
+      return
+    }
     const request: ChatCompletionRequestBase = {
       ...config.request,
       model: config.modelId,
@@ -69,7 +54,11 @@ export class WebLLMModel extends Model<WebLLMModelConfig> {
     if (options.toolSpecs?.length) request.tools = formatTools(options.toolSpecs)
     if (options.toolChoice) request.tool_choice = formatToolChoice(options.toolChoice)
 
-    const call = await startCall(this.engine, { ...request, stream: true }, signal)
+    const call = await startCall(
+      this.engine,
+      () => this.engine.chat.completions.create({ ...request, stream: true }),
+      signal,
+    )
     let done = false
     try {
       yield* readStream(call.chunks, Boolean(request.tools), signal, this.onChunk)
