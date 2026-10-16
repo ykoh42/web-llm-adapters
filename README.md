@@ -107,7 +107,7 @@ tool result, and requires Gemma's final answer to contain that code. It also che
 a later conversation turn. No hook supplies the answer or ends the tool turn.
 The thinking check also observes actual Worker prompts to verify that Gemma's
 reasoning survives the tool call and is stripped before the next user turn.
-Use `--think --read` in the Harness example, or choose **Gemma thinking + tools**
+Use `--think --tool read` in the Harness example, or choose **Gemma thinking + tools**
 in the browser app.
 
 For the extension checks, install Playwright's Chromium and run:
@@ -125,8 +125,8 @@ WebGPU, and additional model storage. They run separately from CPU-only CI.
 
 Verification is recorded in executable tests under `test/` and `examples/harness/test/`.
 Target versions are WebLLM **0.2.86**, Strands SDK **1.21.0**, and Harness **0.3.0**.
-Compatibility with these versions does not establish support for every model or
-for every Harness default.
+These checks cover specific models and Harness flows; they do not guarantee a
+model's tool-selection or answer accuracy for every task.
 
 ## Add an adapter
 

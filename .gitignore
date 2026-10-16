@@ -4,6 +4,7 @@ coverage/
 test-results/
 playwright-report/
 .cache/
+.agent/
 .DS_Store
 *.tgz
 *.tsbuildinfo
