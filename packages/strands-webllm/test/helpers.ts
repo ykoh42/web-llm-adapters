@@ -32,3 +32,11 @@ export async function collect<T>(stream: AsyncIterable<T>): Promise<T[]> {
   for await (const item of stream) items.push(item)
   return items
 }
+
+export function pause() {
+  let resume!: () => void
+  const wait = new Promise<void>((resolve) => {
+    resume = resolve
+  })
+  return { wait, resume }
+}

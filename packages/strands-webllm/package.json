@@ -25,6 +25,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
+    "check:package": "publint --strict && attw --pack --profile esm-only",
     "prepack": "npm run build"
   },
   "peerDependencies": {

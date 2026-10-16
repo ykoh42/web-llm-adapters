@@ -7,15 +7,15 @@ import {
   TextBlock,
   ToolUseBlock,
 } from '@strands-agents/sdk'
-import type { ModelStreamEvent } from '@strands-agents/sdk'
+import type { ModelStreamEvent, StreamOptions } from '@strands-agents/sdk'
 import { WebLLMModel } from '../src/index.js'
-import { chunk, chunks, collect, setup } from './helpers.js'
+import { chunk, chunks, collect, pause, setup } from './helpers.js'
 
 const messages = [new Message({ role: 'user', content: [new TextBlock('Hi')] })]
 const tools = [{ name: 'weather', description: 'Get the weather' }]
 
-async function aggregate(model: WebLLMModel) {
-  const stream = model.streamAggregated(messages)
+async function aggregate(model: WebLLMModel, options: StreamOptions = {}) {
+  const stream = model.streamAggregated(messages, options)
   for (;;) {
     const step = await stream.next()
     if (step.done) return step.value
@@ -41,12 +41,34 @@ describe('WebLLMModel', () => {
   })
 
   it('emits text before waiting for the rest of the response', async () => {
-    const { model } = setup(chunk({ content: 'Hi' }), chunk({}, 'stop'))
+    const { model, create } = setup()
+    const hold = pause()
+    let finished = false
+    create.mockResolvedValueOnce(
+      (async function* () {
+        yield chunk({ content: 'Hi' })
+        await hold.wait
+        finished = true
+        yield chunk({ content: ' there' }, 'stop')
+      })(),
+    )
     const stream = model.stream(messages)
-    expect((await stream.next()).value).toMatchObject({ type: 'modelMessageStartEvent' })
-    expect((await stream.next()).value).toMatchObject({ type: 'modelContentBlockStartEvent' })
-    expect((await stream.next()).value).toMatchObject({ delta: { text: 'Hi' } })
-    await stream.return(undefined)
+    try {
+      expect((await stream.next()).value).toMatchObject({ type: 'modelMessageStartEvent' })
+      expect((await stream.next()).value).toMatchObject({ type: 'modelContentBlockStartEvent' })
+      expect((await stream.next()).value).toMatchObject({ delta: { text: 'Hi' } })
+      expect(finished).toBe(false)
+      hold.resume()
+      const rest = await collect(stream)
+      expect(rest).toContainEqual({
+        type: 'modelContentBlockDeltaEvent',
+        delta: { type: 'textDelta', text: ' there' },
+      })
+      expect(rest.at(-1)).toEqual({ type: 'modelMessageStopEvent', stopReason: 'endTurn' })
+    } finally {
+      hold.resume()
+      await stream.return(undefined)
+    }
   })
 
   it('keeps native request options and raw chunks available', async () => {
@@ -173,7 +195,7 @@ describe('WebLLMModel', () => {
         'length',
       ),
     )
-    await expect(aggregate(model)).rejects.toBeInstanceOf(MaxTokensError)
+    await expect(aggregate(model, { toolSpecs: tools })).rejects.toBeInstanceOf(MaxTokensError)
   })
 
   it('rejects broken tool JSON', async () => {
@@ -183,7 +205,7 @@ describe('WebLLMModel', () => {
         'tool_calls',
       ),
     )
-    await expect(aggregate(model)).rejects.toThrow('invalid tool JSON')
+    await expect(aggregate(model, { toolSpecs: tools })).rejects.toThrow('invalid tool JSON')
   })
 
   it('rejects a stream without a stop reason', async () => {
@@ -213,16 +235,63 @@ describe('WebLLMModel', () => {
     expect(stop).not.toHaveBeenCalled()
   })
 
-  it('interrupts generation when cancelled and removes the listener', async () => {
-    const { model, stop } = setup(chunk({ content: 'Hi' }), chunk({}, 'abort'))
+  it('interrupts active generation and closes its stream when cancelled', async () => {
+    const { model, create, stop } = setup()
+    const hold = pause()
+    const waiting = pause()
+    let closed = false
+    create.mockResolvedValueOnce(
+      (async function* () {
+        try {
+          yield chunk({ content: 'Hi' })
+          waiting.resume()
+          await hold.wait
+          yield chunk({}, 'abort')
+        } finally {
+          closed = true
+        }
+      })(),
+    )
+    stop.mockImplementation(async () => {
+      hold.resume()
+    })
+    const controller = new AbortController()
+    const stream = model.stream(messages, { cancelSignal: controller.signal })
+    await stream.next()
+    await stream.next()
+    expect((await stream.next()).value).toMatchObject({ delta: { text: 'Hi' } })
+    const rest = collect(stream)
+    await waiting.wait
+    controller.abort()
+    try {
+      expect(stop).toHaveBeenCalledTimes(1)
+      const events = await rest
+      expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'cancelled' })
+      expect(closed).toBe(true)
+    } finally {
+      hold.resume()
+      await stream.return(undefined)
+    }
+  })
+
+  it('removes the cancel listener after a completed call', async () => {
+    const { model, stop } = setup(chunk({ content: 'Hi' }, 'stop'))
+    const controller = new AbortController()
+    await collect(model.stream(messages, { cancelSignal: controller.signal }))
+    controller.abort()
+    expect(stop).not.toHaveBeenCalled()
+  })
+
+  it('does not start generation when cancelled after the message start', async () => {
+    const { model, stop } = setup(chunk({ content: 'Hi' }), chunk({}, 'stop'))
     const controller = new AbortController()
     const stream = model.stream(messages, { cancelSignal: controller.signal })
     await stream.next()
     controller.abort()
+    expect(await collect(stream)).toEqual([
+      { type: 'modelMessageStopEvent', stopReason: 'cancelled' },
+    ])
     expect(stop).toHaveBeenCalledTimes(1)
-    const events = await collect(stream)
-    expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'cancelled' })
-    expect(events.some((event) => event.type === 'modelContentBlockDeltaEvent')).toBe(false)
   })
 
   it('stops and releases the engine when a consumer leaves early', async () => {
@@ -251,6 +320,72 @@ describe('WebLLMModel', () => {
     await expect(aggregate(model)).rejects.toThrow('GPU lost')
     create.mockResolvedValueOnce(chunks(chunk({ content: 'Recovered' }, 'stop')))
     await expect(aggregate(model)).resolves.toMatchObject({ stopReason: 'endTurn' })
+  })
+
+  it('closes a failed stream and allows the next call on the engine', async () => {
+    const { model, create } = setup()
+    let closed = false
+    create.mockResolvedValueOnce(
+      (async function* () {
+        try {
+          yield chunk({ content: 'Partial' })
+          throw new Error('GPU lost during generation')
+        } finally {
+          closed = true
+        }
+      })(),
+    )
+    await expect(aggregate(model)).rejects.toThrow('GPU lost during generation')
+    expect(closed).toBe(true)
+    create.mockResolvedValueOnce(chunks(chunk({ content: 'Recovered' }, 'stop')))
+    await expect(aggregate(model)).resolves.toMatchObject({ stopReason: 'endTurn' })
+  })
+
+  it('keeps interleaved tool calls and their results separate', async () => {
+    const { model, create } = setup()
+    const weather = vi.fn((input: unknown) => JSON.stringify(input))
+    const time = vi.fn((input: unknown) => JSON.stringify(input))
+    create.mockResolvedValueOnce(
+      chunks(
+        chunk({
+          tool_calls: [
+            { index: 0, id: 'weather-1', function: { name: 'weather', arguments: '{"city":' } },
+          ],
+        }),
+        chunk({
+          tool_calls: [
+            { index: 1, id: 'time-1', function: { name: 'time', arguments: '{"zone":' } },
+          ],
+        }),
+        chunk({ tool_calls: [{ index: 0, function: { arguments: '"Seoul"}' } }] }),
+        chunk(
+          { tool_calls: [{ index: 1, function: { arguments: '"Asia/Seoul"}' } }] },
+          'tool_calls',
+        ),
+      ),
+    )
+    create.mockResolvedValueOnce(chunks(chunk({ content: 'Done' }, 'stop')))
+    const agent = new Agent({
+      model,
+      printer: false,
+      tools: [
+        new FunctionTool({ name: 'weather', description: 'Get weather', callback: weather }),
+        new FunctionTool({ name: 'time', description: 'Get time', callback: time }),
+      ],
+    })
+    expect((await agent.invoke('Weather and time?')).lastMessage.content).toEqual([
+      new TextBlock('Done'),
+    ])
+    expect(weather.mock.calls).toHaveLength(1)
+    expect(time.mock.calls).toHaveLength(1)
+    expect(weather.mock.calls[0]![0]).toEqual({ city: 'Seoul' })
+    expect(time.mock.calls[0]![0]).toEqual({ zone: 'Asia/Seoul' })
+    expect(create.mock.calls[1]![0].messages).toEqual(
+      expect.arrayContaining([
+        { role: 'tool', tool_call_id: 'weather-1', content: '{"city":"Seoul"}' },
+        { role: 'tool', tool_call_id: 'time-1', content: '{"zone":"Asia/Seoul"}' },
+      ]),
+    )
   })
 
   it('keeps the event order valid for an empty response', async () => {

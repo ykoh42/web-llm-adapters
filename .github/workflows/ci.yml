@@ -20,4 +20,3 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
-      - run: npm pack --dry-run --workspace strands-webllm

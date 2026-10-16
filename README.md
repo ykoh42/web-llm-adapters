@@ -52,8 +52,26 @@ editing its source, or run `npx tsc -p packages/strands-webllm/tsconfig.build.js
 --watch` in a second terminal.
 
 `npm run check` runs formatting, linting, all builds, all workspace type checks,
-and unit tests. Run `npm run build` before a standalone `npm run typecheck` so
+test coverage, unused code checks, and package checks. CI runs this same command.
+Run `npm run build` before a standalone `npm run typecheck` so
 examples can resolve workspace packages through their real exports.
+
+## Quality checks
+
+| Command                  | What it checks                                                                   |
+| ------------------------ | -------------------------------------------------------------------------------- |
+| `npm test`               | Fast unit and Agent integration tests                                            |
+| `npm run test:coverage`  | Untested code and branches; HTML report in `coverage/index.html`                 |
+| `npm run check:unused`   | Unused files, exports, and dependencies with Knip                                |
+| `npm run check:packages` | Package contents with publint, then TypeScript imports with Are the Types Wrong? |
+
+Coverage must stay at least 90% of lines and 85% of branches across package source.
+Coverage is a check for missing tests, not proof that assertions are useful. Tests
+also hold back stream chunks, cancel an active call, and check cleanup after errors.
+
+Package checks run after building. Each library adds a `check:package` script;
+the root finds those scripts through the workspaces. `strands-webllm` uses the
+`esm-only` type-check profile because it ships ESM, not a CommonJS build.
 
 ## Real model test
 
@@ -71,7 +89,7 @@ WebGPU. This test runs separately from CI because it needs a GPU and large model
 downloads.
 
 Verified on 2026-10-16 with WebLLM 0.2.86 and Strands SDK 1.21.0: Gemma 4 E2B FP16
-loaded in Chrome, returned `ready` through Strands streaming, and unloaded. Unit
+loaded in Chrome, streamed a response in multiple visible updates, and unloaded. Unit
 tests also cover an Agent tool loop, cancellation, failed streams, and media mapping.
 
 ## Add an adapter
