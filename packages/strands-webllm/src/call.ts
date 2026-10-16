@@ -1,12 +1,6 @@
-import { ModelError } from '@strands-agents/sdk'
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
-
-interface ActiveCall {
-  signal: AbortSignal | undefined
-  closed: Promise<void>
-}
-
-const activeCalls = new WeakMap<MLCEngineInterface, ActiveCall>()
+import { takeTurn } from './queue.js'
+import { modelError } from './error.js'
 
 /** Own the native stream until it closes, even if Strands abandons its iterator on abort. */
 export async function startCall<T>(
@@ -14,18 +8,11 @@ export async function startCall<T>(
   open: () => Promise<AsyncIterable<T>>,
   signal?: AbortSignal,
 ) {
-  for (;;) {
-    const previous = activeCalls.get(engine)
-    if (!previous) break
-    if (!previous.signal?.aborted) throw new ModelError('This WebLLM engine is already in use.')
-    await previous.closed
+  const release = await takeTurn(engine, signal)
+  if (signal?.aborted) {
+    release()
+    signal.throwIfAborted()
   }
-  signal?.throwIfAborted()
-  let release!: () => void
-  const closed = new Promise<void>((resolve) => {
-    release = resolve
-  })
-  activeCalls.set(engine, { signal, closed })
 
   const source = Promise.resolve()
     .then(open)
@@ -39,7 +26,6 @@ export async function startCall<T>(
         await iterator.return?.()
       } finally {
         signal?.removeEventListener('abort', cancel)
-        activeCalls.delete(engine)
         release()
       }
     })()
@@ -54,9 +40,23 @@ export async function startCall<T>(
   try {
     const iterator = await source
     signal?.throwIfAborted()
-    return { chunks: { [Symbol.asyncIterator]: () => iterator }, close }
+    async function* chunks() {
+      try {
+        while (true) {
+          const result = await iterator.next()
+          if (result.done) {
+            await close(false)
+            return
+          }
+          yield result.value
+        }
+      } catch (error) {
+        throw modelError(error)
+      }
+    }
+    return { chunks: chunks(), close }
   } catch (error) {
     await close(false).catch(() => {})
-    throw error
+    throw modelError(error)
   }
 }

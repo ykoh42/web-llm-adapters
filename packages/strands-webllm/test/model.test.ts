@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   Agent,
+  ContextWindowOverflowError,
+  ContentBlockEvent,
   FunctionTool,
   MaxTokensError,
   Message,
@@ -23,6 +25,45 @@ async function aggregate(model: WebLLMModel, options: StreamOptions = {}) {
 }
 
 describe('WebLLMModel', () => {
+  it('lets a completed-block hook use the same engine before the outer stream returns', async () => {
+    const { model, engine, create } = setup(chunk({ content: 'First' }, 'stop'))
+    create.mockResolvedValueOnce(chunks(chunk({ content: 'First' }, 'stop')))
+    create.mockResolvedValueOnce(chunks(chunk({ content: 'Second' }, 'stop')))
+    const aux = new WebLLMModel({ engine, modelId: 'test-model' })
+    const agent = new Agent({ model, printer: false })
+    agent.addHook(ContentBlockEvent, async () => {
+      const result = await aggregate(aux)
+      expect(result.message.content).toEqual([new TextBlock('Second')])
+    })
+    expect(String(await agent.invoke('Hi'))).toBe('First')
+  })
+  it.each(['native', 'worker', 'stream'])(
+    'maps %s context overflow for Strands recovery',
+    async (kind) => {
+      const { model, create } = setup(chunk({ content: 'Recovered' }, 'stop'))
+      const error =
+        kind === 'worker'
+          ? 'ContextWindowSizeExceededError: Prompt tokens exceed context window size'
+          : Object.assign(new Error('Prompt tokens exceed context window size'), {
+              name: 'ContextWindowSizeExceededError',
+            })
+      if (kind === 'stream')
+        create.mockResolvedValueOnce(
+          (async function* () {
+            yield chunk({})
+            throw error
+          })(),
+        )
+      else create.mockRejectedValueOnce(error)
+      await expect(collect(model.stream(messages))).rejects.toBeInstanceOf(
+        ContextWindowOverflowError,
+      )
+      expect(await collect(model.stream(messages))).toContainEqual(
+        expect.objectContaining({ delta: { type: 'textDelta', text: 'Recovered' } }),
+      )
+    },
+  )
+
   it('streams text through a real Strands Agent', async () => {
     const { model, create } = setup(chunk({ content: 'Hello' }), chunk({}, 'stop'))
     const agent = new Agent({ model, printer: false })
@@ -409,14 +450,69 @@ describe('WebLLMModel', () => {
     await expect(aggregate(model)).resolves.toMatchObject({ stopReason: 'endTurn' })
   })
 
-  it('rejects overlapping calls even when two adapters share an engine', async () => {
-    const { model, engine, stop } = setup(chunk({ content: 'Hi' }, 'stop'))
+  it('runs overlapping adapters in order on one engine', async () => {
+    const { model, engine, create, stop } = setup(chunk({ content: 'First' }, 'stop'))
     const first = model.stream(messages)
     await first.next()
     const second = new WebLLMModel({ engine, modelId: 'other' })
-    await expect(aggregate(second)).rejects.toThrow('already in use')
+    create.mockResolvedValueOnce(chunks(chunk({ content: 'Second' }, 'stop')))
+    create.mockResolvedValueOnce(chunks(chunk({ content: 'Third' }, 'stop')))
+    const next = aggregate(second)
+    const last = aggregate(model)
+    expect(create).toHaveBeenCalledTimes(1)
+    await collect(first)
+    expect((await next).message.content).toEqual([new TextBlock('Second')])
+    expect((await last).message.content).toEqual([new TextBlock('Third')])
     expect(stop).not.toHaveBeenCalled()
-    await first.return(undefined)
+  })
+
+  it('cancels a queued call without interrupting active work or letting later calls overtake it', async () => {
+    const { model, create, stop } = setup(chunk({ content: 'First' }, 'stop'))
+    const first = model.stream(messages)
+    await first.next()
+    const controller = new AbortController()
+    const waiting = collect(model.stream(messages, { cancelSignal: controller.signal }))
+    const cancelled = expect(waiting).rejects.toThrow()
+    controller.abort()
+    await cancelled
+    expect(stop).not.toHaveBeenCalled()
+    create.mockResolvedValueOnce(chunks(chunk({ content: 'Last' }, 'stop')))
+    const last = aggregate(model)
+    expect(create).toHaveBeenCalledTimes(1)
+    await collect(first)
+    expect((await last).message.content).toEqual([new TextBlock('Last')])
+    expect(create).toHaveBeenCalledTimes(2)
+    expect(stop).not.toHaveBeenCalled()
+  })
+
+  it('keeps engines independent while another engine has an active call', async () => {
+    const first = setup(chunk({ content: 'First' }, 'stop'))
+    const second = setup(chunk({ content: 'Other engine' }, 'stop'))
+    const active = first.model.stream(messages)
+    await active.next()
+    try {
+      expect((await aggregate(second.model)).message.content).toEqual([
+        new TextBlock('Other engine'),
+      ])
+    } finally {
+      await active.return(undefined)
+    }
+  })
+
+  it('releases queued work after the previous backend fails to open', async () => {
+    const { model, create } = setup()
+    const opening = pause()
+    create.mockImplementationOnce(async () => {
+      await opening.wait
+      throw new Error('GPU lost')
+    })
+    create.mockResolvedValueOnce(chunks(chunk({ content: 'Recovered' }, 'stop')))
+    const first = aggregate(model)
+    const failed = expect(first).rejects.toThrow('GPU lost')
+    const second = aggregate(model)
+    opening.resume()
+    await failed
+    expect((await second).message.content).toEqual([new TextBlock('Recovered')])
   })
 
   it('releases the engine after a backend error', async () => {
