@@ -18,6 +18,7 @@ const status = document.querySelector<HTMLParagraphElement>('#status')!
 const progress = document.querySelector<HTMLProgressElement>('#progress')!
 const output = document.querySelector<HTMLPreElement>('#output')!
 const details = document.querySelector<HTMLPreElement>('#details')!
+const reports: unknown[] = []
 let loaded: Awaited<ReturnType<typeof openEngine>> | undefined
 let controller: AbortController | undefined
 let busy = false
@@ -50,7 +51,8 @@ function showError(error: unknown) {
 }
 
 function info(value: unknown) {
-  details.textContent += JSON.stringify(value, null, 2) + '\n'
+  reports.push(value)
+  details.textContent = JSON.stringify(reports, null, 2)
 }
 
 exampleSelect.onchange = () => {
@@ -69,6 +71,7 @@ loadButton.onclick = async () => {
   updateButtons()
   status.textContent = 'Loading model…'
   details.textContent = ''
+  reports.length = 0
   try {
     const example = selectedExample()
     loaded = await openEngine(
@@ -106,6 +109,7 @@ runButton.onclick = async () => {
   updateButtons()
   output.textContent = ''
   details.textContent = ''
+  reports.length = 0
   status.textContent = 'Running…'
   try {
     await example.run({

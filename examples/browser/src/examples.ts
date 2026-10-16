@@ -3,6 +3,7 @@ import { tools } from './tools.js'
 import { media } from './media.js'
 import { completions, embeddings, rawAudio, resume } from './native.js'
 import type { ExampleInput } from './output.js'
+import { tags, thinking, sampling } from './advanced.js'
 
 interface Example {
   id: string
@@ -19,6 +20,27 @@ const gemma = 'gemma-4-E2B-it-q4f16_1-MLC'
 
 export const examples: Example[] = [
   { id: 'chat', name: 'Chat', model: gemma, prompt: 'Reply with a short greeting.', run: chat },
+  {
+    id: 'tags',
+    name: 'Structural tags',
+    model: gemma,
+    prompt: 'Return exactly <answer>{"count":3}</answer>. Do not explain.',
+    run: tags,
+  },
+  {
+    id: 'thinking',
+    name: 'Qwen thinking on and off',
+    model: 'Qwen3-0.6B-q4f16_1-MLC',
+    prompt: 'What is 2 + 2? Answer briefly.',
+    run: thinking,
+  },
+  {
+    id: 'sampling',
+    name: 'Sampling + latency',
+    model: gemma,
+    prompt: 'Give one short name for a friendly robot. Reply with only the name.',
+    run: sampling,
+  },
   {
     id: 'json',
     name: 'JSON schema + logprobs',
