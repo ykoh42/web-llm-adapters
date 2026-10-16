@@ -10,6 +10,7 @@ import { startCall } from '../call.js'
 import { readStream } from '../stream.js'
 import { toolPrompt } from './prompt.js'
 import { gemmaChunks } from './stream.js'
+import { writeKey } from './value.js'
 
 /** Gemma's native thinking and tool protocol through raw completions. */
 export async function* gemmaStream(
@@ -33,9 +34,19 @@ export async function* gemmaStream(
       throw new ModelError('WebLLM does not support toolChoice.any. Choose auto or a named tool.')
     if ('tool' in options.toolChoice) {
       const name = options.toolChoice.tool.name
-      if (!tools.some((tool) => tool.name === name))
-        throw new ModelError('The chosen Gemma tool is not registered.')
-      prefix = '<|tool_call>call:' + name
+      const tool = tools.find((tool) => tool.name === name)
+      if (!tool) throw new ModelError('The chosen Gemma tool is not registered.')
+      prefix = '<|tool_call>call:' + name + '{'
+      // A named choice fixes the call, not its values. Start its first required field.
+      const first = tool.inputSchema?.required?.[0]
+      if (first && Object.hasOwn(tool.inputSchema?.properties ?? {}, first)) {
+        prefix += writeKey(first) + ':'
+        const field = tool.inputSchema?.properties?.[first]
+        const type = typeof field === 'object' ? field.type : undefined
+        if (type === 'string') prefix += '"'
+        else if (type === 'array') prefix += '['
+        else if (type === 'object') prefix += '{'
+      }
     }
   }
   const prompt = toolPrompt(messages, tools, options, thinking)

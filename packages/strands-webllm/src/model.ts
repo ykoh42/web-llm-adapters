@@ -1,10 +1,16 @@
-import { Model, type Message, type StreamOptions } from '@strands-agents/sdk'
+import {
+  Model,
+  type CountTokensOptions,
+  type Message,
+  type StreamOptions,
+} from '@strands-agents/sdk'
 import type { ModelStreamEvent } from '@strands-agents/sdk'
 import type { ChatCompletionRequestBase, MLCEngineInterface } from '@mlc-ai/web-llm'
 import { formatMessages, formatTools, formatToolChoice } from './messages.js'
 import { readStream } from './stream.js'
 import { startCall } from './call.js'
 import { gemmaStream } from './gemma/model.js'
+import { promptTokens } from './gemma/prompt.js'
 import type { WebLLMModelConfig, WebLLMModelOptions } from './types.js'
 
 /** Connects a loaded WebLLM engine to Strands. The caller owns the engine. */
@@ -27,6 +33,15 @@ export class WebLLMModel extends Model<WebLLMModelConfig> {
   /** Selects a loaded model. Load new models with engine.reload() first. */
   override updateConfig(config: Partial<WebLLMModelConfig>): void {
     this.config = structuredClone({ ...this.config, ...config })
+  }
+
+  override async countTokens(
+    messages: Message[],
+    options: CountTokensOptions = {},
+  ): Promise<number> {
+    if (!/^gemma-4-/i.test(this.config.modelId)) return super.countTokens(messages, options)
+    const thinking = this.config.request?.extra_body?.enable_thinking === true
+    return (await super.countTokens(messages)) + promptTokens(options, thinking)
   }
 
   override async *stream(

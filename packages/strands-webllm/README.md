@@ -54,8 +54,9 @@ for await (const update of agent.stream('Say hello.')) {
 ```
 
 Use `agent.cancel()` to interrupt generation. Do not run native engine calls or
-change loaded models while an agent call is active. Overlapping adapter calls on
-the same engine are rejected so one call cannot cancel another.
+change loaded models while an agent call is active. Adapter calls sharing one
+engine wait in order. Cancelling a waiting call does not interrupt the active call.
+Separate engines have separate queues.
 
 ## Native features
 
@@ -113,9 +114,15 @@ and WAV bytes map to Strands. Each feature still requires a compatible WebLLM
 model. Other WebLLM operations keep their native API through `model.engine`.
 
 The adapter closes the native stream on cancellation even if Strands leaves an
-outer iterator suspended. The next call waits for that cleanup. Other overlapping
-adapter calls are rejected. Do not mix native calls or model reloads with an
-active adapter call.
+outer iterator suspended. The next call waits for that cleanup. Once the native
+stream finishes, hooks and other agents can use the engine while Strands finishes
+processing its events. Do not mix native calls or model reloads with active or
+queued adapter calls.
+
+Gemma token counts estimate declarations in their native form. They remain
+estimates; native context overflow is translated to Strands's recovery error,
+including errors returned as strings by a WebLLM Worker. Set `contextWindowLimit`
+to the window used when loading the engine.
 
 ## Gemma thinking
 
@@ -154,10 +161,14 @@ when tools are registered. This follows Google's
 through WebLLM raw completions. The model selects a tool, Strands or Harness runs
 it, and the result returns to Gemma for another call or a final answer. Calls are
 validated before execution; incomplete or truncated calls do not execute tools.
-The real GPU test uses `gemma-4-E2B-it-q4f16_1-MLC`.
+The real GPU tests use `gemma-4-E2B-it-q4f16_1-MLC`.
 
 Gemma protocol mode supports text, JSON tool arguments/results, system prompts, auto
 or named tool choice, sampling, usage, cancellation, and streamed answer text.
+Named choice prefills the selected call and its first required field; the model
+still supplies the values. Structured JSON and multiple result blocks retain
+their structure. Harness reminders and background continuations stay inside the
+current tool turn without changing the stored conversation.
 It rejects media, `response_format`, resume, and `ignore_eos`.
 It rebuilds the raw prompt on each call, so it does not reuse chat KV state.
 Use the standard WebLLM Gemma 4 catalog records, whose artifact loader supplies BOS;

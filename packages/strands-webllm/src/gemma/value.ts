@@ -2,6 +2,10 @@ import { ModelError, type JSONValue } from '@strands-agents/sdk'
 
 const quote = '<|"|>'
 
+export function writeKey(key: string): string {
+  return /^[\p{L}\p{N}_$.-]+$/u.test(key) ? key : writeValue(key)
+}
+
 /** Gemma uses a special string delimiter and bare object keys. */
 export function writeValue(value: unknown): string {
   if (typeof value === 'string') {
@@ -16,10 +20,7 @@ export function writeValue(value: unknown): string {
   if (typeof value === 'object' && value !== null) {
     const fields = Object.entries(value)
       .filter(([, item]) => item !== undefined)
-      .map(
-        ([key, item]) =>
-          (/^[\p{L}\p{N}_$.-]+$/u.test(key) ? key : writeValue(key)) + ':' + writeValue(item),
-      )
+      .map(([key, item]) => writeKey(key) + ':' + writeValue(item))
     return '{' + fields.join(',') + '}'
   }
   throw new ModelError('Gemma tool values must be JSON values.')

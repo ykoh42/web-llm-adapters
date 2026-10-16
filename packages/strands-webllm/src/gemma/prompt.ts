@@ -1,6 +1,26 @@
-import { ModelError, type Message, type StreamOptions, type ToolSpec } from '@strands-agents/sdk'
+import {
+  ModelError,
+  type CountTokensOptions,
+  type Message,
+  type StreamOptions,
+  type ToolSpec,
+} from '@strands-agents/sdk'
 import { gemmaHistory } from './history.js'
 import { writeValue } from './value.js'
+
+/** Estimate native declarations instead of counting their much larger SDK JSON form. */
+export function promptTokens(options: CountTokensOptions, thinking: boolean) {
+  const prompt = toolPrompt([], options.toolSpecs ?? [], options, thinking)
+  let special = 0
+  const text = prompt.replace(
+    /<\|(?:turn|tool|tool_call|tool_response|channel)>|<(?:turn|tool|tool_call|tool_response|channel)\|>|<\|(?:think|")\|>/g,
+    () => {
+      special++
+      return ''
+    },
+  )
+  return special + Math.ceil(text.length / 4)
+}
 
 // Tool format: https://huggingface.co/google/gemma-4-E2B-it/blob/main/chat_template.jinja
 export function toolPrompt(
@@ -9,7 +29,7 @@ export function toolPrompt(
   options: StreamOptions,
   thinking = false,
 ) {
-  const history = gemmaHistory(messages, options.systemPrompt)
+  const history = gemmaHistory(messages, options.systemPrompt, options.dynamicTrailingBlocks)
   const first = history[0]
   const system = first?.role === 'system' ? first.content : ''
   if (first?.role === 'system') history.shift()
@@ -27,7 +47,7 @@ export function toolPrompt(
   prompt += '<turn|>\n'
   const pending = new Map<string, string>()
   let modelOpen = false
-  for (const message of history) {
+  for (const [index, message] of history.entries()) {
     if (message.role === 'tool') {
       const name = pending.get(message.tool_call_id)
       if (!name || !modelOpen)
@@ -35,7 +55,10 @@ export function toolPrompt(
       prompt +=
         '<|tool_response>response:' +
         name +
-        writeValue({ value: message.content }) +
+        writeValue({
+          value: message.response !== undefined ? message.response : message.content,
+          ...(message.context !== undefined && { context: message.context }),
+        }) +
         '<tool_response|>'
       pending.delete(message.tool_call_id)
       continue
@@ -62,7 +85,7 @@ export function toolPrompt(
       prompt += '<|tool_call>call:' + call.function.name + writeValue(input) + '<tool_call|>'
       pending.set(call.id, call.function.name)
     }
-    if (!message.tool_calls?.length) {
+    if (!message.tool_calls?.length && history[index + 1]?.role !== 'assistant') {
       prompt += '<turn|>\n'
       modelOpen = false
     }

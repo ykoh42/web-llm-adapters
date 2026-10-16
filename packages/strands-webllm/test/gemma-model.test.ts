@@ -49,6 +49,22 @@ async function aggregate(model: WebLLMModel) {
 }
 
 describe('Gemma tool model', () => {
+  it('keeps tool results when native declarations fit the context window', async () => {
+    const { model, create } = setup(part(call, 'stop'))
+    create.mockResolvedValueOnce(parts(part(call, 'stop')))
+    create.mockResolvedValueOnce(parts(part('secret-42', 'stop')))
+    model.updateConfig({ contextWindowLimit: 4096, maxTokens: 128 })
+    const tool = new FunctionTool({
+      name: 'lookup',
+      description: 'x'.repeat(8800),
+      callback: () => 'secret-42',
+    })
+    const agent = new Agent({ model, tools: [tool], contextManager: 'auto', printer: false })
+    expect(String(await agent.invoke('Find x.'))).toBe('secret-42')
+    expect(create.mock.calls[1]![0].prompt).toContain(
+      '<|tool_response>response:lookup{value:<|"|>secret-42<|"|>}',
+    )
+  })
   it('separates streamed thinking, preserves it through tools, and strips it on the next user turn', async () => {
     const { model, create, chat } = setup()
     model.updateConfig({ request: { extra_body: { enable_thinking: true } } })
@@ -375,11 +391,11 @@ describe('Gemma tool model', () => {
   })
 
   it('can select a named registered tool without asking the model to invent the prefix', async () => {
-    const { model, create } = setup(part('{}<tool_call|>', 'stop'))
+    const { model, create } = setup(part('}<tool_call|>', 'stop'))
     const result = await collect(
       model.stream(messages, { toolSpecs: tools, toolChoice: { tool: { name: 'lookup' } } }),
     )
-    expect(create.mock.calls[0]?.[0].prompt.endsWith('<|tool_call>call:lookup')).toBe(true)
+    expect(create.mock.calls[0]?.[0].prompt.endsWith('<|tool_call>call:lookup{')).toBe(true)
     expect(result).toContainEqual(
       expect.objectContaining({ start: expect.objectContaining({ name: 'lookup' }) }),
     )
@@ -391,6 +407,70 @@ describe('Gemma tool model', () => {
     await expect(
       collect(model.stream(messages, { toolSpecs: tools, toolChoice: { any: {} } })),
     ).rejects.toThrow('toolChoice.any')
+  })
+
+  it('starts a named tool at its first required field while the model supplies the value', async () => {
+    const { model, create } = setup(part('/tmp/note.txt"}<tool_call|>', 'stop'))
+    const tool: ToolSpec = {
+      name: 'read',
+      description: 'Read a file.',
+      inputSchema: {
+        type: 'object',
+        properties: { path: { type: 'string' } },
+        required: ['path'],
+      },
+    }
+    const events = await collect(
+      model.stream(messages, { toolSpecs: [tool], toolChoice: { tool: { name: 'read' } } }),
+    )
+    expect(create.mock.calls[0]?.[0].prompt.endsWith('<|tool_call>call:read{path:"')).toBe(true)
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        delta: { type: 'toolUseInputDelta', input: '{"path":"/tmp/note.txt"}' },
+      }),
+    )
+  })
+
+  it('can generate an empty required array after a named tool prefix', async () => {
+    const { model, create } = setup(part(']}<tool_call|>', 'stop'))
+    const tool: ToolSpec = {
+      name: 'clear',
+      description: 'Clear the list.',
+      inputSchema: {
+        type: 'object',
+        properties: { todos: { type: 'array', items: { type: 'string' } } },
+        required: ['todos'],
+      },
+    }
+    const events = await collect(
+      model.stream(messages, { toolSpecs: [tool], toolChoice: { tool: { name: 'clear' } } }),
+    )
+    expect(create.mock.calls[0]?.[0].prompt.endsWith('<|tool_call>call:clear{todos:[')).toBe(true)
+    expect(events).toContainEqual(
+      expect.objectContaining({ delta: { type: 'toolUseInputDelta', input: '{"todos":[]}' } }),
+    )
+  })
+
+  it('allows JSON-escaped control markers in a named string argument', async () => {
+    const value = '<|"|>literal<|channel>thought\n'
+    const { model } = setup(part(JSON.stringify(value).slice(1) + '}<tool_call|>', 'stop'))
+    const tool: ToolSpec = {
+      name: 'read',
+      description: 'Read a path.',
+      inputSchema: {
+        type: 'object',
+        properties: { path: { type: 'string' } },
+        required: ['path'],
+      },
+    }
+    const events = await collect(
+      model.stream(messages, { toolSpecs: [tool], toolChoice: { tool: { name: 'read' } } }),
+    )
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        delta: { type: 'toolUseInputDelta', input: JSON.stringify({ path: value }) },
+      }),
+    )
   })
 
   it.each([
