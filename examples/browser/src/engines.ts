@@ -10,7 +10,7 @@ import serviceWorkerUrl from './service-worker.ts?worker&url'
 
 export async function openEngine(
   kind: string,
-  modelId: string,
+  modelId: string | string[],
   contextWindow: number | undefined,
   appConfig: AppConfig,
   initProgressCallback: InitProgressCallback,
@@ -51,7 +51,10 @@ export async function openEngine(
     }
   }
   try {
-    await engine.reload(modelId, contextWindow ? { context_window_size: contextWindow } : undefined)
+    const chatOptions = contextWindow ? { context_window_size: contextWindow } : undefined
+    const options =
+      Array.isArray(modelId) && chatOptions ? modelId.map(() => chatOptions) : chatOptions
+    await engine.reload(modelId, options)
     return { engine, close }
   } catch (error) {
     await close().catch((cleanupError: unknown) => console.error(cleanupError))
