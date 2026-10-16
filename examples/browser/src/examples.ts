@@ -57,7 +57,14 @@ export const examples: Example[] = [
   },
   {
     id: 'tools',
-    name: 'Tool call',
+    name: 'Gemma tool call + answer',
+    model: gemma,
+    prompt: 'Use the clock tool to get the current UTC time, then tell me the time.',
+    run: tools,
+  },
+  {
+    id: 'hermes-tools',
+    name: 'Hermes tool batch',
     model: 'Hermes-3-Llama-3.1-8B-q4f16_1-MLC',
     prompt: 'Use the clock tool to get the current UTC time.',
     run: tools,

@@ -17,9 +17,10 @@ export async function tools(input: ExampleInput) {
     temperature: 0,
   })
   const agent = new Agent({ model, tools: [clock], printer: false })
-  // Hermes tool mode always uses a tool JSON grammar. End after executing the tools.
-  agent.addHook(AfterToolsEvent, (event) => {
-    event.endTurn = 'Tool call finished. See the result in Details.'
-  })
+  // Legacy Hermes mode always generates tool JSON, so it needs an explicit end.
+  if (input.modelId.startsWith('Hermes-'))
+    agent.addHook(AfterToolsEvent, (event) => {
+      event.endTurn = 'Tool call finished. See the result in Details.'
+    })
   await runAgent(agent, input.prompt, input)
 }

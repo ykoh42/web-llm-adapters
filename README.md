@@ -43,7 +43,8 @@ The model runs on your device. Model files are downloaded from the URLs in
 WebLLM's model catalog. The page starts with Gemma text chat. Choose another
 example for JSON, tools, media, or native APIs, and another engine for a Worker.
 See the [browser examples](examples/browser/README.md) and [model restrictions](packages/strands-webllm/README.md#limits).
-Gemma does not accept native tool calls in this WebLLM release; that example uses Hermes.
+The Gemma tool example runs the tool and returns its result to the model for a final
+answer. The Harness example does the same with Harness's built-in Node.js `read` tool.
 
 ## Work on a package
 
@@ -101,6 +102,9 @@ constrained output, sampling, thinking, media, multiple loaded models, custom
 processors, integrity checks, and native APIs. CPU tests use a mocked engine;
 browser tests run real models. Synthetic silence checks audio decoding and
 inference, not transcription quality. Save/resume checks an orderly interruption.
+The Gemma Harness test reads a random code from a temporary file, checks the actual
+tool result, and requires Gemma's final answer to contain that code. It also checks
+a later conversation turn. No hook supplies the answer or ends the tool turn.
 
 For the extension checks, install Playwright's Chromium and run:
 

@@ -20,7 +20,8 @@ model reports WebLLM's error. FP16 models need `shader-f16`. FP32 variants use m
 | Structural tags          | [advanced.ts](src/advanced.ts) | Constrain tagged JSON                                          |
 | Qwen thinking on and off | [advanced.ts](src/advanced.ts) | Compare empty and populated thinking blocks                    |
 | Sampling + latency       | [advanced.ts](src/advanced.ts) | Repeat a seeded sample, inspect timings, and stop at a newline |
-| Tool call                | [tools.ts](src/tools.ts)       | Hermes calls a local Strands clock tool                        |
+| Gemma tool call + answer | [tools.ts](src/tools.ts)       | Gemma calls a clock tool, then answers with the result         |
+| Hermes tool batch        | [tools.ts](src/tools.ts)       | Legacy native tool API, ends after executing the tools         |
 | Image / WAV audio        | [media.ts](src/media.ts)       | Pass file bytes through Strands content blocks                 |
 | Native PCM audio         | [native.ts](src/native.ts)     | Decode audio, mix to mono, and pass Float32 samples            |
 | Native embeddings        | [native.ts](src/native.ts)     | Use a dedicated embedding model                                |
@@ -33,11 +34,12 @@ the model. Its startup handler is in [service-worker.ts](src/service-worker.ts).
 [output.ts](src/output.ts) only reads Strands events. Feature files call WebLLM and
 Strands directly; they do not depend on the page's DOM.
 
-Gemma 4 E2B handles text and audio in WebLLM 0.2.86. It does not accept native tools
-or images in this release. The tool example selects Hermes, and the image example
-selects Phi vision. These models require separate, large downloads. For tool mode,
-WebLLM adds its own system prompt and JSON grammar. The example explicitly ends the
-turn after the tools execute so that Hermes is not asked for another tool batch.
+Gemma 4 E2B handles text and audio in WebLLM 0.2.86. The adapter also supports its
+native function-call format through raw completions: the clock result returns to
+Gemma for a final answer. WebLLM's separate native `tools` API remains restricted
+to Hermes; the legacy Hermes example ends after the tool batch. The image example
+uses Phi vision. These other models need separate, large downloads. See the
+[provider limits](../../packages/strands-webllm/README.md#limits) for tool-mode options.
 
 **Details** shows usage, native metadata, and tool results. **Check cache** and
 **Delete cached model** use the selected cache backend. Deletion is only enabled

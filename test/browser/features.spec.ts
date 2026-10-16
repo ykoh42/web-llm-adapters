@@ -1,8 +1,15 @@
 import { test, expect, load, run, unload, silentWav } from './helpers.js'
 
-for (const engine of ['worker', 'service-worker']) {
-  test(`Gemma streams through ${engine} and can stop then run again`, async ({ page }) => {
-    await load(page, 'chat', engine)
+for (const [engine, example] of [
+  ['worker', 'chat'],
+  ['service-worker', 'chat'],
+  ['worker', 'tools'],
+  ['service-worker', 'tools'],
+] as const) {
+  test(`Gemma ${example} streams through ${engine} and can stop then run again`, async ({
+    page,
+  }) => {
+    await load(page, example, engine)
     await page.getByLabel('Message').fill('Count from 1 to 1000. Do not explain.')
     await page.getByRole('button', { name: 'Send', exact: true }).click()
     await expect(page.getByLabel('Response')).not.toBeEmpty({ timeout: 120_000 })
@@ -92,11 +99,23 @@ for (const backend of ['cache', 'indexeddb', 'opfs']) {
 }
 
 test('Hermes calls a real Strands tool', async ({ page }) => {
-  await load(page, 'tools')
+  await load(page, 'hermes-tools')
   await run(page)
   const details = await page.getByLabel('Details', { exact: true }).textContent()
   expect(details).toContain('"toolResultEvent"')
   expect(details).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:/)
+  await unload(page)
+})
+
+test('Gemma calls the clock and writes its own final answer', async ({ page }) => {
+  await load(page, 'tools')
+  await run(page)
+  const details = await page.getByLabel('Details', { exact: true }).textContent()
+  expect(details).toContain('"toolResultEvent"')
+  const time = details!.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/)![0]
+  // The answer must use the tool's time, not the fixed text from the legacy hook.
+  await expect(page.getByLabel('Response')).toContainText(time.slice(11))
+  await expect(page.getByLabel('Response')).not.toContainText('<|tool_call>')
   await unload(page)
 })
 
