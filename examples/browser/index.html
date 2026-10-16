@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Strands + WebLLM</title>
+    <style>
+      body {
+        max-width: 48rem;
+        margin: 3rem auto;
+        padding: 0 1rem;
+        font: 1rem/1.6 system-ui;
+      }
+      button,
+      select,
+      textarea {
+        font: inherit;
+        padding: 0.5rem;
+      }
+      textarea {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+        margin: 1rem 0;
+      }
+      pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        padding: 1rem;
+        background: #f5f5f5;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Strands + WebLLM</h1>
+    <p>Run Gemma 4 E2B in your browser. The first load downloads several GB of model files.</p>
+    <label for="model">Model</label>
+    <select id="model">
+      <option value="gemma-4-E2B-it-q4f16_1-MLC">Gemma 4 E2B · FP16</option>
+      <option value="gemma-4-E2B-it-q4f32_1-MLC">Gemma 4 E2B · FP32</option>
+    </select>
+    <button id="load">Load model</button>
+    <button id="unload" disabled>Unload</button>
+    <p id="status" role="status">Ready to load</p>
+    <progress id="progress" max="1" value="0" aria-label="Model loading"></progress>
+    <label for="prompt">Message</label>
+    <textarea id="prompt" rows="3">Reply with a short greeting.</textarea>
+    <button id="run" disabled>Send</button>
+    <button id="stop" disabled>Stop</button>
+    <pre id="output" aria-label="Response"></pre>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
