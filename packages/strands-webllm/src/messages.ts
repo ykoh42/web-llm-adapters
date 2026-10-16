@@ -14,7 +14,7 @@ export function formatMessages(
   const output: ChatCompletionMessageParam[] = []
   if (systemPrompt !== undefined) {
     const text = typeof systemPrompt === 'string' ? systemPrompt : textOnly(systemPrompt)
-    output.push({ role: 'system', content: text })
+    if (text) output.push({ role: 'system', content: text })
   }
 
   for (const message of messages) {

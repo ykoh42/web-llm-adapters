@@ -13,6 +13,14 @@ import { WebLLMModel } from '../src/index.js'
 import { chunk, collect, setup } from './helpers.js'
 
 describe('messages', () => {
+  it('omits an empty system prompt so Hermes can supply its tool prompt', () => {
+    const messages = [new Message({ role: 'user', content: [new TextBlock('Use the clock.')] })]
+    for (const prompt of ['', [], [new TextBlock('')]]) {
+      const output = formatMessages(messages, prompt)
+      expect(output).toEqual([{ role: 'user', content: 'Use the clock.' }])
+    }
+  })
+
   it('joins text blocks into the one text field WebLLM accepts', () => {
     const messages = [
       new Message({ role: 'user', content: [new TextBlock('One'), new TextBlock('Two')] }),
