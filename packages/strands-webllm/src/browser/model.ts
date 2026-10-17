@@ -5,21 +5,20 @@ import {
   type Message,
   type ModelStreamEvent,
   type StreamOptions,
-  type SystemPrompt,
 } from '@strands-agents/sdk'
-import type { WebLLMModelConfig } from 'strands-webllm'
-import type { Page } from '@playwright/test'
-import type { HarnessRequest } from '../browser/src/harness-api.js'
+import type { WebLLMModelConfig } from '../types.js'
+import { formatSystemPrompt } from '../messages.js'
+import type { BrowserPage, BrowserRequest } from './types.js'
 
 /** Runs the adapter in a controlled browser; Harness and its tools stay in Node.js. */
 export class BrowserModel extends Model<WebLLMModelConfig> {
-  private readonly page: Page
+  private readonly page: BrowserPage
   private config: WebLLMModelConfig
 
-  constructor(page: Page, config: WebLLMModelConfig) {
+  constructor(page: BrowserPage, config: WebLLMModelConfig) {
     super()
     this.page = page
-    this.config = structuredClone({ contextWindowLimit: 8192, ...config })
+    this.config = structuredClone(config)
   }
 
   override getConfig() {
@@ -32,11 +31,11 @@ export class BrowserModel extends Model<WebLLMModelConfig> {
 
   override async countTokens(messages: Message[], options: CountTokensOptions = {}) {
     return this.page.evaluate(
-      (json) => window.harness.count(JSON.parse(json)),
+      (json) => window.webllmBridge.count(JSON.parse(json)),
       JSON.stringify({
         messages: messages.map((message) => message.toJSON()),
         config: this.getConfig(),
-        options: { ...options, systemPrompt: systemText(options.systemPrompt) },
+        options: { ...options, systemPrompt: formatSystemPrompt(options.systemPrompt) },
       }),
     )
   }
@@ -47,8 +46,8 @@ export class BrowserModel extends Model<WebLLMModelConfig> {
   ): AsyncGenerator<ModelStreamEvent> {
     const { cancelSignal, systemPrompt, toolSpecs, toolChoice, dynamicTrailingBlocks } = options
     cancelSignal?.throwIfAborted()
-    const prompt = systemText(systemPrompt)
-    const request: HarnessRequest = {
+    const prompt = formatSystemPrompt(systemPrompt)
+    const request: BrowserRequest = {
       messages: messages.map((message) => message.toJSON()),
       config: this.getConfig(),
       options: {
@@ -60,18 +59,20 @@ export class BrowserModel extends Model<WebLLMModelConfig> {
     }
     // SDK message JSON encodes media bytes as base64 across the browser boundary.
     const id = await this.page.evaluate(
-      (json) => window.harness.start(JSON.parse(json)),
+      (json) => window.webllmBridge.start(JSON.parse(json)),
       JSON.stringify(request),
     )
     // Strands may leave its iterator suspended on cancel, so stop the browser directly.
+    let closing: Promise<void> | undefined
+    const close = () => (closing ??= this.page.evaluate((id) => window.webllmBridge.stop(id), id))
     const stop = () => {
-      void this.page.evaluate((id) => window.harness.stop(id), id).catch(() => {})
+      void close().catch(() => {})
     }
     cancelSignal?.addEventListener('abort', stop, { once: true })
     try {
       cancelSignal?.throwIfAborted()
       while (true) {
-        const result = await this.page.evaluate((id) => window.harness.next(id), id)
+        const result = await this.page.evaluate((id) => window.webllmBridge.next(id), id)
         cancelSignal?.throwIfAborted()
         if ('error' in result) {
           const { name, message } = result.error
@@ -83,15 +84,7 @@ export class BrowserModel extends Model<WebLLMModelConfig> {
       }
     } finally {
       cancelSignal?.removeEventListener('abort', stop)
-      await this.page.evaluate((id) => window.harness.stop(id), id)
+      await close()
     }
   }
-}
-
-function systemText(prompt?: SystemPrompt) {
-  if (typeof prompt === 'string' || !prompt) return prompt
-  return prompt
-    .filter((block) => block.type === 'textBlock')
-    .map((block) => block.text)
-    .join('\n')
 }

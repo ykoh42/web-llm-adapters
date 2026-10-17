@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHarness } from '@strands-agents/harness'
 import { test, expect } from '../../../test/browser.js'
-import { BrowserModel } from '../browser-model.js'
+import { BrowserModel } from 'strands-webllm'
 
 declare global {
   interface Window {

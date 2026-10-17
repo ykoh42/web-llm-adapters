@@ -13,7 +13,7 @@ export function formatMessages(
 ): ChatCompletionMessageParam[] {
   const output: ChatCompletionMessageParam[] = []
   if (systemPrompt !== undefined) {
-    const text = typeof systemPrompt === 'string' ? systemPrompt : textOnly(systemPrompt)
+    const text = formatSystemPrompt(systemPrompt)
     if (text) output.push({ role: 'system', content: text })
   }
 
@@ -118,4 +118,10 @@ export function formatToolChoice(choice: ToolChoice): ChatCompletionToolChoiceOp
   if ('auto' in choice) return 'auto'
   if ('tool' in choice) return { type: 'function', function: { name: choice.tool.name } }
   throw new ModelError('WebLLM does not support toolChoice.any. Choose auto or a named tool.')
+}
+
+/** Cache hints are harmless; unsupported system blocks must never disappear silently. */
+export function formatSystemPrompt(prompt?: SystemPrompt): string | undefined {
+  if (prompt === undefined || typeof prompt === 'string') return prompt
+  return textOnly(prompt)
 }

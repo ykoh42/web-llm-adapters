@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test'
 import { LocalFileStorage } from '@strands-agents/sdk/storage'
 import { FileMemoryStore } from '@strands-agents/sdk/vended-memory-stores/file-memory-store'
-import { BrowserModel } from './browser-model.ts'
+import { BrowserModel } from 'strands-webllm'
 
 /** Keep extraction JSON valid without constraining ordinary summaries. */
 export function createMemory(

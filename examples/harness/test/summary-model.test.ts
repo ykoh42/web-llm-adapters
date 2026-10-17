@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { Message, TextBlock, type ModelStreamEvent } from '@strands-agents/sdk'
 import type { Page } from '@playwright/test'
-import { BrowserModel } from '../browser-model.js'
+import { BrowserModel } from 'strands-webllm'
 import { SummaryModel } from '../summary-model.js'
 
 afterEach(() => vi.restoreAllMocks())

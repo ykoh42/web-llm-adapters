@@ -1,8 +1,9 @@
 # Strands Harness + WebLLM
 
-Harness runs in Node.js. WebLLM runs in a browser with WebGPU. `BrowserModel`
-forwards model requests to the browser's `WebLLMModel` and brings its Strands
-stream events back. Harness executes the tools in Node.js. No model API server
+Harness runs in Node.js. WebLLM runs in a browser with WebGPU. The package exports
+`BrowserModel` and `createBrowserBridge`; this example supplies browser startup and
+application settings. `BrowserModel` forwards model requests to the browser's
+`WebLLMModel` and brings its Strands stream events back. Harness executes the tools in Node.js. No model API server
 or model API key is used. Web search uses Harness's Exa integration.
 
 From the repository root:
@@ -98,6 +99,8 @@ After the page has loaded Gemma into its engine, the important setup is
 below. [main.ts](./main.ts) has the complete runnable setup.
 
 ```ts
+import { BrowserModel } from 'strands-webllm'
+
 const modelId = 'gemma-4-E2B-it-q4f16_1-MLC'
 const config = { modelId, contextWindowLimit: 16384 }
 const model = new BrowserModel(page, {

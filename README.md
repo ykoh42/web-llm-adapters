@@ -5,7 +5,8 @@ WebLLM adapters for AI agent frameworks. Community maintained.
 The first package is [`strands-webllm`](./packages/strands-webllm). It connects a
 WebLLM engine to Strands Harness through its SDK model interface, without Vercel
 AI SDK or a hosted model API. The [Harness example](examples/harness/README.md)
-keeps Harness and its tools in Node.js and runs WebLLM in a controlled browser.
+keeps Harness and its tools in Node.js and runs WebLLM in a controlled browser,
+using the package's public `BrowserModel` and `createBrowserBridge` APIs.
 
 ## Layout
 
@@ -21,7 +22,9 @@ test/
 
 Packages have their own source, build output, and peer dependencies. The root owns
 the lockfile, TypeScript settings, linting, formatting, and tests. Shared runtime
-code can be added when another adapter needs it.
+code can be added when another adapter needs it. The root pins one SDK runtime
+for the Strands package and examples because Harness recognizes models with
+`instanceof Model`. The package still declares the SDK as a peer dependency.
 
 ## Start
 

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { createHarness, type HarnessAgentOptions } from '@strands-agents/harness'
 import { AfterToolsEvent, BeforeModelCallEvent, FunctionTool } from '@strands-agents/sdk'
 import { test, expect } from '../../../test/browser.js'
-import { BrowserModel } from '../browser-model.js'
+import { BrowserModel } from 'strands-webllm'
 
 const defaults: HarnessAgentOptions = {
   builtinTools: [],

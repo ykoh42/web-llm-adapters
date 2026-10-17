@@ -50,8 +50,8 @@ test('cancelling a queued browser request leaves the active and later calls usab
   try {
     await page.evaluate(() => {
       const seen = new Set<string>()
-      const next = window.harness.next
-      window.harness.next = (id) => {
+      const next = window.webllmBridge.next
+      window.webllmBridge.next = (id) => {
         const result = next(id)
         seen.add(id)
         document.documentElement.dataset.harnessCalls = String(seen.size)

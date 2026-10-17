@@ -1,8 +1,8 @@
 # strands-webllm
 
 A community-maintained WebLLM model provider for Strands Harness and its SDK.
-The [Harness example](../../examples/harness/README.md) connects Node.js Harness
-to browser inference; this provider itself runs beside the WebLLM engine.
+Use `WebLLMModel` beside the engine, or `BrowserModel` to connect Node.js Harness
+to a browser. Both use the same provider and inference queue.
 
 ## Use
 
@@ -40,6 +40,57 @@ await engine.unload()
 
 Load the engine in a WebGPU-capable browser. The adapter does not access browser
 globals when imported, load a model, or unload an engine that the caller owns.
+
+## Node.js Harness
+
+Load WebLLM on a page you control, then expose the package's bridge on that page:
+
+```ts
+import { createBrowserBridge } from 'strands-webllm'
+
+// engine is a loaded WebLLM engine, created by your browser application.
+window.webllmBridge = createBrowserBridge(engine)
+```
+
+Pass that page to the public `BrowserModel` in Node.js:
+
+```ts
+import { createHarness } from '@strands-agents/harness'
+import { BrowserModel } from 'strands-webllm'
+
+// page is a Playwright Page opened to your browser application.
+const model = new BrowserModel(page, {
+  modelId: 'gemma-4-E2B-it-q4f16_1-MLC',
+  contextWindowLimit: 16384, // Match the engine's loaded context window.
+  maxTokens: 4096,
+  request: { extra_body: { enable_thinking: true } },
+})
+const agent = await createHarness({ model })
+try {
+  const result = await agent.invoke('Say hello.')
+  console.log(result.lastMessage.content)
+} finally {
+  await agent.shutdown()
+}
+```
+
+Harness runs tools in Node.js; the bridge returns Strands stream events from the
+browser. Thinking, tool choice, trailing Harness context, cancellation, and
+context overflow errors pass through this connection. SDK message JSON preserves
+media bytes. Model support and Gemma protocol restrictions still apply.
+
+`BrowserPage` requires only `evaluate()` and accepts a Playwright Page without a
+Playwright dependency in this package. The application owns browser startup,
+engine loading, and shutdown. Before unloading the engine or closing the page,
+run `await page.evaluate(() => window.webllmBridge.close())`. This waits for all
+bridge calls to stop and rejects new requests. It does not unload the engine.
+Do not replace a bridge while its calls are running, and expose it only on a
+trusted page controlled by your application.
+
+The [complete Harness example](../../examples/harness/README.md) sets up Chrome,
+the browser page, and optional read, search, memory, and summary behavior. Those
+application choices stay in the example; no example source is needed to import
+the package's connection API.
 
 ## Streaming
 
@@ -119,8 +170,10 @@ stream finishes, hooks and other agents can use the engine while Strands finishe
 processing its events. Do not mix native calls or model reloads with active or
 queued adapter calls.
 
-Gemma token counts estimate declarations in their native form. They remain
-estimates; native context overflow is translated to Strands's recovery error,
+Gemma token counts omit past-turn thoughts just as the generated prompt does,
+while keeping thoughts from the current tool loop. Counts estimate declarations
+in their native form. They remain estimates; native context overflow is
+translated to Strands's recovery error,
 including errors returned as strings by a WebLLM Worker. Set `contextWindowLimit`
 to the window used when loading the engine.
 

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Agent, type ToolContext } from '@strands-agents/sdk'
 import type { Page } from '@playwright/test'
-import { BrowserModel } from '../browser-model.js'
+import { BrowserModel } from 'strands-webllm'
 import { createRead } from '../read.js'
 import { pdf } from './pdf.js'
 

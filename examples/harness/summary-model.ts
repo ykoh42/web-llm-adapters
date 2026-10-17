@@ -1,5 +1,5 @@
 import { Message, TextBlock, type StreamOptions } from '@strands-agents/sdk'
-import { BrowserModel } from './browser-model.ts'
+import { BrowserModel } from 'strands-webllm'
 
 /** Keep facts from long Harness context summaries by reading them in small parts. */
 export class SummaryModel extends BrowserModel {
