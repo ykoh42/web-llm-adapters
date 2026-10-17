@@ -2,6 +2,7 @@ import { ModelError, type Message, type SystemPrompt, type ToolChoice } from '@s
 import type { ContentBlock, ToolResultContent, ToolSpec } from '@strands-agents/sdk'
 import type {
   ChatCompletionContentPart,
+  ChatCompletionAssistantMessageParam,
   ChatCompletionMessageParam,
   ChatCompletionTool,
   ChatCompletionToolChoiceOption,
@@ -18,48 +19,50 @@ export function formatMessages(
   }
 
   for (const message of messages) {
-    if (message.role === 'assistant') {
-      const calls = message.content.filter((block) => block.type === 'toolUseBlock')
-      const text = textOnly(message.content.filter((block) => block.type !== 'toolUseBlock'))
-      output.push({
-        role: 'assistant',
-        content: text || null,
-        ...(calls.length && {
-          tool_calls: calls.map((call) => ({
-            id: call.toolUseId,
-            type: 'function' as const,
-            function: { name: call.name, arguments: JSON.stringify(call.input) },
-          })),
-        }),
-      })
-      continue
-    }
-
-    // Tool results must precede user text injected into the same Strands message.
-    for (const block of message.content) {
-      if (block.type !== 'toolResultBlock') continue
-      const text = textOnly(block.content)
-      output.push({
-        role: 'tool',
-        tool_call_id: block.toolUseId,
-        content: block.status === 'error' ? `Tool error: ${text}` : text,
-      })
-    }
-    const content = message.content
-      .filter((block) => block.type !== 'toolResultBlock' && block.type !== 'cachePointBlock')
-      .map(formatPart)
-    if (content.length) {
-      const text = content
-        .filter((part) => part.type === 'text')
-        .map((part) => part.text)
-        .join('\n')
-      const media = content.filter((part) => part.type !== 'text')
-      output.push({
-        role: 'user',
-        content: media.length ? [{ type: 'text', text }, ...media] : text,
-      })
-    }
+    if (message.role === 'assistant') output.push(formatAssistant(message.content))
+    else output.push(...formatUser(message.content))
   }
+  return output
+}
+
+export function formatAssistant(content: ContentBlock[]): ChatCompletionAssistantMessageParam {
+  const calls = content.filter((block) => block.type === 'toolUseBlock')
+  const text = textOnly(content.filter((block) => block.type !== 'toolUseBlock'))
+  return {
+    role: 'assistant',
+    content: text || null,
+    ...(calls.length && {
+      tool_calls: calls.map((call) => ({
+        id: call.toolUseId,
+        type: 'function' as const,
+        function: { name: call.name, arguments: JSON.stringify(call.input) },
+      })),
+    }),
+  }
+}
+
+export function formatUser(content: ContentBlock[]): ChatCompletionMessageParam[] {
+  const output: ChatCompletionMessageParam[] = []
+  // Tool results must precede user text injected into the same Strands message.
+  for (const block of content) {
+    if (block.type !== 'toolResultBlock') continue
+    const text = textOnly(block.content)
+    output.push({
+      role: 'tool',
+      tool_call_id: block.toolUseId,
+      content: block.status === 'error' ? `Tool error: ${text}` : text,
+    })
+  }
+  const parts = content
+    .filter((block) => block.type !== 'toolResultBlock' && block.type !== 'cachePointBlock')
+    .map(formatPart)
+  if (!parts.length) return output
+  const text = parts
+    .filter((part) => part.type === 'text')
+    .map((part) => part.text)
+    .join('\n')
+  const media = parts.filter((part) => part.type !== 'text')
+  output.push({ role: 'user', content: media.length ? [{ type: 'text', text }, ...media] : text })
   return output
 }
 

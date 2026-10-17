@@ -7,6 +7,7 @@ import {
 } from '@strands-agents/sdk'
 import { gemmaHistory } from './history.js'
 import { writeValue } from './value.js'
+import { gemmaSchema } from './schema.js'
 
 /** Estimate native declarations instead of counting their much larger SDK JSON form. */
 export function promptTokens(options: CountTokensOptions, thinking: boolean) {
@@ -40,7 +41,7 @@ export function toolPrompt(
       tool.name +
       writeValue({
         description: tool.description,
-        parameters: schema(tool.inputSchema ?? { type: 'object', properties: {} }),
+        parameters: gemmaSchema(tool.inputSchema ?? { type: 'object', properties: {} }),
       }) +
       '<tool|>'
   }
@@ -94,32 +95,4 @@ export function toolPrompt(
   if (!modelOpen) prompt += '<|turn>model\n'
   // WebLLM's Gemma artifact loader supplies the BOS token itself.
   return prompt
-}
-
-function schema(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(schema)
-  if (typeof value !== 'object' || value === null) return value
-  return Object.fromEntries(
-    Object.entries(value).map(([key, item]) => {
-      if (key === 'type' && typeof item === 'string') return [key, item.toUpperCase()]
-      if (key === 'type' && Array.isArray(item))
-        return [
-          key,
-          item.map((type: unknown) => (typeof type === 'string' ? type.toUpperCase() : type)),
-        ]
-      if (
-        ['properties', '$defs', 'definitions', 'patternProperties'].includes(key) &&
-        typeof item === 'object' &&
-        item !== null
-      ) {
-        return [
-          key,
-          Object.fromEntries(Object.entries(item).map(([name, child]) => [name, schema(child)])),
-        ]
-      }
-      if (['items', 'additionalProperties', 'oneOf', 'anyOf', 'allOf', 'prefixItems'].includes(key))
-        return [key, schema(item)]
-      return [key, item]
-    }),
-  )
 }

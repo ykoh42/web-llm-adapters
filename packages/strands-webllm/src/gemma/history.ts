@@ -1,6 +1,6 @@
 import { Message, ModelError, type SystemPrompt } from '@strands-agents/sdk'
 import type { ChatCompletionMessageParam } from '@mlc-ai/web-llm'
-import { formatMessages } from '../messages.js'
+import { formatMessages, formatAssistant, formatUser } from '../messages.js'
 
 type GemmaMessage = ChatCompletionMessageParam & {
   reasoning?: string
@@ -19,57 +19,53 @@ export function gemmaHistory(
   const folded = toolReminder(messages, dynamicTrailingBlocks)
   const history: GemmaMessage[] = formatMessages([], systemPrompt)
   for (const message of messages) {
-    if (message.role !== 'assistant') {
-      // WebLLM has no provider prompt cache to protect. Put ephemeral context before
-      // the user's request so the request remains the last text Gemma reads.
-      const ordered =
-        message === last && message.role === 'user' && dynamicTrailingBlocks > 0 && !folded
-          ? new Message({
-              role: 'user',
-              content: [
-                ...message.content.slice(-dynamicTrailingBlocks),
-                ...message.content.slice(0, -dynamicTrailingBlocks),
-              ],
-            })
-          : message
-      const formatted: GemmaMessage[] = formatMessages([ordered])
-      let resultIndex = 0
-      for (const block of message.content) {
-        if (block.type !== 'toolResultBlock') continue
-        const result = formatted[resultIndex++]!
-        if (block.status === 'error') continue
-        const first = block.content[0]
-        if (block.content.length === 1 && first?.type === 'jsonBlock') result.response = first.json
-        else if (block.content.length > 1)
-          result.response = block.content.map((item) => item.toJSON())
-      }
-      if (folded && message === last) {
-        // Harness reminders belong to this tool response, not a new user turn.
-        const reminder = formatted.pop()
-        const result = formatted.at(-1)
-        if (
-          reminder?.role !== 'user' ||
-          typeof reminder.content !== 'string' ||
-          result?.role !== 'tool'
-        )
-          throw new ModelError('Gemma received invalid trailing context.')
-        result.context = reminder.content
-      }
-      history.push(...formatted)
-      continue
-    }
-    const thoughts = message.content.filter((block) => block.type === 'reasoningBlock')
-    const clean = new Message({
-      role: 'assistant',
-      content: message.content.filter((block) => block.type !== 'reasoningBlock'),
-    })
-    const reasoning = thoughts.map((block) => block.text ?? '').join('\n')
-    history.push({
-      ...formatMessages([clean])[0]!,
-      ...(reasoning && { reasoning }),
-    })
+    if (message.role === 'assistant') history.push(assistantTurn(message))
+    else
+      history.push(
+        ...userTurn(
+          message,
+          message === last ? dynamicTrailingBlocks : 0,
+          Boolean(folded && message === last),
+        ),
+      )
   }
   return history
+}
+
+function assistantTurn(message: Message): GemmaMessage {
+  const content = message.content.filter((block) => block.type !== 'reasoningBlock')
+  const reasoning = message.content
+    .filter((block) => block.type === 'reasoningBlock')
+    .map((block) => block.text ?? '')
+    .join('\n')
+  return { ...formatAssistant(content), ...(reasoning && { reasoning }) }
+}
+
+function userTurn(message: Message, trailing: number, folded: boolean): GemmaMessage[] {
+  // Put ephemeral context before the user's request; folded tool reminders stay with the result.
+  let content = message.content
+  if (message.role === 'user' && trailing > 0 && !folded)
+    content = [...content.slice(-trailing), ...content.slice(0, -trailing)]
+  const turns: GemmaMessage[] = formatUser(content)
+  const results = message.content.filter((block) => block.type === 'toolResultBlock')
+  for (const [index, block] of results.entries()) {
+    if (block.status === 'error') continue
+    // formatUser always emits tool results first, in their original order.
+    const turn = turns[index]!
+    const first = block.content[0]
+    if (block.content.length === 1 && first?.type === 'jsonBlock') turn.response = first.json
+    else if (block.content.length > 1) turn.response = block.content.map((item) => item.toJSON())
+  }
+  if (folded) foldReminder(turns)
+  return turns
+}
+
+function foldReminder(turns: GemmaMessage[]) {
+  const reminder = turns.pop()
+  const result = turns.at(-1)
+  if (reminder?.role !== 'user' || typeof reminder.content !== 'string' || result?.role !== 'tool')
+    throw new ModelError('Gemma received invalid trailing context.')
+  result.context = reminder.content
 }
 
 /** Remove only thoughts that Gemma drops after a new user turn. */
