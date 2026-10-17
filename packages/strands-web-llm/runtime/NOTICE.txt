@@ -1,0 +1,13 @@
+This is a community-built model library for WebLLM 0.2.86, not an official
+WebLLM release. It contains compiled TVM, TVM FFI and MLC LLM code.
+
+Modified 2026-10-18: allocate separate full-attention and sliding-attention
+metadata buffers in TVM's PlainPagedKVCacheAuxDataManager. See cache.patch.
+Gemma linear projections accumulate in float32, then restore the original
+activation dtype. Quantized weights and the float16 KV cache are unchanged.
+See projection.patch.
+No model weights or tokenizer files are included. Model downloads retain
+their original terms.
+
+Upstream notices and licenses are in licenses/. Source revisions, archive
+hashes, build tools and artifact hashes are in manifest.json.

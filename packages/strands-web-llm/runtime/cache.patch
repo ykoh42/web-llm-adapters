@@ -1,0 +1,89 @@
+--- a/src/runtime/vm/attn_utils.h
++++ b/src/runtime/vm/attn_utils.h
+@@ -562,7 +562,8 @@
+   explicit PlainPagedKVCacheAuxDataManager(int64_t reserved_num_seqs, int64_t num_total_pages,
+                                            int64_t prefill_chunk_size, DLDataType dtype_aux,
+                                            Device device, Device preferred_host_device,
+-                                           TVMStreamHandle copy_stream)
++                                           TVMStreamHandle copy_stream,
++                                           bool layer_sliding_window = false)
+       : PagedKVCacheAuxDataManager(dtype_aux, device, preferred_host_device, copy_stream),
+         cur_append_length_indptr_device_(
+             Tensor::Empty({reserved_num_seqs + 1}, dtype_aux_, device)),
+@@ -586,6 +587,13 @@
+     for (int d = 0; d < kPagedKVCacheMaxBlockDepth; ++d) {
+       qo_indptr_on_depths_device_.push_back(
+           Tensor::Empty({reserved_num_seqs + 1}, dtype_aux_, device));
++      tree_attn_mask_device_.push_back(Tensor::Empty(
++          {kTreeAttnMaxTreeSize * kTreeAttnMaxTreeSize * reserved_num_seqs}, dtype_aux_, device));
++      tree_attn_mn_indptr_device_.push_back(
++          Tensor::Empty({reserved_num_seqs + 1}, dtype_aux_, device));
++    }
++    int num_metadata_slots = kPagedKVCacheMaxBlockDepth * (layer_sliding_window ? 2 : 1);
++    for (int slot = 0; slot < num_metadata_slots; ++slot) {
+       page_indptr_on_depths_device_.push_back(
+           Tensor::Empty({reserved_num_seqs + 1}, dtype_aux_, device));
+       page_indices_on_depths_device_.push_back(
+@@ -594,10 +602,6 @@
+           Tensor::Empty({3, reserved_num_seqs}, dtype_aux_, device));
+       k_rope_pos_offset_on_depths_device_.push_back(
+           Tensor::Empty({reserved_num_seqs}, dtype_aux_, device));
+-      tree_attn_mask_device_.push_back(Tensor::Empty(
+-          {kTreeAttnMaxTreeSize * kTreeAttnMaxTreeSize * reserved_num_seqs}, dtype_aux_, device));
+-      tree_attn_mn_indptr_device_.push_back(
+-          Tensor::Empty({reserved_num_seqs + 1}, dtype_aux_, device));
+     }
+   }
+ 
+--- a/src/runtime/vm/paged_kv_cache.cc
++++ b/src/runtime/vm/paged_kv_cache.cc
+@@ -601,7 +601,7 @@
+     } else {
+       aux_data_manager_ = std::make_unique<PlainPagedKVCacheAuxDataManager>(
+           reserved_num_seqs, num_total_pages, prefill_chunk_size, dtype_aux_, device,
+-          preferred_host_device, copy_stream_);
++          preferred_host_device, copy_stream_, support_layer_sliding_window_);
+     }
+ 
+     // Right now only the "normal" RoPE mode supports the RoPE extention factors.
+@@ -3100,7 +3100,7 @@
+                           qo_indptr_on_depths_host_[d].size());
+         page_indptr_sliding_window_on_depths_view_[d] =
+             aux_data_manager_->CopyPageIndptrOnDepthAsync(
+-                &page_indptr_sliding_window_on_depths_host_[d], d);
++                &page_indptr_sliding_window_on_depths_host_[d], d + kPagedKVCacheMaxBlockDepth);
+       }
+       // 6. page_indices_sliding_window_on_depths
+       for (int d = 0; d < num_depths_; ++d) {
+@@ -3108,7 +3108,7 @@
+                           page_indptr_sliding_window_on_depths_host_[d].back());
+         page_indices_sliding_window_on_depths_view_[d] =
+             aux_data_manager_->CopyPageIndicesOnDepthAsync(
+-                &page_indices_sliding_window_on_depths_host_[d], d);
++                &page_indices_sliding_window_on_depths_host_[d], d + kPagedKVCacheMaxBlockDepth);
+       }
+     }
+     // 7. length_info_on_depths
+@@ -3133,9 +3133,9 @@
+ 
+       if (support_layer_sliding_window_) {
+         layer_sliding_window_length_info_on_depths_view_[d] =
+-            aux_data_manager_->CopyLengthInfoOnDepthAsync(&last_page_len_on_depths_host_[d],
+-                                                          &sliding_window_offset_on_depths_host_[d],
+-                                                          &sink_size_on_depths_host_[d], d);
++            aux_data_manager_->CopyLengthInfoOnDepthAsync(
++                &last_page_len_on_depths_host_[d], &sliding_window_offset_on_depths_host_[d],
++                &sink_size_on_depths_host_[d], d + kPagedKVCacheMaxBlockDepth);
+       }
+     }
+     // 6. k_rope_pos_offset_on_depths
+@@ -3149,7 +3149,8 @@
+                           qo_indptr_on_depths_host_[d].size());
+         k_rope_pos_offset_sliding_window_view_[d] =
+             aux_data_manager_->CopyKRoPEPosOffsetOnDepthAsync(
+-                &k_rope_pos_offset_sliding_window_on_depths_host_[d], d);
++                &k_rope_pos_offset_sliding_window_on_depths_host_[d],
++                d + kPagedKVCacheMaxBlockDepth);
+       }
+     }
+     // 7. cur_append_lengths_indptr

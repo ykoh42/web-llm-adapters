@@ -1,18 +1,16 @@
 {
-  "name": "webllm-adapters",
+  "name": "web-llm-adapters",
   "private": true,
   "type": "module",
   "workspaces": [
     "packages/*",
-    "examples/*"
+    "examples/*/*"
   ],
   "engines": {
     "node": ">=22.12.0"
   },
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "dev": "npm run build --workspace strands-webllm && npm run dev --workspace @webllm-adapters/browser",
-    "preview": "npm run preview --workspace @webllm-adapters/browser",
     "typecheck": "tsc --noEmit && npm run typecheck --workspaces --if-present",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -24,9 +22,11 @@
     "check:unused": "knip",
     "check:packages": "npm run check:package --workspaces --if-present",
     "check": "npm run format:check && npm run lint && npm run build && npm run typecheck && npm run test:coverage && npm run check:unused && npm run check:packages",
-    "test:extensions": "node examples/browser/test/extensions/setup.ts && playwright test --config playwright.extension.config.ts",
+    "test:extensions": "node examples/strands-web-llm/browser/test/extensions/setup.ts && playwright test --config playwright.extension.config.ts",
     "test:install": "npm run test:install --workspaces --if-present",
-    "check:release": "npm run check && npm run test:install && npm run test:browser && npm run test:extensions"
+    "check:release": "npm run check && npm run test:install && npm run test:browser && npm run test:extensions",
+    "dev:strands": "npm run build --workspace strands-web-llm && npm run dev --workspace @web-llm-adapters/strands-browser",
+    "preview:strands": "npm run preview --workspace @web-llm-adapters/strands-browser"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",

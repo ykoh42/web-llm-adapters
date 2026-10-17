@@ -8,6 +8,7 @@ playwright-report/
 .DS_Store
 *.tgz
 *.tsbuildinfo
+__pycache__/
 .env
 .env.*
 !.env.example

@@ -1,0 +1,52 @@
+{
+  "name": "strands-web-llm",
+  "version": "0.1.0",
+  "description": "WebLLM model provider for Strands Agents.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ykoh42/web-llm-adapters.git",
+    "directory": "packages/strands-web-llm"
+  },
+  "type": "module",
+  "files": [
+    "dist",
+    "runtime/gemma-4-e2b.wasm",
+    "runtime/manifest.json",
+    "runtime/model.json",
+    "runtime/cache.patch",
+    "runtime/projection.patch",
+    "runtime/build.py",
+    "runtime/check-cache.cc",
+    "runtime/requirements.txt",
+    "runtime/README.md",
+    "runtime/NOTICE.txt",
+    "runtime/licenses/*.txt"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./runtime/gemma-4-e2b.wasm": "./runtime/gemma-4-e2b.wasm",
+    "./runtime/manifest.json": "./runtime/manifest.json"
+  },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "check:package": "publint --strict && attw --pack --profile esm-only --exclude-entrypoints ./runtime/gemma-4-e2b.wasm",
+    "prepack": "npm run build"
+  },
+  "peerDependencies": {
+    "@strands-agents/sdk": "~1.21.0",
+    "@mlc-ai/web-llm": "~0.2.86"
+  },
+  "devDependencies": {
+    "@strands-agents/sdk": "1.21.0",
+    "@mlc-ai/web-llm": "0.2.86"
+  },
+  "license": "MIT"
+}

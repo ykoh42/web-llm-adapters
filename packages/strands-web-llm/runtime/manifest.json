@@ -1,0 +1,38 @@
+{
+  "model_id": "gemma-4-E2B-it-q4f16_1-MLC",
+  "webllm": "0.2.86",
+  "integrity": "sha256-WKQMlVGYrxxqikI2C88ZnTYMEXr0cCbmmM6+HDN7Ods=",
+  "files": {
+    "gemma-4-e2b.wasm": "58a40c955198af1c6a8a42360bcf199d360c117af47026e698cebe1c337b39db",
+    "cache.patch": "b64097839afa71284383cfad68ab43a296e25a1a36e6455280fb0542581dd158",
+    "model.json": "aab7348da70e146407dee75006dd0d7815ab6b49d5e23be4d280df4bfbc071df",
+    "projection.patch": "a9d2dc57e4d4028cfc75b41ae4591aa3adf3affcf2b66ea44c422e8b790c1e34"
+  },
+  "tools": {
+    "python": "3.12",
+    "llvm": "22.1.8",
+    "emscripten": "6.0.12"
+  },
+  "sources": {
+    "tvm": {
+      "url": "https://codeload.github.com/akaashrp/tvm/tar.gz/be03dc94b001269b88ae010d2ac352256be55579",
+      "sha256": "87ddc7f74af4b607898c940d7eba8fa33e7e41bf9943ef1b210f6f3a917ade37",
+      "path": "tvm"
+    },
+    "mlc": {
+      "url": "https://codeload.github.com/akaashrp/mlc-llm/tar.gz/42fa855891fcb5825bf0911047d7c91e8234abd1",
+      "sha256": "c9d309577126005a1f3c6364cf8f729dd1c3b65c23b5a1d67a6cf8316f0551da",
+      "path": "mlc"
+    },
+    "ffi": {
+      "url": "https://codeload.github.com/apache/tvm-ffi/tar.gz/df463f9bd269867fc7f4d578d62d80cc2a11d004",
+      "sha256": "11ee432808ffb53dc11cd709feff246afcca1085d5e9d80b585fe1bc6a5ebdbb",
+      "path": "tvm/3rdparty/tvm-ffi"
+    },
+    "dlpack": {
+      "url": "https://codeload.github.com/dmlc/dlpack/tar.gz/84d107bf416c6bab9ae68ad285876600d230490d",
+      "sha256": "9978ddb7f533fcee7e0c0ab81a978257d3f8dc475eb83319a5e632738cafb271",
+      "path": "tvm/3rdparty/tvm-ffi/3rdparty/dlpack"
+    }
+  }
+}

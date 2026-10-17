@@ -1,59 +1,38 @@
 # WebLLM Adapters
 
-Community adapters that connect WebLLM to agent frameworks.
-The first package, [strands-webllm](packages/strands-webllm/README.md), connects
-WebLLM to Strands SDK and Harness through their public APIs.
+Community packages that connect WebLLM to agent frameworks through their public APIs.
 
-## Start
-
-Use Node.js 24, Google Chrome, and a GPU with WebGPU support.
-
-```sh
-npm ci
-npm run dev
-```
-
-Open <http://127.0.0.1:4173>, choose an example, load its model, and send a message.
-The first load downloads model files; later runs reuse the browser cache.
-
-| Read                                               | Purpose                                       |
-| -------------------------------------------------- | --------------------------------------------- |
-| [Package guide](packages/strands-webllm/README.md) | API, quick start, and support table           |
-| [Browser examples](examples/browser/README.md)     | Chat, tools, thinking, media, and native APIs |
-| [Harness example](examples/harness/README.md)      | Node.js tools with browser inference          |
+| Package           | Guide                                                   | Examples                                                      |
+| ----------------- | ------------------------------------------------------- | ------------------------------------------------------------- |
+| `strands-web-llm` | [Usage and support](packages/strands-web-llm/README.md) | [Strands SDK and Harness](examples/strands-web-llm/README.md) |
 
 ## Development
 
-Each package keeps its own source, build, dependencies, and tests. Examples have
-separate integration tests. The root owns shared tools and the lockfile.
+Use Node.js 24. Each package owns its source and unit tests. Its examples and
+integration tests live under `examples/<package>/`. The root shares tooling.
 
 ```text
-packages/strands-webllm/  Provider and package tests
-examples/browser/        Browser examples and GPU tests
-examples/harness/        Harness example and integration tests
-test/                   Shared browser fixture
+packages/strands-web-llm/     Library and unit tests
+examples/strands-web-llm/    Browser, Harness, and integration tests
 ```
 
-| Command                   | Checks                                                                              |
-| ------------------------- | ----------------------------------------------------------------------------------- |
-| `npm run check`           | Format, lint, build, types, CPU tests, coverage, unused code, package contents      |
-| `npm run test:install`    | Packed package installed outside this workspace; public types and SDK/Harness loops |
-| `npm run test:browser`    | Real GPU inference in Chrome                                                        |
-| `npm run test:extensions` | Extension worker and cross-origin cache; needs Playwright Chromium                  |
-| `npm run check:release`   | All checks above, in order; does not publish                                        |
+```sh
+npm ci
+npm run check
+npm run test:install
+```
 
-CI runs `check` and `test:install`. CPU tests mock inference; GPU tests use real
-models. Install extension-test Chromium with `npx playwright install chromium`.
-Close other processes using `.cache/chrome` before running browser tests.
+Real inference checks require Chrome and a WebGPU GPU:
 
-After editing library source, run `npm run build --workspace strands-webllm`.
-To add another adapter, create `packages/<name>` with its own config and tests;
-share code only when another package needs it. Coding rules are in [AGENTS.md](AGENTS.md).
+```sh
+npm run test:browser
+npm run test:extensions
+```
 
-## Status
+For extension checks, install Chromium with `npx playwright install chromium`.
+`npm run check:release` runs every check above. CI runs CPU and installation checks.
+Coding rules are in [AGENTS.md](AGENTS.md).
 
-The repository is public; the package is not published to npm. A license and
-first release version still need to be chosen. Run `npm run check:release` on the
-commit to publish before removing the package's `private` flag.
+## Release
 
-Targets: WebLLM **0.2.86**, Strands SDK **1.21.0**, Harness **0.3.0**.
+MIT · 0.1.0. Not published yet.

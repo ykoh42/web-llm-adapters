@@ -1,16 +1,22 @@
 import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
-  testDir: '.',
-  testMatch: [
-    'examples/*/test/*.spec.ts',
-    'examples/*/test/**/*.browser.ts',
-    'packages/*/test/**/*.browser.ts',
+  projects: [
+    {
+      name: 'strands-browser',
+      testDir: './examples/strands-web-llm/browser/test',
+      testMatch: '**/test/*.spec.ts',
+    },
+    {
+      name: 'strands-harness',
+      testDir: './examples/strands-web-llm/harness/test',
+      testMatch: '**/*.browser.ts',
+    },
   ],
   timeout: 15 * 60 * 1000,
   workers: 1,
   webServer: {
-    command: 'npm run build && npm run preview',
+    command: 'npm run build && npm run preview:strands',
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: !process.env.CI,
   },
