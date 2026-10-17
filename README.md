@@ -44,8 +44,8 @@ example for JSON, tools, media, or native APIs, and another engine for a Worker.
 See the [browser examples](examples/browser/README.md) and [model restrictions](packages/strands-webllm/README.md#limits).
 The Gemma tool example runs the tool and returns its result to the model for a final
 answer. The Harness example extends the built-in Node.js `read` tool with PDF text
-extraction and uses Harness's Exa integration for web search. Search queries leave
-your device; model inference remains local.
+extraction and image OCR, and uses Harness's Exa integration for web search.
+Search queries leave your device; model inference remains local.
 
 ## Work on a package
 

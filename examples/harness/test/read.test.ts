@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Agent, type ToolContext } from '@strands-agents/sdk'
@@ -66,19 +66,47 @@ it.each(['relative.pdf', '/tmp/../note.pdf'])('rejects invalid path %s', async (
   expect(read).not.toHaveBeenCalled()
 })
 
-it('rejects oversized PDFs', async () => {
+it.each(['pdf', 'png'])('rejects oversized %s files', async (format) => {
   const { tool, context } = setup()
   vi.spyOn(context.agent.sandbox, 'readFile').mockResolvedValueOnce(
     new Uint8Array(20 * 1024 * 1024 + 1),
   )
-  await expect(tool.invoke({ path: join(dir, 'large.pdf') }, context)).rejects.toThrow('20 MiB')
+  await expect(tool.invoke({ path: join(dir, 'large.' + format) }, context)).rejects.toThrow(
+    '20 MiB',
+  )
 })
 
-it.each(['png', 'docx', 'wav'])('rejects unsupported %s media', async (format) => {
+it.each(['gif', 'docx', 'wav'])('rejects unsupported %s media', async (format) => {
   const { tool, context } = setup()
   const path = join(dir, 'note.' + format)
   await writeFile(path, new Uint8Array([1, 2, 3]))
   await expect(tool.invoke({ path }, context)).rejects.toThrow(/media format|Audio transcription/)
+})
+
+it.each(['png', 'jpeg'])('reads English and Korean text from a real %s image', async (format) => {
+  const { tool, context } = setup()
+  const bytes = await readFile(new URL(`./fixtures/text.${format}`, import.meta.url))
+  // Use sandbox bytes rather than a host file; OCR must preserve that boundary.
+  const read = vi.spyOn(context.agent.sandbox, 'readFile').mockResolvedValueOnce(bytes)
+  const text = await tool.invoke({ path: '/sandbox/note.' + format }, context)
+  expect(read).toHaveBeenCalledWith('/sandbox/note.' + format)
+  expect(text).toContain('Verification code: 583721')
+  expect(text).toContain('확인 번호: 583721')
+})
+
+it('rejects images with no readable text', async () => {
+  const { tool, context } = setup()
+  const bytes = await readFile(new URL('./fixtures/blank.png', import.meta.url))
+  vi.spyOn(context.agent.sandbox, 'readFile').mockResolvedValueOnce(bytes)
+  await expect(tool.invoke({ path: '/sandbox/blank.png' }, context)).rejects.toThrow(
+    'No readable text',
+  )
+})
+
+it('reports malformed images without an uncaught worker error', async () => {
+  const { tool, context } = setup()
+  vi.spyOn(context.agent.sandbox, 'readFile').mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
+  await expect(tool.invoke({ path: '/sandbox/bad.png' }, context)).rejects.toThrow()
 })
 
 it('rejects PDFs with no extractable text', async () => {

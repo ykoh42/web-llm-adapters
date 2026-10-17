@@ -18,6 +18,7 @@ In another terminal:
 npm run start --workspace @webllm-adapters/harness -- 'Say hello.'
 npm run start --workspace @webllm-adapters/harness -- --think --tool read 'Read /absolute/path/to/note.txt and summarize it.'
 npm run start --workspace @webllm-adapters/harness -- --tool read 'Read /absolute/path/to/note.pdf and summarize its text.'
+npm run start --workspace @webllm-adapters/harness -- --think --tool read 'Read the text in /absolute/path/to/note.png and summarize it.'
 npm run start --workspace @webllm-adapters/harness -- --tool web_search 'Find the official Strands Harness SDK repository.'
 ```
 
@@ -39,13 +40,13 @@ result when an exact value matters.
 The example leaves sessions, skills, memory, context management, built-in plugins,
 background tasks, subagents, and the default text tools enabled. `printer: false`
 keeps SDK printing out of the CLI's final output. [createRead](./read.ts) extends
-the built-in text reader with local PDF text extraction. `read: false` replaces
-the built-in instance with this extended tool under the same name; text paging
-still uses Harness's reader.
+the built-in text reader with local PDF text extraction and image OCR.
+`read: false` replaces the built-in instance with this extended tool under the
+same name; text paging still uses Harness's reader.
 
 PDF reading extracts embedded text without a model. PDF files are limited to
-20 MiB. All file access uses the agent's sandbox. Images, scanned pages and
-Office files need a model or extraction tool that can handle their contents.
+20 MiB. Input files are read through the agent's sandbox. Scanned PDF pages and
+Office files need another extraction tool.
 WAV transcription is not enabled here: speech checks with both WebLLM WAV input
 and native PCM input returned incorrect text or hit the token limit. The native
 browser audio examples remain available for inspecting actual model output;
@@ -59,10 +60,23 @@ declares no image input, and MLC's
 contains text and audio support. Harness's image reader cannot supply the missing
 vision encoder. Other browser media and native APIs have
 [separate examples](../browser/README.md).
-Text in images can be extracted with a separate OCR tool; Strands's Python
-[`use_computer`](https://github.com/strands-agents/tools/blob/main/src/strands_tools/use_computer.py)
-includes Tesseract OCR. That tool is not part of this TypeScript example, and OCR
-does not provide general image understanding.
+
+[imageText](./ocr.ts) uses Tesseract.js to read English and Korean text in PNG
+and JPEG files up to 20 MiB. OCR runs on the CPU in this Node.js tool. Its engine
+and language files are pinned npm dependencies, loaded locally without a runtime
+CDN request. Each call closes its worker and removes its temporary language files
+on success, failure or cancellation. Cancellation during initialization is checked
+as soon as the worker is ready; recognition can be interrupted immediately.
+Image bytes come from the agent's sandbox and are never passed as host paths or
+URLs to OCR. Images with no detected text return a tool error. Small text, low
+contrast, handwriting and layouts can produce incorrect text.
+
+The tool returns actual OCR text to the agent; the adapter carries it as a normal
+Strands tool result. These dependencies belong to the example, not the
+`strands-webllm` package. This verifies the adapter's tool loop, thinking and
+concurrent request handling. It does not add native image input or general image
+understanding to Gemma. Other OCR languages or vision services can be connected
+as tools without changing the adapter.
 
 Gemma 4 E2B handles the main conversation, summaries, `web_fetch`, and memory.
 Only one set of weights is loaded. The main, auxiliary, and memory models are

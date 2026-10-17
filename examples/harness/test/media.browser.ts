@@ -6,6 +6,65 @@ import { BrowserModel } from '../browser-model.js'
 import { openHarness, useTool, finalText } from './setup.js'
 import { pdf } from './pdf.js'
 
+test('the adapter keeps concurrent OCR tool results, thinking and answers separate on one Gemma', async ({
+  page,
+}) => {
+  const harness = await openHarness(page)
+  try {
+    const codes = ['31', '74'].map(
+      (prefix) => prefix + String(Math.floor(Math.random() * 10000)).padStart(4, '0'),
+    )
+    const paths: string[] = []
+    for (const [i, format] of ['png', 'jpeg'].entries()) {
+      const path = join(harness.dir, 'note-' + i + '.' + format)
+      const data = await page.evaluate(
+        ({ code, format }) => {
+          const canvas = document.createElement('canvas')
+          canvas.width = 1200
+          canvas.height = 360
+          const context = canvas.getContext('2d')!
+          context.fillStyle = 'white'
+          context.fillRect(0, 0, canvas.width, canvas.height)
+          context.fillStyle = 'black'
+          context.font = '48px sans-serif'
+          context.fillText('Verification code: ' + code, 50, 110)
+          context.fillText('확인 번호: ' + code, 50, 230)
+          return canvas.toDataURL('image/' + format).split(',')[1]!
+        },
+        { code: codes[i]!, format },
+      )
+      await writeFile(path, Buffer.from(data, 'base64'))
+      paths.push(path)
+    }
+    const agents = await Promise.all(paths.map(() => harness.create()))
+    for (const agent of agents) useTool(agent, 'read')
+    const results = await Promise.all(
+      agents.map((agent, i) =>
+        agent.invoke(
+          `Read the text in ${paths[i]}. Reply with only the verification code from the tool result.`,
+          { limits: { turns: 3 } },
+        ),
+      ),
+    )
+    const prompts = await page.evaluate(() => window.gemmaPrompts)
+    for (const [i, result] of results.entries()) {
+      const blocks = agents[i]!.messages.flatMap((message) => message.content)
+      const saved = blocks.find((block) => block.type === 'toolResultBlock')
+      expect(saved, JSON.stringify(saved)).toMatchObject({ status: 'success' })
+      expect(JSON.stringify(saved)).toContain(codes[i])
+      expect(JSON.stringify(saved)).toContain('확인')
+      expect(
+        prompts.some((prompt) => prompt.includes(codes[i]!) && !prompt.includes(codes[1 - i]!)),
+      ).toBe(true)
+      expect(blocks.some((block) => block.type === 'reasoningBlock' && block.text)).toBe(true)
+      expect(finalText(result)).toContain(codes[i])
+      expect(finalText(result)).not.toContain(codes[1 - i])
+    }
+  } finally {
+    await harness.close()
+  }
+})
+
 test('the shipped Gemma artifact rejects a real PNG through its native image API', async ({
   page,
 }) => {
