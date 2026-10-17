@@ -3,9 +3,29 @@
 A community WebLLM provider for Strands SDK and Harness. Run inference in a
 WebGPU browser; use the same engine from Strands and WebLLM's native APIs.
 
-Use a model from WebLLM’s catalog; feature support depends on that model.
 See the [browser examples](https://github.com/ykoh42/web-llm-adapters/blob/main/examples/strands-web-llm/browser/README.md)
 or [Node.js Harness example](https://github.com/ykoh42/web-llm-adapters/blob/main/examples/strands-web-llm/harness/README.md).
+
+## Models
+
+Choose a chat model from WebLLM's catalog. Example IDs in WebLLM **0.2.86**:
+
+| Model                    | `modelId`                               | Use                                                                                                                                                                |
+| ------------------------ | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Llama 3.2 1B             | `Llama-3.2-1B-Instruct-q4f16_1-MLC`     | Text                                                                                                                                                               |
+| Qwen3 0.6B               | `Qwen3-0.6B-q4f16_1-MLC`                | Text, native thinking output                                                                                                                                       |
+| Gemma 4 E2B              | `gemma-4-E2B-it-q4f16_1-MLC`            | Text, audio, tools, separate thinking blocks; [runtime setup](runtime/README.md) required                                                                          |
+| Phi-3.5 Vision           | `Phi-3.5-vision-instruct-q4f16_1-MLC`   | Text and images                                                                                                                                                    |
+| Hermes 3 8B              | `Hermes-3-Llama-3.1-8B-q4f16_1-MLC`     | Text and native tool batches; see the [batch example](https://github.com/ykoh42/web-llm-adapters/blob/main/examples/strands-web-llm/browser/src/examples/tools.ts) |
+| Snowflake Arctic Embed S | `snowflake-arctic-embed-s-q0f32-MLC-b4` | Native embeddings via `withEngine()`, separate from Agent chat                                                                                                     |
+
+Other catalog chat models use the same provider. These IDs are examples, not a
+claim that every model or quantization has been tested. List the installed catalog
+with `prebuiltAppConfig.model_list` from `@mlc-ai/web-llm`; it includes each model's
+GPU requirements. Custom models use WebLLM's `appConfig.model_list`.
+
+WebLLM loads each model's Wasm through its `model_lib` URL. The bundled Wasm fixes
+Gemma 4 E2B specifically.
 
 ## Install
 
@@ -15,7 +35,7 @@ npm install strands-web-llm @mlc-ai/web-llm @strands-agents/sdk
 
 ## Browser
 
-Choose a chat `modelId` from WebLLM's catalog:
+Choose a chat `modelId` from the [model list](#models):
 
 ```ts
 import { CreateMLCEngine } from '@mlc-ai/web-llm'
