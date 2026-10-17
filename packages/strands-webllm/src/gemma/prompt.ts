@@ -53,14 +53,12 @@ export function toolPrompt(
       const name = pending.get(message.tool_call_id)
       if (!name || !modelOpen)
         throw new ModelError('Gemma received a tool result without a matching call.')
-      prompt +=
-        '<|tool_response>response:' +
-        name +
-        writeValue({
-          ...(message.context !== undefined && { context: message.context }),
-          value: message.response !== undefined ? message.response : message.content,
-        }) +
-        '<tool_response|>'
+      // Gemma puts JSON object fields directly in the response.
+      let response = message.response !== undefined ? message.response : message.content
+      if (message.context !== undefined) response = { context: message.context, value: response }
+      else if (response === null || typeof response !== 'object' || Array.isArray(response))
+        response = { value: response }
+      prompt += '<|tool_response>response:' + name + writeValue(response) + '<tool_response|>'
       pending.delete(message.tool_call_id)
       continue
     }

@@ -43,9 +43,10 @@ specific first step; use the actual tool result when exact values matter.
 | Native APIs in tools     | [engine.browser.ts](test/engine.browser.ts)     | Embeddings, raw completions, and generation recovery      |
 | Restart recovery         | [recovery.browser.ts](test/recovery.browser.ts) | Restore WebLLM checkpoints and Harness history separately |
 
-Sessions, skills, memory, context management, background tasks, subagents, and
-ordinary tools keep their Harness defaults. `read: false` replaces the built-in
-reader with the extended tool under the same name. `printer: false` keeps the CLI
+Sessions, skills, memory, background tasks, subagents, and ordinary tools keep
+their Harness defaults. [Context management](context.ts) uses 256-token tool
+previews to limit repeated thinking and keeps full results in the SDK stash.
+`read: false` replaces the built-in reader with the extended tool under the same name. `printer: false` keeps the CLI
 output focused on the answer. Main, auxiliary, and memory requests share one engine.
 
 State lives under `.agent/`. Pass `session: { id: previousSessionId }` to restore a
@@ -54,16 +55,15 @@ before closing the browser so pending memory work can finish.
 
 ## Limits
 
-| Feature              | Limit                                                                                   |
-| -------------------- | --------------------------------------------------------------------------------------- |
-| PDF                  | Embedded text only; 20 MiB; scanned pages need OCR                                      |
-| OCR                  | PNG/JPEG up to 20 MiB; accuracy depends on image quality                                |
-| Gemma images         | The WebLLM artifact has no image input; this example uses OCR                           |
-| Speech transcription | Not enabled here; real speech checks were inaccurate                                    |
-| Gemma thinking       | Use thinking off for large tool previews; E2B can repeat thinking until the token limit |
-| Web search           | Exa receives search queries; optional `EXA_API_KEY` increases limits                    |
-| Concurrent requests  | One shared engine queue; independent histories and cancellation                         |
-| Recovery             | Native generation checkpoints and Harness sessions store different state                |
+| Feature              | Limit                                                                    |
+| -------------------- | ------------------------------------------------------------------------ |
+| PDF                  | Embedded text only; 20 MiB; scanned pages need OCR                       |
+| OCR                  | PNG/JPEG up to 20 MiB; accuracy depends on image quality                 |
+| Gemma images         | The WebLLM artifact has no image input; this example uses OCR            |
+| Speech transcription | Not enabled here; real speech checks were inaccurate                     |
+| Web search           | Exa receives search queries; optional `EXA_API_KEY` increases limits     |
+| Concurrent requests  | One shared engine queue; independent histories and cancellation          |
+| Recovery             | Native generation checkpoints and Harness sessions store different state |
 
 The [package support table](../../packages/strands-webllm/README.md#support) covers
 provider features. The [browser examples](../browser/README.md) cover media and

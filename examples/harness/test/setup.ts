@@ -8,6 +8,7 @@ import { BrowserModel } from 'strands-webllm'
 import { createMemory } from '../memory.js'
 import { SummaryModel } from '../summary-model.js'
 import { createRead } from '../read.js'
+import { createContext } from '../context.js'
 export { useTool } from '../tool-choice.js'
 
 declare global {
@@ -68,6 +69,7 @@ export async function openHarness(page: Page, contextWindow = 16384) {
         builtinTools: { read: false, web_fetch: { model: auxModel }, web_search: 'exa' },
         session: { dir: join(dir, 'sessions') },
         memory: { stores: [memory] },
+        contextManager: createContext(),
         printer: false,
         ...options,
         tools: [createRead(), ...(options.tools ?? [])],

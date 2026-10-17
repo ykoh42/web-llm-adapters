@@ -49,6 +49,37 @@ const result = new Message({
 })
 
 describe('Gemma tool prompts', () => {
+  it('matches the canonical Gemma declaration without changing the SDK schema', () => {
+    const tool: ToolSpec = {
+      name: 'lookup',
+      description: 'Find records.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          mode: { type: 'string', enum: ['fast', 'slow'] },
+          count: { type: 'integer', minimum: 1, description: 'How many.' },
+          rows: {
+            type: 'array',
+            items: { type: 'object', properties: {}, additionalProperties: false },
+          },
+        },
+        required: ['count'],
+        additionalProperties: false,
+      },
+    }
+    const snapshot = JSON.stringify(tool)
+    expect(toolPrompt([user('Find records.')], [tool], {}, true)).toBe(
+      '<|turn>system\n<|think|>\n' +
+        '<|tool>declaration:lookup{description:<|"|>Find records.<|"|>,parameters:{' +
+        'properties:{count:{description:<|"|>How many.<|"|>,type:<|"|>INTEGER<|"|>},' +
+        'mode:{enum:[<|"|>fast<|"|>,<|"|>slow<|"|>],type:<|"|>STRING<|"|>},' +
+        'rows:{items:{additionalProperties:false,properties:{},type:<|"|>OBJECT<|"|>},type:<|"|>ARRAY<|"|>}},' +
+        'required:[<|"|>count<|"|>],type:<|"|>OBJECT<|"|>}}<tool|><turn|>\n' +
+        '<|turn>user\nFind records.<turn|>\n<|turn>model\n',
+    )
+    expect(JSON.stringify(tool)).toBe(snapshot)
+  })
+
   it('ignores trailing cache hints without inventing a new user turn', () => {
     const hints = new Message({
       role: 'user',
@@ -179,17 +210,17 @@ describe('Gemma tool prompts', () => {
     expect(prompt).toContain('type:<|"|>OBJECT<|"|>')
     expect(prompt).toContain('type:[<|"|>STRING<|"|>,<|"|>NULL<|"|>]')
     expect(prompt).toContain('enum:[<|"|>fast<|"|>,<|"|>slow<|"|>]')
-    expect(prompt).toContain('const:{type:<|"|>object<|"|>}')
+    expect(tools[0]?.inputSchema?.properties?.fixed).toEqual({ const: { type: 'object' } })
     expect(prompt.endsWith('<|turn>user\nFind x<turn|>\n<|turn>model\n')).toBe(true)
     expect(prompt).not.toContain('<bos>')
   })
 
-  it('keeps results and the next generation inside the same model turn', () => {
+  it('keeps JSON result fields and generation inside the same model turn', () => {
     const prompt = toolPrompt([user('Find x'), call, result], tools, {})
     expect(prompt).toContain(
       '<|turn>model\n<|tool_call>call:lookup{key:<|"|>x<|"|>}<tool_call|><|tool_response>response:lookup',
     )
-    expect(prompt.endsWith('{value:{answer:42}}<tool_response|>')).toBe(true)
+    expect(prompt.endsWith('{answer:42}<tool_response|>')).toBe(true)
     expect(prompt.match(/<\|turn>model/g)).toHaveLength(1)
   })
 
@@ -223,7 +254,7 @@ describe('Gemma tool prompts', () => {
       [{ name: 'lookup', description: 'Lookup' }],
       {},
     )
-    expect(prompt).toContain('parameters:{type:<|"|>OBJECT<|"|>,properties:{}}')
+    expect(prompt).toContain('parameters:{type:<|"|>OBJECT<|"|>}')
     expect(prompt).toContain('Tool error: Missing key')
   })
 

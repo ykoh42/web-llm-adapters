@@ -84,71 +84,84 @@ test('a real WebLLM context overflow reaches Harness and recovers by trimming hi
   }
 })
 
-test('default offloading preserves results and Gemma retrieves them with thinking disabled', async ({
-  page,
-}, info) => {
-  const harness = await openHarness(page)
-  const chunks: WebLLMChunk[] = []
-  try {
-    const code = 'archive-' + Math.floor(Math.random() * 1_000_000)
-    const lines = Array.from({ length: 500 }, (_, i) =>
-      i === 250
-        ? `The verification code is ${code}.`
-        : `Project record ${i}: reviewed task ${crypto.randomUUID()}.`,
-    )
-    const archive = new FunctionTool({
-      name: 'archive',
-      description: 'Read the archived project notes.',
-      inputSchema: { type: 'object', properties: {} },
-      callback: () => lines.join('\n'),
-    })
-    const model = new BrowserModel(page, {
-      ...harness.model.getConfig(),
-      maxTokens: 1024,
-      temperature: 0,
-      request: { extra_body: { enable_thinking: false } },
-      onChunk: (chunk) => chunks.push(chunk),
-    })
-    const agent = await harness.create({ model, tools: [archive] })
-    useTool(agent, 'archive')
-    const received = await agent.invoke(
-      'Call archive in the foreground. Keep its result for a later question.',
-      { limits: { turns: 4 } },
-    )
-    expect(received.stopReason).toBe('endTurn')
-    const message = agent.messages.find((m) =>
-      m.content.some(
+for (const repeated of [false, true]) {
+  test(`thinking-enabled offloading retrieves ${repeated ? 'repeated' : 'unique'} notes`, async ({
+    page,
+  }, info) => {
+    const harness = await openHarness(page)
+    const chunks: WebLLMChunk[] = []
+    try {
+      const code = 'archive-' + Math.floor(Math.random() * 1_000_000)
+      const lines = Array.from({ length: 500 }, (_, i) => {
+        if (i === 250) return `The verification code is ${code}.`
+        if (repeated) return `Archive line ${i}: ordinary project notes without a code.`
+        return `Project record ${i}: reviewed task ${crypto.randomUUID()}.`
+      })
+      const archive = new FunctionTool({
+        name: 'archive',
+        description: 'Read the archived project notes.',
+        inputSchema: { type: 'object', properties: {} },
+        callback: () => lines.join('\n'),
+      })
+      const model = new BrowserModel(page, {
+        ...harness.model.getConfig(),
+        maxTokens: 1024,
+        onChunk: (chunk) => chunks.push(chunk),
+      })
+      const agent = await harness.create({ model, tools: [archive] })
+      useTool(agent, 'archive')
+      const received = await agent.invoke(
+        repeated
+          ? 'Call archive in the foreground. Acknowledge receiving the notes without extracting a code yet.'
+          : 'Call archive in the foreground. Keep its result for a later question.',
+        { limits: { turns: 4 } },
+      )
+      expect(received.stopReason).toBe('endTurn')
+      expect(
+        received.lastMessage.content.some(
+          (block) => block.type === 'reasoningBlock' && block.text?.trim(),
+        ),
+      ).toBe(true)
+      if (repeated) expect(finalText(received).trim().length).toBeGreaterThan(0)
+      const message = agent.messages.find((m) =>
+        m.content.some(
+          (b) => b.type === 'toolResultBlock' && JSON.stringify(b).includes('[Truncated:'),
+        ),
+      )
+      if (!message) throw new Error('The default context manager did not offload the result')
+      const index = message.content.findIndex(
         (b) => b.type === 'toolResultBlock' && JSON.stringify(b).includes('[Truncated:'),
-      ),
-    )
-    if (!message) throw new Error('The default context manager did not offload the result')
-    const index = message.content.findIndex(
-      (b) => b.type === 'toolResultBlock' && JSON.stringify(b).includes('[Truncated:'),
-    )
-    const block = message.content[index]!
-    expect(JSON.stringify(block)).not.toContain(code)
-    const stash = agent.contextManager?.stash
-    if (!stash) throw new Error('The default context stash is missing')
-    const reference = stash.refsFor(block, message, index)[0]!
-    expect(JSON.stringify(await stash.retrieve(reference))).toContain(code)
-    useTool(agent, 'retrieve_context')
-    const result = await agent.invoke(
-      `Use retrieve_context with reference "${reference}", pattern "verification", and context_lines 0. Tell me the verification code from that result.`,
-      { limits: { turns: 4 } },
-    )
-    expect(finalText(result)).toContain(code)
-    expect(agent.messages.flatMap((m) => m.content)).toContainEqual(
-      expect.objectContaining({ type: 'toolUseBlock', name: 'retrieve_context' }),
-    )
-  } catch (error) {
-    const path = info.outputPath('native-chunks.json')
-    await writeFile(
-      path,
-      JSON.stringify({ prompts: await page.evaluate(() => window.gemmaPrompts), chunks }),
-    )
-    await info.attach('native-chunks', { path, contentType: 'application/json' })
-    throw error
-  } finally {
-    await harness.close()
-  }
-})
+      )
+      const block = message.content[index]!
+      expect(JSON.stringify(block)).not.toContain(code)
+      const stash = agent.contextManager?.stash
+      if (!stash) throw new Error('The default context stash is missing')
+      const reference = stash.refsFor(block, message, index)[0]!
+      expect(JSON.stringify(await stash.retrieve(reference))).toContain(code)
+      useTool(agent, 'retrieve_context')
+      const result = await agent.invoke(
+        `Use retrieve_context with reference "${reference}", pattern "verification", and context_lines 0. Tell me the verification code from that result.`,
+        { limits: { turns: 4 } },
+      )
+      expect(finalText(result)).toContain(code)
+      expect(
+        await page.evaluate(() =>
+          window.gemmaPrompts.every((prompt) => prompt.includes('<|think|>')),
+        ),
+      ).toBe(true)
+      expect(agent.messages.flatMap((m) => m.content)).toContainEqual(
+        expect.objectContaining({ type: 'toolUseBlock', name: 'retrieve_context' }),
+      )
+    } catch (error) {
+      const path = info.outputPath('native-chunks.json')
+      await writeFile(
+        path,
+        JSON.stringify({ prompts: await page.evaluate(() => window.gemmaPrompts), chunks }),
+      )
+      await info.attach('native-chunks', { path, contentType: 'application/json' })
+      throw error
+    } finally {
+      await harness.close()
+    }
+  })
+}

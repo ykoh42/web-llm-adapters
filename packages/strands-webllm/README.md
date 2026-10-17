@@ -112,7 +112,7 @@ Targets: WebLLM **0.2.86**, Strands SDK **1.21.0**, Harness **0.3.0**.
 | Logprobs and original chunks                                         | `request`, `onChunk`                                             | Available in both providers                                          |
 | Usage, latency, timing                                               | Strands metadata and `onChunk`                                   | Native extra fields retained                                         |
 | Plain text, JSON schema, grammar, structural tags                    | `request.response_format`                                        | Gemma protocol mode accepts plain text only                          |
-| Tool declarations, results, auto/named/none choice                   | Strands tools and `toolChoice`; `request.tool_choice: 'none'`    | `toolChoice.any` is unsupported                                      |
+| Tool declarations, results, auto/named/none choice                   | Strands tools and `toolChoice`; `request.tool_choice: 'none'`    | `any` unsupported; Gemma uses its [template fields][gemma-tools]     |
 | Thinking                                                             | `request.extra_body.enable_thinking`                             | Gemma uses Strands reasoning blocks; other models keep native output |
 | Images: URL, data URL, bytes                                         | SDK `ImageBlock`                                                 | Needs a vision model; Gemma E2B artifact has no image input          |
 | WAV and float32 PCM                                                  | SDK `AudioBlock`, `pcmAudio()`                                   | Needs an audio model; WAV bytes only at the native chat boundary     |
@@ -129,6 +129,8 @@ Targets: WebLLM **0.2.86**, Strands SDK **1.21.0**, Harness **0.3.0**.
 | Main thread, Web Worker, Service Worker, extension worker            | Any `MLCEngineInterface`                                         | Set up workers with WebLLM's factories and handlers                  |
 | Context counting and overflow                                        | Strands `countTokens()` and recovery error                       | Counts are estimates; set the loaded context window size             |
 
+[gemma-tools]: https://huggingface.co/google/gemma-4-E2B-it/blob/main/chat_template.jinja
+
 ## Limits
 
 Gemma 4 tool history and enabled thinking use its native prompt protocol through raw completions.
@@ -136,6 +138,8 @@ That path accepts text and tool results, but cannot combine media, constrained
 output, enabled native recovery, or `ignore_eos`. Older thoughts leave the next
 user turn's prompt while staying in Agent history. WebLLM re-prefills raw prompts each turn. Chat without tool history or enabled
 thinking uses native chat and its KV cache. No fallback model supplies answers.
+Use smaller SDK tool previews if Gemma repeats thinking; see the
+[Harness setup](https://github.com/ykoh42/webllm-adapters/blob/main/examples/harness/context.ts).
 
 WebLLM's native tools API is Hermes-only. For that mode, use an empty system
 prompt; the Hermes example stops after the tool batch. Use a compatible vision
