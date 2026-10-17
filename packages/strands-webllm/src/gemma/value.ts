@@ -52,16 +52,20 @@ export function readArguments(source: string) {
       parts.push(JSON.stringify(value))
     } else parts.push(value)
     if (depth !== 0) continue
-    try {
-      const input: JSONValue = JSON.parse(parts.join(''), (_key, item: JSONValue) => {
-        if (typeof item === 'number' && !Number.isFinite(item)) throw new Error('Non-finite number')
-        return item
-      })
-      if (input === null || Array.isArray(input) || typeof input !== 'object')
-        throw new Error('Expected an object')
-      return { input, end: token.lastIndex }
-    } catch (cause) {
-      throw new ModelError('Gemma returned invalid tool arguments.', { cause })
-    }
+    return { input: argumentObject(parts.join('')), end: token.lastIndex }
+  }
+}
+
+function argumentObject(source: string) {
+  try {
+    const input: JSONValue = JSON.parse(source, (_key, item: JSONValue) => {
+      if (typeof item === 'number' && !Number.isFinite(item)) throw new Error('Non-finite number')
+      return item
+    })
+    if (input === null || Array.isArray(input) || typeof input !== 'object')
+      throw new Error('Expected an object')
+    return input
+  } catch (cause) {
+    throw new ModelError('Gemma returned invalid tool arguments.', { cause })
   }
 }

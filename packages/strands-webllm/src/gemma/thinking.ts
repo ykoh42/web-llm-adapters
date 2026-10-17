@@ -1,7 +1,9 @@
 import { ModelError } from '@strands-agents/sdk'
 import type { Completion } from '@mlc-ai/web-llm'
+import { stopReason, type StreamChunk } from '../chunks.js'
+import { textEnd } from './markers.js'
 
-type ThinkingChunk = Completion & { reasoning?: string }
+type ThinkingChunk = Pick<StreamChunk, 'text' | 'reasoning' | 'stop' | 'usage'>
 
 /** Split native thinking before the tool parser sees any generated text. */
 export async function* splitThinking(
@@ -17,19 +19,21 @@ export async function* splitThinking(
     const choice = chunk.choices[0]
     if (chunk.choices.length > 1 || (choice && choice.index !== 0))
       throw new ModelError('Strands needs one response per request.')
-    if (!choice) {
-      yield chunk
-      continue
-    }
-    if (tool) {
-      yield chunk
+    if (!choice || tool) {
+      yield {
+        text: choice?.text ?? '',
+        reasoning: '',
+        stop: stopReason(choice?.finish_reason),
+        usage: chunk.usage,
+      }
       continue
     }
     function piece(text: string): ThinkingChunk {
       return {
-        ...chunk,
-        choices: [{ ...choice!, text: mode === 'thought' ? '' : text, finish_reason: null }],
-        ...(mode === 'thought' && { reasoning: text }),
+        text: mode === 'thought' ? '' : text,
+        reasoning: mode === 'thought' ? text : '',
+        stop: undefined,
+        usage: chunk.usage,
       }
     }
     pending += choice.text
@@ -54,10 +58,9 @@ export async function* splitThinking(
         if (at) yield piece(pending.slice(0, at))
       } else {
         const markers = mode === 'text' ? [marker, '<|tool_call>'] : [marker]
-        let held = Math.min(pending.length, Math.max(...markers.map((token) => token.length)) - 1)
-        while (held && !markers.some((token) => token.startsWith(pending.slice(-held)))) held--
-        const text = pending.slice(0, pending.length - held)
-        pending = pending.slice(pending.length - held)
+        const end = textEnd(pending, markers)
+        const text = pending.slice(0, end)
+        pending = pending.slice(end)
         if (text) yield piece(text)
         break
       }
@@ -71,7 +74,7 @@ export async function* splitThinking(
         throw new ModelError('Gemma ended inside a thinking block.')
       if (pending && mode !== 'header') yield piece(pending)
       pending = ''
-      yield { ...chunk, choices: [{ ...choice, text: '' }] }
+      yield { text: '', reasoning: '', stop: stopReason(choice.finish_reason), usage: chunk.usage }
     }
   }
 }

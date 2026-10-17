@@ -2,7 +2,8 @@ import { ModelError, type ToolSpec } from '@strands-agents/sdk'
 import type { Completion } from '@mlc-ai/web-llm'
 import { readArguments } from './value.js'
 import { splitThinking } from './thinking.js'
-import { stopReason, type StreamChunk, type ToolDelta } from '../chunks.js'
+import { textEnd } from './markers.js'
+import type { StreamChunk, ToolDelta } from '../chunks.js'
 
 const begin = '<|tool_call>'
 const end = '<tool_call|>'
@@ -16,37 +17,33 @@ export async function* gemmaChunks(
   let pending = ''
   let toolText = ''
   for await (const chunk of splitThinking(chunks, onChunk, prefix)) {
-    const choice = chunk.choices[0]
     let content = ''
     let calls: ToolDelta[] = []
-    if (choice) {
-      if (toolText) toolText += choice.text
-      else {
-        pending += choice.text
-        const at = pending.indexOf(begin)
-        if (at !== -1) {
-          content = pending.slice(0, at)
-          toolText = pending.slice(at)
-          pending = ''
-        } else {
-          let held = Math.min(pending.length, begin.length - 1)
-          while (held && !begin.startsWith(pending.slice(-held))) held--
-          content = pending.slice(0, pending.length - held)
-          pending = pending.slice(pending.length - held)
-        }
-      }
-      if (choice.finish_reason) {
-        if (toolText && choice.finish_reason === 'stop') calls = readCalls(toolText, tools)
-        content += pending
+    if (toolText) toolText += chunk.text
+    else {
+      pending += chunk.text
+      const at = pending.indexOf(begin)
+      if (at !== -1) {
+        content = pending.slice(0, at)
+        toolText = pending.slice(at)
         pending = ''
+      } else {
+        const end = textEnd(pending, [begin])
+        content = pending.slice(0, end)
+        pending = pending.slice(end)
       }
+    }
+    if (chunk.stop) {
+      if (toolText && chunk.stop === 'endTurn') calls = readCalls(toolText, tools)
+      content += pending
+      pending = ''
     }
     yield {
       text: content,
-      reasoning: chunk.reasoning ?? '',
+      reasoning: chunk.reasoning,
       toolText: '',
       calls,
-      stop: calls.length ? 'toolUse' : stopReason(choice?.finish_reason),
+      stop: calls.length ? 'toolUse' : chunk.stop,
       usage: chunk.usage,
     }
   }
