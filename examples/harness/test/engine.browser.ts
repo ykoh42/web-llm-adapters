@@ -57,6 +57,7 @@ test('Harness tools share WebLLM embeddings, raw completions and resumable gener
             engine.completions.create({
               model,
               prompt: 'A short greeting:',
+              echo: true,
               n: 2,
               max_tokens: 16,
               temperature: 0.7,
@@ -69,7 +70,10 @@ test('Harness tools share WebLLM embeddings, raw completions and resumable gener
     expect(dimensions).toBe(384)
     expect(finalText(answer)).toContain('384')
     expect(raw.choices).toHaveLength(2)
-    expect(raw.choices.every((choice) => choice.text.length > 0)).toBe(true)
+    expect(raw.choices.every((choice) => choice.text.startsWith('A short greeting:'))).toBe(true)
+    expect(raw.choices.every((choice) => choice.text.length > 'A short greeting:'.length)).toBe(
+      true,
+    )
 
     const resumed = await page.evaluate(
       (model) =>

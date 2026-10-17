@@ -1,6 +1,6 @@
 import { MLCEngine } from '@mlc-ai/web-llm'
 import { Agent } from '@strands-agents/sdk'
-import { WebLLMModel } from 'strands-webllm'
+import { WebLLMModel, withEngine } from 'strands-webllm'
 import { qwen, record } from './catalog.js'
 
 export async function models() {
@@ -26,17 +26,20 @@ export async function models() {
     await new Agent({ model, printer: false }).invoke('Say hello.')
     model.updateConfig({ modelId: second.model_id })
     await new Agent({ model, printer: false }).invoke('Say hello.')
-    const replies = await Promise.all(
-      [first, second].map((item) =>
-        engine.chat.completions.create({
-          model: item.model_id,
-          messages: [{ role: 'user', content: 'Say hello.' }],
-          max_tokens: 32,
-          extra_body: { enable_thinking: false },
-        }),
-      ),
-    )
-    const vector = await engine.embeddings.create({ model: embed.model_id, input: 'Hello' })
+    const { replies, vector } = await withEngine(engine, async (engine) => {
+      const replies = await Promise.all(
+        [first, second].map((item) =>
+          engine.chat.completions.create({
+            model: item.model_id,
+            messages: [{ role: 'user', content: 'Say hello.' }],
+            max_tokens: 32,
+            extra_body: { enable_thinking: false },
+          }),
+        ),
+      )
+      const vector = await engine.embeddings.create({ model: embed.model_id, input: 'Hello' })
+      return { replies, vector }
+    })
     return {
       selected: [...seen],
       parallel: replies.map((reply) => ({

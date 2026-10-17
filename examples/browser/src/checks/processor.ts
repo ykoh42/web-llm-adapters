@@ -1,13 +1,16 @@
 import { MLCEngine, WebWorkerMLCEngine, type MLCEngineInterface } from '@mlc-ai/web-llm'
+import { withEngine } from 'strands-webllm'
 import { qwen } from './catalog.js'
 import { FixedToken } from './fixed-token.js'
 
 async function forward(engine: MLCEngineInterface) {
-  const tokens = [await engine.forwardTokensAndSample([1], true, qwen)]
-  for (let i = 0; i < 2; i++) {
-    tokens.push(await engine.forwardTokensAndSample([tokens.at(-1)!], false, qwen))
-  }
-  return tokens
+  return withEngine(engine, async (engine) => {
+    const tokens = [await engine.forwardTokensAndSample([1], true, qwen)]
+    for (let i = 0; i < 2; i++) {
+      tokens.push(await engine.forwardTokensAndSample([tokens.at(-1)!], false, qwen))
+    }
+    return tokens
+  })
 }
 
 export async function processor() {

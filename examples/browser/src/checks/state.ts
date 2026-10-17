@@ -1,6 +1,6 @@
 import { MLCEngine } from '@mlc-ai/web-llm'
 import { Agent } from '@strands-agents/sdk'
-import { WebLLMModel } from 'strands-webllm'
+import { WebLLMModel, withEngine } from 'strands-webllm'
 import { qwen, record } from './catalog.js'
 
 export async function state() {
@@ -9,11 +9,13 @@ export async function state() {
     progress.push(report.progress)
   }
   const engine = new MLCEngine({ logLevel: 'SILENT' })
-  engine.setInitProgressCallback(callback)
-  engine.setAppConfig({ model_list: [record(qwen)] })
-  engine.setLogLevel('WARN')
   try {
-    await engine.reload(qwen, { context_window_size: 2048 })
+    await withEngine(engine, async (engine) => {
+      engine.setInitProgressCallback(callback)
+      engine.setAppConfig({ model_list: [record(qwen)] })
+      engine.setLogLevel('WARN')
+      await engine.reload(qwen, { context_window_size: 2048 })
+    })
     const model = new WebLLMModel({
       engine,
       modelId: qwen,
@@ -33,23 +35,25 @@ export async function state() {
       .filter((block) => block.type === 'textBlock')
       .map((block) => block.text)
       .join('\n')
-    const message = await engine.getMessage(qwen)
-    const gpu = await engine.getGPUVendor()
-    const maxBuffer = await engine.getMaxStorageBufferBindingSize()
-    const stats = await engine.runtimeStatsText(qwen)
-    await engine.resetChat(false, qwen)
-    return {
-      progress,
-      callbackMatches: engine.getInitProgressCallback() === callback,
-      text,
-      message,
-      afterReset: await engine.getMessage(qwen),
-      gpu,
-      maxBuffer,
-      stats,
-      messages: agent.messages.length,
-    }
+    return await withEngine(engine, async (engine) => {
+      const message = await engine.getMessage(qwen)
+      const gpu = await engine.getGPUVendor()
+      const maxBuffer = await engine.getMaxStorageBufferBindingSize()
+      const stats = await engine.runtimeStatsText(qwen)
+      await engine.resetChat(false, qwen)
+      return {
+        progress,
+        callbackMatches: engine.getInitProgressCallback() === callback,
+        text,
+        message,
+        afterReset: await engine.getMessage(qwen),
+        gpu,
+        maxBuffer,
+        stats,
+        messages: agent.messages.length,
+      }
+    })
   } finally {
-    await engine.unload()
+    await withEngine(engine, (engine) => engine.unload())
   }
 }
