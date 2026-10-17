@@ -88,8 +88,8 @@ and releases the engine. The callback is not part of the serializable model conf
 `BrowserPage` requires only `evaluate()` and accepts a Playwright Page without a
 Playwright dependency in this package. The application owns browser startup,
 engine loading, and shutdown. Before unloading the engine or closing the page,
-run `await page.evaluate(() => window.webllmBridge.close())`. This waits for all
-bridge calls to stop and rejects new requests. It does not unload the engine.
+run `await page.evaluate(() => window.webllmBridge.close())`. This stops model calls, waits for active native callbacks to finish, and rejects
+new requests and queued native callbacks. It does not unload the engine.
 Do not replace a bridge while its calls are running, and expose it only on a
 trusted page controlled by your application.
 
@@ -110,15 +110,65 @@ for await (const update of agent.stream('Say hello.')) {
 }
 ```
 
-Use `agent.cancel()` to interrupt generation. Do not run native engine calls or
-change loaded models while an agent call is active. Adapter calls sharing one
-engine wait in order. Cancelling a waiting call does not interrupt the active call.
+Use `agent.cancel()` to interrupt generation. Adapter calls and `withEngine()`
+callbacks sharing one engine wait in order. Cancelling a waiting call does not interrupt the active call.
 Separate engines have separate queues.
 
 ## Native features
 
-`model.engine` is the same engine you pass in. Use WebLLM's own API for loading,
-cache management, embeddings, text completions, and other engine features.
+`model.engine` is the same engine you pass in. `withEngine()` gives native work
+its own turn in the adapter's queue. Use it in Strands tools and hooks for APIs
+outside the SDK's `Model` contract, including embeddings, raw completions,
+multiple responses, and generation checkpoints. The callback receives the original
+`MLCEngineInterface`; there is no method whitelist or replacement response format.
+
+```ts
+import { withEngine } from 'strands-webllm'
+
+// Load an embedding model with WebLLM before calling this tool callback.
+const vector = await withEngine(engine, async (engine) => {
+  const result = await engine.embeddings.create({
+    model: 'snowflake-arctic-embed-s-q0f32-MLC-b4',
+    input: 'hello',
+  })
+  return result.data[0]!.embedding
+})
+```
+
+Node.js tools use the same scope through the browser bridge and Playwright:
+
+```ts
+const vector = await page.evaluate(
+  (input) =>
+    window.webllmBridge.withEngine(async (engine) => {
+      const result = await engine.embeddings.create({
+        model: 'snowflake-arctic-embed-s-q0f32-MLC-b4',
+        input,
+      })
+      return result.data[0]!.embedding
+    }),
+  'hello',
+)
+```
+
+The callback runs on the browser page. Pass inputs through `evaluate()` and return
+serializable results; Node.js closures do not travel to the browser. Return the
+vector from a Strands tool callback to give it to the agent. The
+[executable Harness test](../../examples/harness/test/engine.browser.ts) registers
+such a tool and runs it alongside another native request.
+
+Await all native work and consume streams **inside** the callback. Returning an
+async iterable is rejected and closes it before releasing the engine. Do not call
+an Agent, an adapter model, or another `withEngine()` on the same engine inside
+the callback: that operation would wait for its own turn to end. Cancel native
+generation with WebLLM's `interruptGenerate()`; `agent.cancel()` controls only the
+agent's generation. The caller still owns model loading and shutdown.
+
+Use this scope for engine mutations too. Before replacing the loaded model set,
+stop callers that depend on it and update their model configs. The queue prevents
+overlapping engine work; it does not rewrite requests already waiting for an old
+model. Direct engine calls bypass this queue. Module-level cache APIs and worker
+setup remain WebLLM's own APIs:
 
 ```ts
 import { hasModelInCache, deleteModelAllInfoInCache } from '@mlc-ai/web-llm'
@@ -173,8 +223,8 @@ model. Other WebLLM operations keep their native API through `model.engine`.
 The adapter closes the native stream on cancellation even if Strands leaves an
 outer iterator suspended. The next call waits for that cleanup. Once the native
 stream finishes, hooks and other agents can use the engine while Strands finishes
-processing its events. Do not mix native calls or model reloads with active or
-queued adapter calls.
+processing its events. Use `withEngine()` to coordinate native calls with these
+model calls.
 
 Gemma token counts omit past-turn thoughts just as the generated prompt does,
 while keeping thoughts from the current tool loop. Counts estimate declarations
@@ -185,9 +235,11 @@ to the window used when loading the engine.
 
 ## WebLLM API coverage
 
-This inventory targets WebLLM **0.2.86** and Strands SDK **1.21.0**. "Native only"
-means the engine API remains available; it does not count as a Strands integration.
-Both model classes support the mapped generation features below.
+This inventory targets WebLLM **0.2.86** and Strands SDK **1.21.0**. Both model
+classes support the mapped generation features below. “Native scope” means
+`withEngine(engine, callback)` in the browser or `window.webllmBridge.withEngine(callback)`
+from a Node.js tool through `page.evaluate()`. It coordinates original WebLLM APIs
+with Strands; it does not change the SDK Model contract.
 
 | WebLLM surface                                                                                                           | Strands connection                                                            | Boundary                                                                                 |
 | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
@@ -200,24 +252,35 @@ Both model classes support the mapped generation features below.
 | `response_format`: text, JSON schema, grammar, structural tags                                                           | `request.response_format`                                                     | Native chat path; Gemma raw protocol has no format API                                   |
 | `tool_choice`: auto, named, none                                                                                         | SDK `toolChoice`; `request.tool_choice: 'none'`                               | An explicit SDK choice overrides the config; native tools are model-restricted           |
 | Image URL, data URL and bytes                                                                                            | SDK `ImageBlock`                                                              | Requires a vision model; Gemma raw protocol is text-only                                 |
-| User/assistant message `name`                                                                                            | Not mapped                                                                    | SDK messages have no corresponding name field                                            |
+| User/assistant message `name`                                                                                            | Native scope                                                                  | SDK messages have no corresponding name field                                            |
 | WAV and float32 PCM audio                                                                                                | SDK `AudioBlock`; `pcmAudio(samples, sampleRate)`                             | PCM is carried losslessly in float WAV; requires an audio model                          |
 | Thinking toggle                                                                                                          | `request.extra_body.enable_thinking`                                          | Gemma reasoning is separated; other native models retain their own output format         |
 | `ignore_eos`                                                                                                             | `request.ignore_eos` on native chat                                           | Gemma protocol rejects it to preserve turn boundaries                                    |
 | Streaming and non-streaming chat consumption                                                                             | `agent.stream()` and `agent.invoke()`                                         | Both consume one native stream; no independent non-streaming backend mode                |
-| Multiple choices (`n > 1`)                                                                                               | Native only                                                                   | Strands Model produces one assistant turn; WebLLM also rejects multiple streamed choices |
-| Crash-resumable request configuration                                                                                    | `request.extra_body.resumable` on native chat                                 | Session listing/recovery/deletion are native only; Agent/tool state is not restored      |
-| Raw completions (`prompt`, `echo`, multiple non-streaming choices)                                                       | Native only                                                                   | The internal Gemma completion path is not a public raw-completion adapter                |
-| Embeddings                                                                                                               | Native only                                                                   | SDK Model has no embedding method; BrowserModel does not expose engine RPC               |
-| Reload/unload, app config, progress callbacks, reset, saved message, stats, GPU queries, log level, token-level sampling | Caller-owned engine                                                           | Keep operations outside active/queued model calls                                        |
+| Multiple choices (`n > 1`)                                                                                               | Native scope                                                                  | Strands Model produces one assistant turn; WebLLM also rejects multiple streamed choices |
+| Crash-resumable request configuration                                                                                    | `request.extra_body.resumable` on native chat                                 | Listing/recovery/deletion use native scope; Agent/tool state is separate                 |
+| Raw completions (`prompt`, `echo`, multiple non-streaming choices)                                                       | Native scope                                                                  | Use the original completion API inside a tool or hook                                    |
+| Embeddings                                                                                                               | Native scope                                                                  | Use the original embedding API inside a tool or hook                                     |
+| Reload/unload, app config, progress callbacks, reset, saved message, stats, GPU queries, log level, token-level sampling | Caller-owned engine                                                           | Coordinate engine work through native scope                                              |
 | Cache backends, cache inspection/deletion, integrity, custom models and logit processors                                 | Caller-owned WebLLM setup                                                     | Pass the configured engine; the adapter does not recreate it                             |
 | Main thread, Web Worker, Service Worker, extension worker                                                                | Pass any `MLCEngineInterface`                                                 | BrowserModel additionally carries the provider to Node.js                                |
 
-This is not full engine API parity. Outstanding integrations are Agent-aware
-generation recovery and a Node.js bridge for native operations such as embeddings
-and raw completions. Gemma media plus tools/thinking, constrained output in the raw
-protocol, and `ignore_eos` with protocol parsing remain unavailable combinations.
-No fallback model or prompt instruction silently substitutes for those features.
+Every method on the original engine is available in native scope, including from
+Node.js Harness tools. This is API access, not a claim that every API combination
+has been tested. Real GPU coverage includes an embedding tool with Gemma, concurrent
+raw multiple completions, and orderly interrupted native generation recovery.
+
+Native generation checkpoints do not restore a Strands Agent, its tool execution,
+or its history. Use Strands session persistence for that state and WebLLM's own
+recovery API for native generation. Automatic recovery of a partially executed
+Agent turn is not provided. Gemma media plus tools/thinking, constrained output in
+the raw protocol, and `ignore_eos` with protocol parsing remain unavailable
+combinations. No fallback model or prompt instruction substitutes for them.
+
+This separation follows Strands's [custom model provider contract](https://strandsagents.com/docs/user-guide/sdk/model-providers/custom_model_provider/)
+and WebLLM's [native usage](https://webllm.mlc.ai/docs/user/basic_usage.html):
+the adapter maps model turns, while tools and application code use the remaining
+engine capabilities directly.
 
 The distinction follows the native [chat request](https://github.com/mlc-ai/web-llm/blob/v0.2.86/src/openai_api_protocols/chat_completion.ts),
 [completion request](https://github.com/mlc-ai/web-llm/blob/v0.2.86/src/openai_api_protocols/completion.ts),

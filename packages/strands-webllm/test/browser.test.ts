@@ -292,3 +292,37 @@ it('forwards tool choices and trailing context without sharing per-call options'
   await collect(model.stream(messages))
   expect(start.mock.calls[1]?.[0].options).toEqual({})
 })
+
+it('uses native APIs through page evaluation and waits for them during bridge close', async () => {
+  const { bridge, engine, page } = open()
+  const stats = vi.spyOn(engine, 'runtimeStatsText').mockResolvedValue('native stats')
+  expect(
+    await page.evaluate(
+      () => window.webllmBridge.withEngine((engine) => engine.runtimeStatsText()),
+      undefined,
+    ),
+  ).toBe('native stats')
+  expect(stats).toHaveBeenCalledOnce()
+  const entered = pause()
+  const finish = pause()
+  const active = bridge.withEngine(async () => {
+    entered.resume()
+    await finish.wait
+    return 'finished'
+  })
+  await entered.wait
+  const run = vi.fn()
+  const queued = expect(bridge.withEngine(run)).rejects.toThrow('closed')
+  let closed = false
+  const closing = bridge.close().then(() => {
+    closed = true
+  })
+  await expect(bridge.withEngine(run)).rejects.toThrow('closed')
+  expect(closed).toBe(false)
+  finish.resume()
+  expect(await active).toBe('finished')
+  await queued
+  await closing
+  expect(closed).toBe(true)
+  expect(run).not.toHaveBeenCalled()
+})

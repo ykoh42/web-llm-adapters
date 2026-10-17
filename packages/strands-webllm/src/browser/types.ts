@@ -5,6 +5,7 @@ import type {
   StreamOptions,
 } from '@strands-agents/sdk'
 import type { WebLLMChunk, WebLLMModelConfig, WebLLMModelOptions } from '../types.js'
+import type { MLCEngineInterface } from '@mlc-ai/web-llm'
 
 export type BrowserModelOptions = Omit<WebLLMModelOptions, 'engine'>
 
@@ -30,6 +31,8 @@ export interface BrowserPage {
 
 /** Expose this object only on a trusted page controlled by your application. */
 export interface BrowserBridge {
+  /** Run on the browser page. Finish native work inside the callback before returning. */
+  withEngine<T>(run: (engine: MLCEngineInterface) => T | Promise<T>): Promise<T>
   count(request: BrowserCountRequest): Promise<number>
   start(request: BrowserRequest): Promise<string>
   next(id: string): Promise<BrowserResult>

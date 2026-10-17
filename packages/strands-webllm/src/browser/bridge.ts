@@ -1,6 +1,7 @@
 import { Message } from '@strands-agents/sdk'
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
 import { WebLLMModel } from '../model.js'
+import { withEngine } from '../engine.js'
 import type { WebLLMChunk } from '../types.js'
 import type { BrowserBridge, BrowserRequest, BrowserResult, BrowserCountRequest } from './types.js'
 
@@ -13,11 +14,25 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
     chunks: WebLLMChunk[]
   }
   const calls = new Map<string, Call>()
+  const nativeCalls = new Set<Promise<unknown>>()
   let closed = false
   function checkOpen() {
     if (closed) throw new Error('The browser bridge is closed.')
   }
   const bridge: BrowserBridge = {
+    async withEngine(run) {
+      checkOpen()
+      const pending = withEngine(engine, (engine) => {
+        checkOpen()
+        return run(engine)
+      })
+      nativeCalls.add(pending)
+      try {
+        return await pending
+      } finally {
+        nativeCalls.delete(pending)
+      }
+    },
     async count({ messages, config, options }: BrowserCountRequest) {
       checkOpen()
       const model = new WebLLMModel({ engine, ...config })
@@ -74,7 +89,11 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
     },
     async close() {
       closed = true
-      const results = await Promise.allSettled([...calls.keys()].map((id) => bridge.stop(id)))
+      const results = await Promise.allSettled([
+        ...[...calls.keys()].map((id) => bridge.stop(id)),
+        // Native errors go to their caller; close waits for their cleanup without replaying them.
+        ...Array.from(nativeCalls, (call) => call.catch(() => {})),
+      ])
       for (const result of results) if (result.status === 'rejected') throw result.reason
     },
   }
