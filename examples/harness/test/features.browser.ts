@@ -64,17 +64,26 @@ test('default file tools, shell and programmatic tool caller run in Node with Ge
     })
     expect(await readFile(path, 'utf8')).toBe(code)
     const shellCode = 'shell-' + Math.floor(Math.random() * 1_000_000)
-    await writeFile(path, shellCode)
+    const shellPath = join(harness.dir, 'shell.txt')
+    await writeFile(shellPath, shellCode)
     useTool(agent, 'shell')
-    const shell = await agent.invoke(`Use shell to run cat '${path}' and tell me its output.`, {
-      limits: { turns: 3 },
-    })
+    const shell = await agent.invoke(
+      `Use shell to run cat '${shellPath}'. Reply with only its output.`,
+      { limits: { turns: 3 } },
+    )
+    const latest = agent.messages
+      .flatMap((message) => message.content)
+      .filter((block) => block.type === 'toolResultBlock')
+      .at(-1)
+    expect(JSON.stringify(latest)).toContain(shellCode)
+    expect((await page.evaluate(() => window.gemmaPrompts)).at(-1)).toContain(shellCode)
     expect(finalText(shell)).toContain(shellCode)
     const pythonCode = 'python-' + Math.floor(Math.random() * 1_000_000)
-    await writeFile(path, pythonCode)
+    const pythonPath = join(harness.dir, 'python.txt')
+    await writeFile(pythonPath, pythonCode)
     useTool(agent, 'programmatic_tool_caller')
     const result = await agent.invoke(
-      `The file has changed. Use programmatic_tool_caller to run exactly this Python code: print(await read(path='${path}'))\nTell me the file's content from the new result.`,
+      `Use programmatic_tool_caller to run exactly this Python code: print(await read(path='${pythonPath}'))\nTell me the file's content from the result.`,
       { limits: { turns: 3 } },
     )
     const results = agent.messages

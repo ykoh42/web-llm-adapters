@@ -6,6 +6,7 @@ import { BrowserModel } from './browser-model.ts'
 import { useTool } from './tool-choice.ts'
 import { createMemory } from './memory.ts'
 import { SummaryModel } from './summary-model.ts'
+import { createRead } from './read.ts'
 
 const { values, positionals } = parseArgs({
   options: { think: { type: 'boolean' }, tool: { type: 'string' } },
@@ -46,7 +47,8 @@ try {
     auxModel,
     memory: { stores: [createMemory(page, modelId, contextWindow)] },
     instructions: 'Answer briefly.',
-    builtinTools: { read: { media: false }, web_fetch: { model: auxModel } },
+    builtinTools: { read: false, web_fetch: { model: auxModel }, web_search: 'exa' },
+    tools: [createRead()],
     printer: false,
   })
   if (values.tool) useTool(agent, values.tool)

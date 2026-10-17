@@ -58,7 +58,7 @@ export class BrowserModel extends Model<WebLLMModelConfig> {
         ...(dynamicTrailingBlocks !== undefined && { dynamicTrailingBlocks }),
       },
     }
-    // This carries text, reasoning, and tool JSON. Media stays in the browser example.
+    // SDK message JSON encodes media bytes as base64 across the browser boundary.
     const id = await this.page.evaluate(
       (json) => window.harness.start(JSON.parse(json)),
       JSON.stringify(request),

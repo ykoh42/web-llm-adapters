@@ -7,6 +7,7 @@ import type { AgentResult } from '@strands-agents/sdk'
 import { BrowserModel } from '../browser-model.js'
 import { createMemory } from '../memory.js'
 import { SummaryModel } from '../summary-model.js'
+import { createRead } from '../read.js'
 export { useTool } from '../tool-choice.js'
 
 declare global {
@@ -64,11 +65,12 @@ export async function openHarness(page: Page, contextWindow = 16384) {
       const agent = await createHarness({
         model,
         auxModel,
-        builtinTools: { read: { media: false }, web_fetch: { model: auxModel } },
+        builtinTools: { read: false, web_fetch: { model: auxModel }, web_search: 'exa' },
         session: { dir: join(dir, 'sessions') },
         memory: { stores: [memory] },
         printer: false,
         ...options,
+        tools: [createRead(), ...(options.tools ?? [])],
       })
       agents.push(agent)
       return agent

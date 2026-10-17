@@ -3,7 +3,7 @@
 Harness runs in Node.js. WebLLM runs in a browser with WebGPU. `BrowserModel`
 forwards model requests to the browser's `WebLLMModel` and brings its Strands
 stream events back. Harness executes the tools in Node.js. No model API server
-or API key is used.
+or model API key is used. Web search uses Harness's Exa integration.
 
 From the repository root:
 
@@ -17,6 +17,8 @@ In another terminal:
 ```sh
 npm run start --workspace @webllm-adapters/harness -- 'Say hello.'
 npm run start --workspace @webllm-adapters/harness -- --think --tool read 'Read /absolute/path/to/note.txt and summarize it.'
+npm run start --workspace @webllm-adapters/harness -- --tool read 'Read /absolute/path/to/note.pdf and summarize its text.'
+npm run start --workspace @webllm-adapters/harness -- --tool web_search 'Find the official Strands Harness SDK repository.'
 ```
 
 This opens Google Chrome, loads Gemma 4 E2B, and reuses `.cache/chrome`. The app
@@ -30,13 +32,37 @@ E2B does not reliably select tools from the full default tool set, so the named
 choice is useful for a specific first step. It supplies no argument values or
 completion message and uses no forced end-turn hook. E2B can alter identifiers
 in generated answers or miss facts in dense repetitive history, even when a
-summary preserves them. Use the actual tool result when an exact value matters.
+summary preserves them. It can also reuse an older value after a file changes,
+even when the new tool result contains the current value. Use the actual tool
+result when an exact value matters.
 
 The example leaves sessions, skills, memory, context management, built-in plugins,
 background tasks, subagents, and the default text tools enabled. `printer: false`
-keeps SDK printing out of the CLI's final output. `read.media: false` is required
-because this bridge carries text, reasoning, and tool JSON. Browser media and
-other native APIs have [separate examples](../browser/README.md).
+keeps SDK printing out of the CLI's final output. [createRead](./read.ts) extends
+the built-in text reader with local PDF text extraction. `read: false` replaces
+the built-in instance with this extended tool under the same name; text paging
+still uses Harness's reader.
+
+PDF reading extracts embedded text without a model. PDF files are limited to
+20 MiB. All file access uses the agent's sandbox. Images, scanned pages and
+Office files need a model or extraction tool that can handle their contents.
+WAV transcription is not enabled here: speech checks with both WebLLM WAV input
+and native PCM input returned incorrect text or hit the token limit. The native
+browser audio examples remain available for inspecting actual model output;
+accepting audio bytes does not establish transcription accuracy.
+
+The current WebLLM Gemma artifact supports text and audio, not images. A real PNG
+request fails with `UnsupportedContentPartError`. Its
+[manifest](https://huggingface.co/mlc-ai/gemma-4-E2B-it-q4f16_1-MLC/blob/main/mlc-model-manifest.json)
+declares no image input, and MLC's
+[Gemma implementation](https://github.com/mlc-ai/mlc-llm/blob/main/python/mlc_llm/model/gemma4/gemma4_model.py)
+contains text and audio support. Harness's image reader cannot supply the missing
+vision encoder. Other browser media and native APIs have
+[separate examples](../browser/README.md).
+Text in images can be extracted with a separate OCR tool; Strands's Python
+[`use_computer`](https://github.com/strands-agents/tools/blob/main/src/strands_tools/use_computer.py)
+includes Tesseract OCR. That tool is not part of this TypeScript example, and OCR
+does not provide general image understanding.
 
 Gemma 4 E2B handles the main conversation, summaries, `web_fetch`, and memory.
 Only one set of weights is loaded. The main, auxiliary, and memory models are
@@ -76,7 +102,8 @@ const options = {
   model,
   auxModel,
   memory: { stores: [createMemory(page, modelId, 16384)] },
-  builtinTools: { read: { media: false }, web_fetch: { model: auxModel } },
+  builtinTools: { read: false, web_fetch: { model: auxModel }, web_search: 'exa' },
+  tools: [createRead()],
   printer: false,
 }
 const agent = await createHarness(options)
@@ -122,9 +149,12 @@ independent queues. This is concurrent request handling, not simultaneous GPU
 execution on one engine.
 
 Harness's provider prompt-cache setting does not apply to a pre-built Model.
-WebLLM keeps its own model cache and inference state. Native `web_search` is a
-provider feature and is not exposed for this custom model. Harness can explicitly
-use its optional Exa search integration instead.
+WebLLM keeps its own model cache and inference state. `web_search: 'exa'` uses
+Harness's built-in [Exa MCP integration](https://exa.ai/docs/get-started/exa-mcp).
+Search queries leave your environment. The public endpoint works without a key
+but has rate limits; `EXA_API_KEY` is optional. Model inference and file reading
+remain local. E2B can still choose the wrong source from real search results;
+inspect the tool result when an exact URL matters.
 
 Run the real GPU checks with:
 
