@@ -5,10 +5,9 @@ import {
   type StreamOptions,
 } from '@strands-agents/sdk'
 import type { ModelStreamEvent } from '@strands-agents/sdk'
-import type { ChatCompletionRequestBase, MLCEngineInterface } from '@mlc-ai/web-llm'
-import { formatMessages, formatTools, formatToolChoice } from './messages.js'
-import { readStream } from './stream.js'
-import { startCall } from './call.js'
+import type { MLCEngineInterface } from '@mlc-ai/web-llm'
+import { chatStream } from './chat.js'
+import { isGemma, usesGemmaProtocol } from './gemma/request.js'
 import { gemmaStream } from './gemma/model.js'
 import { promptTokens } from './gemma/prompt.js'
 import { trimThoughts } from './gemma/history.js'
@@ -40,7 +39,7 @@ export class WebLLMModel extends Model<WebLLMModelConfig> {
     messages: Message[],
     options: CountTokensOptions = {},
   ): Promise<number> {
-    if (!/^gemma-4-/i.test(this.config.modelId)) return super.countTokens(messages, options)
+    if (!isGemma(this.config.modelId)) return super.countTokens(messages, options)
     const thinking = this.config.request?.extra_body?.enable_thinking === true
     return (await super.countTokens(trimThoughts(messages))) + promptTokens(options, thinking)
   }
@@ -52,44 +51,7 @@ export class WebLLMModel extends Model<WebLLMModelConfig> {
     const signal = options.cancelSignal
     signal?.throwIfAborted()
     const config = this.getConfig()
-    const gemma = /^gemma-4-/i.test(config.modelId)
-    const hasThoughts = messages.some((message) =>
-      message.content.some((block) => block.type === 'reasoningBlock'),
-    )
-    if (
-      gemma &&
-      (options.toolSpecs?.length ||
-        config.request?.extra_body?.enable_thinking != null ||
-        hasThoughts)
-    ) {
-      yield* gemmaStream(this.engine, config, messages, options, this.onChunk)
-      return
-    }
-    const request: ChatCompletionRequestBase = {
-      ...config.request,
-      model: config.modelId,
-      messages: formatMessages(messages, options.systemPrompt),
-      stream: true,
-      stream_options: { include_usage: true },
-      n: 1,
-    }
-    if (config.maxTokens !== undefined) request.max_tokens = config.maxTokens
-    if (config.temperature !== undefined) request.temperature = config.temperature
-    if (config.topP !== undefined) request.top_p = config.topP
-    if (options.toolSpecs?.length) request.tools = formatTools(options.toolSpecs)
-    if (options.toolChoice) request.tool_choice = formatToolChoice(options.toolChoice)
-
-    const call = await startCall(
-      this.engine,
-      () => this.engine.chat.completions.create({ ...request, stream: true }),
-      signal,
-    )
-    let done = false
-    try {
-      yield* readStream(call.chunks, Boolean(request.tools), signal, this.onChunk)
-      done = true
-    } finally {
-      await call.close(!done)
-    }
+    const stream = usesGemmaProtocol(config, messages, options) ? gemmaStream : chatStream
+    yield* stream(this.engine, config, messages, options, this.onChunk)
   }
 }

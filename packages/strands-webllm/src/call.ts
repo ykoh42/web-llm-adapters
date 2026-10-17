@@ -1,4 +1,5 @@
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
+import type { ModelStreamEvent } from '@strands-agents/sdk'
 import { takeTurn } from './queue.js'
 import { modelError } from './error.js'
 
@@ -65,5 +66,22 @@ export async function startCall<T>(
   } catch (error) {
     await close(false).catch(() => {})
     throw modelError(error)
+  }
+}
+
+/** Every protocol shares the same native stream ownership and cleanup. */
+export async function* streamCall<T>(
+  engine: MLCEngineInterface,
+  open: () => Promise<AsyncIterable<T>>,
+  read: (chunks: AsyncIterable<T>) => AsyncIterable<ModelStreamEvent>,
+  signal?: AbortSignal,
+): AsyncGenerator<ModelStreamEvent> {
+  const call = await startCall(engine, open, signal)
+  let done = false
+  try {
+    yield* read(call.chunks)
+    done = true
+  } finally {
+    await call.close(!done)
   }
 }
