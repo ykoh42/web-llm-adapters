@@ -1,4 +1,4 @@
-import { AfterToolsEvent, Agent, FunctionTool } from '@strands-agents/sdk'
+import { AfterToolsEvent, Agent, FunctionTool, TextBlock } from '@strands-agents/sdk'
 import { WebLLMModel } from 'strands-webllm'
 import { runAgent, type ExampleInput } from './output.js'
 
@@ -18,10 +18,10 @@ export async function tools(input: ExampleInput, thinking = false) {
     ...(thinking && { request: { extra_body: { enable_thinking: true } } }),
   })
   const agent = new Agent({ model, tools: [clock], printer: false })
-  // Legacy Hermes mode always generates tool JSON, so it needs an explicit end.
+  // Hermes only emits tool JSON. End its batch with no answer text.
   if (input.modelId.startsWith('Hermes-'))
     agent.addHook(AfterToolsEvent, (event) => {
-      event.endTurn = 'Tool call finished. See the result in Details.'
+      event.endTurn = [new TextBlock('')]
     })
   await runAgent(agent, input.prompt, input)
 }

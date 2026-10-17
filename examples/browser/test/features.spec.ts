@@ -100,7 +100,9 @@ for (const backend of ['cache', 'indexeddb', 'opfs']) {
 
 test('Hermes calls a real Strands tool', async ({ page }) => {
   await load(page, 'hermes-tools')
-  await run(page)
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await expect(page.getByRole('status')).toHaveText('Done', { timeout: 120_000 })
+  await expect(page.getByLabel('Response', { exact: true })).toBeEmpty()
   const details = await page.getByLabel('Details', { exact: true }).textContent()
   expect(details).toContain('"toolResultEvent"')
   expect(details).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:/)
