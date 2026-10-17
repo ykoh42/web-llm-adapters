@@ -148,7 +148,7 @@ describe('Gemma tool prompts', () => {
       { dynamicTrailingBlocks: 1 },
       true,
     )
-    expect(prompt).toContain('<|channel>thought\nFind x.<channel|>')
+    expect(prompt).toContain('<|channel>thought\nFind x.\n<channel|>')
     expect(prompt).toContain('context:<|"|>Current todo: verify x.<|"|>,value:{answer:42}')
     expect(prompt.endsWith('<tool_response|>')).toBe(true)
     expect(prompt.match(/<\|turn>user/g)).toHaveLength(1)
@@ -184,9 +184,11 @@ describe('Gemma tool prompts', () => {
     const snapshot = JSON.stringify(history)
     const prompt = toolPrompt(history, tools, {}, true)
     expect(prompt).toContain('<|turn>system\n<|think|>\n')
-    expect(prompt).toContain('<|channel>thought\nFind x.<channel|>')
-    expect(prompt).toContain('<tool_response|><|channel>thought\nCheck again.<channel|>')
-    expect(toolPrompt(history, tools, {}, false)).toContain('<|channel>thought\nFind x.<channel|>')
+    expect(prompt).toContain('<|channel>thought\nFind x.\n<channel|>')
+    expect(prompt).toContain('<tool_response|><|channel>thought\nCheck again.\n<channel|>')
+    expect(toolPrompt(history, tools, {}, false)).toContain(
+      '<|channel>thought\nFind x.\n<channel|>',
+    )
     const injected = new Message({
       role: 'user',
       content: [...result.content, new TextBlock('New input')],

@@ -44,8 +44,7 @@ specific first step; use the actual tool result when exact values matter.
 | Restart recovery         | [recovery.browser.ts](test/recovery.browser.ts) | Restore WebLLM checkpoints and Harness history separately |
 
 Sessions, skills, memory, background tasks, subagents, and ordinary tools keep
-their Harness defaults. [Context management](context.ts) uses 256-token tool
-previews to limit repeated thinking and keeps full results in the SDK stash.
+their Harness defaults.
 `read: false` replaces the built-in reader with the extended tool under the same name. `printer: false` keeps the CLI
 output focused on the answer. Main, auxiliary, and memory requests share one engine.
 

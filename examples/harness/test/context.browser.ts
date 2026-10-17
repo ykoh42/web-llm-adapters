@@ -84,8 +84,13 @@ test('a real WebLLM context overflow reaches Harness and recovers by trimming hi
   }
 })
 
-for (const repeated of [false, true]) {
-  test(`thinking-enabled offloading retrieves ${repeated ? 'repeated' : 'unique'} notes`, async ({
+for (const { choice, repeated } of [
+  { choice: 'auto', repeated: false },
+  { choice: 'auto', repeated: true },
+  { choice: 'named', repeated: false },
+  { choice: 'named', repeated: true },
+]) {
+  test(`${choice} thinking-enabled offloading retrieves ${repeated ? 'repeated' : 'unique'} notes`, async ({
     page,
   }, info) => {
     const harness = await openHarness(page)
@@ -109,7 +114,7 @@ for (const repeated of [false, true]) {
         onChunk: (chunk) => chunks.push(chunk),
       })
       const agent = await harness.create({ model, tools: [archive] })
-      useTool(agent, 'archive')
+      if (choice === 'named') useTool(agent, 'archive')
       const received = await agent.invoke(
         repeated
           ? 'Call archive in the foreground. Acknowledge receiving the notes without extracting a code yet.'
@@ -117,6 +122,9 @@ for (const repeated of [false, true]) {
         { limits: { turns: 4 } },
       )
       expect(received.stopReason).toBe('endTurn')
+      expect(agent.messages.flatMap((message) => message.content)).toContainEqual(
+        expect.objectContaining({ type: 'toolUseBlock', name: 'archive' }),
+      )
       expect(
         received.lastMessage.content.some(
           (block) => block.type === 'reasoningBlock' && block.text?.trim(),
@@ -138,7 +146,7 @@ for (const repeated of [false, true]) {
       if (!stash) throw new Error('The default context stash is missing')
       const reference = stash.refsFor(block, message, index)[0]!
       expect(JSON.stringify(await stash.retrieve(reference))).toContain(code)
-      useTool(agent, 'retrieve_context')
+      if (choice === 'named') useTool(agent, 'retrieve_context')
       const result = await agent.invoke(
         `Use retrieve_context with reference "${reference}", pattern "verification", and context_lines 0. Tell me the verification code from that result.`,
         { limits: { turns: 4 } },

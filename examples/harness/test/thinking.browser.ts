@@ -96,7 +96,7 @@ test('Gemma thinks, calls Harness read, answers, and strips old thoughts on the 
     const prompts = await page.evaluate(() => window.gemmaPrompts)
     expect(prompts).toHaveLength(2)
     expect(prompts[0]).toContain('<|think|>')
-    expect(prompts[1]).toContain('<|channel>thought\n' + thoughts[0]!.text + '<channel|>')
+    expect(prompts[1]).toContain('<|channel>thought\n' + thoughts[0]!.text + '\n<channel|>')
     expect(prompts[1]).toContain('<|tool_response>response:read')
     expect(prompts[1]?.endsWith('<|channel>thought\n')).toBe(true)
     const next = await agent.invoke('From our conversation, what was the verification code?', {

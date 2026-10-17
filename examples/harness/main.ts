@@ -7,7 +7,6 @@ import { useTool } from './tool-choice.ts'
 import { createMemory } from './memory.ts'
 import { SummaryModel } from './summary-model.ts'
 import { createRead } from './read.ts'
-import { createContext } from './context.ts'
 
 const { values, positionals } = parseArgs({
   options: { think: { type: 'boolean' }, tool: { type: 'string' } },
@@ -46,7 +45,6 @@ try {
       request: { repetition_penalty: 1.05, extra_body: { enable_thinking: thinking } },
     }),
     auxModel,
-    contextManager: createContext(),
     memory: { stores: [createMemory(page, modelId, contextWindow)] },
     instructions: 'Answer briefly.',
     builtinTools: { read: false, web_fetch: { model: auxModel }, web_search: 'exa' },

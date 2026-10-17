@@ -161,7 +161,7 @@ describe('Gemma tool model', () => {
       new TextBlock('secret-42'),
     ])
     const prompt = create.mock.calls[1]![0].prompt
-    expect(prompt).toContain('<|channel>thought\n' + thought + '<channel|>' + call)
+    expect(prompt).toContain('<|channel>thought\n' + thought + '\n<channel|>' + call)
     expect(prompt.endsWith('<tool_response|><|channel>thought\n')).toBe(true)
     expect(create.mock.calls[0]![0].extra_body).toBeUndefined()
     const snapshot = JSON.stringify(agent.messages)

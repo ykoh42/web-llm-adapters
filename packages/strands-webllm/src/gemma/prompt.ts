@@ -76,7 +76,7 @@ export function toolPrompt(
     if (pending.size) throw new ModelError('Gemma is missing a tool result.')
     if (!modelOpen) prompt += '<|turn>model\n'
     modelOpen = true
-    if (message.reasoning) prompt += '<|channel>thought\n' + message.reasoning + '<channel|>'
+    if (message.reasoning) prompt += '<|channel>thought\n' + message.reasoning + '\n<channel|>'
     prompt += message.content ?? ''
     for (const call of message.tool_calls ?? []) {
       if (pending.has(call.id)) throw new ModelError('Gemma received a duplicate tool call ID.')
