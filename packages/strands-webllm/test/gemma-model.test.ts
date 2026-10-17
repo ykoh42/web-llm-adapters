@@ -49,6 +49,41 @@ async function aggregate(model: WebLLMModel) {
 }
 
 describe('Gemma tool model', () => {
+  it('counts only thoughts kept in the current user turn without changing history', async () => {
+    const { model } = setup()
+    const history = [
+      ...messages,
+      new Message({
+        role: 'assistant',
+        content: [new ReasoningBlock({ text: 'word '.repeat(2400) }), new TextBlock('Old answer')],
+      }),
+      new Message({ role: 'user', content: [new TextBlock('Next question')] }),
+    ]
+    const clean = history.map(
+      (message) =>
+        new Message({
+          role: message.role,
+          content: message.content.filter((block) => block.type !== 'reasoningBlock'),
+        }),
+    )
+    const snapshot = JSON.stringify(history)
+    expect(await model.countTokens(history, { toolSpecs: tools })).toBe(
+      await model.countTokens(clean, { toolSpecs: tools }),
+    )
+    expect(JSON.stringify(history)).toBe(snapshot)
+    history.push(
+      new Message({
+        role: 'assistant',
+        content: [new ReasoningBlock({ text: 'word '.repeat(2400) })],
+      }),
+    )
+    for (const enable_thinking of [true, false]) {
+      model.updateConfig({ request: { extra_body: { enable_thinking } } })
+      expect(await model.countTokens(history)).toBeGreaterThan(
+        (await model.countTokens(clean)) + 2900,
+      )
+    }
+  })
   it('keeps tool results when native declarations fit the context window', async () => {
     const { model, create } = setup(part(call, 'stop'))
     create.mockResolvedValueOnce(parts(part(call, 'stop')))

@@ -14,28 +14,11 @@ export function gemmaHistory(
   systemPrompt?: SystemPrompt,
   dynamicTrailingBlocks = 0,
 ): GemmaMessage[] {
+  messages = trimThoughts(messages, dynamicTrailingBlocks)
   const last = messages.at(-1)
-  const folded =
-    last?.role === 'user' &&
-    dynamicTrailingBlocks > 0 &&
-    last.content.slice(-dynamicTrailingBlocks).some((block) => block.type === 'textBlock') &&
-    last.content
-      .slice(0, -dynamicTrailingBlocks)
-      .every((block) => block.type === 'toolResultBlock' || block.type === 'cachePointBlock') &&
-    last.content.some((block) => block.type === 'toolResultBlock')
-  let lastUser = -1
-  for (const [index, message] of messages.entries()) {
-    if (
-      message.role === 'user' &&
-      !(folded && message === last) &&
-      message.content.some(
-        (block) => block.type !== 'toolResultBlock' && block.type !== 'cachePointBlock',
-      )
-    )
-      lastUser = index
-  }
+  const folded = toolReminder(messages, dynamicTrailingBlocks)
   const history: GemmaMessage[] = formatMessages([], systemPrompt)
-  for (const [index, message] of messages.entries()) {
+  for (const message of messages) {
     if (message.role !== 'assistant') {
       // WebLLM has no provider prompt cache to protect. Put ephemeral context before
       // the user's request so the request remains the last text Gemma reads.
@@ -76,10 +59,6 @@ export function gemmaHistory(
       continue
     }
     const thoughts = message.content.filter((block) => block.type === 'reasoningBlock')
-    if (
-      thoughts.some((block) => block.signature !== undefined || block.redactedContent !== undefined)
-    )
-      throw new ModelError('Gemma cannot use signed or redacted reasoning.')
     const clean = new Message({
       role: 'assistant',
       content: message.content.filter((block) => block.type !== 'reasoningBlock'),
@@ -87,8 +66,51 @@ export function gemmaHistory(
     const reasoning = thoughts.map((block) => block.text ?? '').join('\n')
     history.push({
       ...formatMessages([clean])[0]!,
-      ...(index > lastUser && reasoning && { reasoning }),
+      ...(reasoning && { reasoning }),
     })
   }
   return history
+}
+
+/** Remove only thoughts that Gemma drops after a new user turn. */
+export function trimThoughts(messages: Message[], dynamicTrailingBlocks = 0): Message[] {
+  const last = messages.at(-1)
+  const folded = toolReminder(messages, dynamicTrailingBlocks)
+  let lastUser = -1
+  for (const [index, message] of messages.entries()) {
+    if (
+      message.role === 'user' &&
+      !(folded && message === last) &&
+      message.content.some(
+        (block) => block.type !== 'toolResultBlock' && block.type !== 'cachePointBlock',
+      )
+    )
+      lastUser = index
+  }
+  return messages.map((message, index) => {
+    if (message.role !== 'assistant') return message
+    const thoughts = message.content.filter((block) => block.type === 'reasoningBlock')
+    if (
+      thoughts.some((block) => block.signature !== undefined || block.redactedContent !== undefined)
+    )
+      throw new ModelError('Gemma cannot use signed or redacted reasoning.')
+    if (index > lastUser || !thoughts.length) return message
+    return new Message({
+      role: message.role,
+      content: message.content.filter((block) => block.type !== 'reasoningBlock'),
+    })
+  })
+}
+
+function toolReminder(messages: Message[], dynamicTrailingBlocks: number) {
+  const last = messages.at(-1)
+  return (
+    last?.role === 'user' &&
+    dynamicTrailingBlocks > 0 &&
+    last.content.slice(-dynamicTrailingBlocks).some((block) => block.type === 'textBlock') &&
+    last.content
+      .slice(0, -dynamicTrailingBlocks)
+      .every((block) => block.type === 'toolResultBlock' || block.type === 'cachePointBlock') &&
+    last.content.some((block) => block.type === 'toolResultBlock')
+  )
 }

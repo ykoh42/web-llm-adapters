@@ -11,6 +11,7 @@ import { readStream } from './stream.js'
 import { startCall } from './call.js'
 import { gemmaStream } from './gemma/model.js'
 import { promptTokens } from './gemma/prompt.js'
+import { trimThoughts } from './gemma/history.js'
 import type { WebLLMModelConfig, WebLLMModelOptions } from './types.js'
 
 /** Connects a loaded WebLLM engine to Strands. The caller owns the engine. */
@@ -41,7 +42,7 @@ export class WebLLMModel extends Model<WebLLMModelConfig> {
   ): Promise<number> {
     if (!/^gemma-4-/i.test(this.config.modelId)) return super.countTokens(messages, options)
     const thinking = this.config.request?.extra_body?.enable_thinking === true
-    return (await super.countTokens(messages)) + promptTokens(options, thinking)
+    return (await super.countTokens(trimThoughts(messages))) + promptTokens(options, thinking)
   }
 
   override async *stream(

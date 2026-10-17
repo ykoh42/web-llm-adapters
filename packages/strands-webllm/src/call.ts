@@ -21,9 +21,16 @@ export async function startCall<T>(
   function close(interrupt: boolean) {
     closing ??= (async () => {
       try {
-        if (interrupt) engine.interruptGenerate()
-        const iterator = await source
-        await iterator.return?.()
+        // Start both operations together: an interrupt may need the iterator to close.
+        const results = await Promise.allSettled([
+          (async () => {
+            if (interrupt) await engine.interruptGenerate()
+          })(),
+          source.then((iterator) => iterator.return?.()),
+        ])
+        for (const result of results) {
+          if (result.status === 'rejected') throw result.reason
+        }
       } finally {
         signal?.removeEventListener('abort', cancel)
         release()
