@@ -27,44 +27,6 @@ export async function completions(input: ExampleInput) {
   input.info(result.usage)
 }
 
-export async function rawAudio(input: ExampleInput) {
-  if (!input.file) throw new Error('Choose an audio file first.')
-  const audio = new AudioContext({ sampleRate: 16000 })
-  try {
-    const decoded = await audio.decodeAudioData(await input.file.arrayBuffer())
-    input.signal.throwIfAborted()
-    const samples = new Float32Array(decoded.length)
-    for (let channel = 0; channel < decoded.numberOfChannels; channel++) {
-      const values = decoded.getChannelData(channel)
-      for (let i = 0; i < samples.length; i++) samples[i]! += values[i]! / decoded.numberOfChannels
-    }
-    const chunks = await input.engine.chat.completions.create({
-      model: input.modelId,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: input.prompt },
-            {
-              type: 'input_audio',
-              input_audio: {
-                format: 'pcm_f32',
-                data: samples,
-                sample_rate: decoded.sampleRate,
-              },
-            },
-          ],
-        },
-      ],
-      max_tokens: 256,
-      stream: true,
-    })
-    await showChunks(chunks, input)
-  } finally {
-    await audio.close()
-  }
-}
-
 export async function resume(input: ExampleInput) {
   const sessionId = crypto.randomUUID()
   let parts = 0

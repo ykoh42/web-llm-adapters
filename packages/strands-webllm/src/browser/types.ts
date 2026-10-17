@@ -4,9 +4,12 @@ import type {
   ModelStreamEvent,
   StreamOptions,
 } from '@strands-agents/sdk'
-import type { WebLLMModelConfig } from '../types.js'
+import type { WebLLMChunk, WebLLMModelConfig, WebLLMModelOptions } from '../types.js'
+
+export type BrowserModelOptions = Omit<WebLLMModelOptions, 'engine'>
 
 export interface BrowserRequest {
+  includeChunks?: boolean
   messages: MessageData[]
   config: WebLLMModelConfig
   options: Pick<StreamOptions, 'toolSpecs' | 'toolChoice' | 'dynamicTrailingBlocks'> & {
@@ -16,8 +19,9 @@ export interface BrowserRequest {
 export interface BrowserCountRequest extends Omit<BrowserRequest, 'options'> {
   options: Omit<CountTokensOptions, 'systemPrompt'> & { systemPrompt?: string }
 }
-export type BrowserResult =
+export type BrowserResult = (
   IteratorResult<ModelStreamEvent, void> | { error: { name: string; message: string } }
+) & { chunks?: WebLLMChunk[] }
 
 /** A private page controlled by the caller, such as a Playwright Page. */
 export interface BrowserPage {

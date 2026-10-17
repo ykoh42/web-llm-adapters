@@ -51,6 +51,10 @@ export class WebLLMModel extends Model<WebLLMModelConfig> {
     const signal = options.cancelSignal
     signal?.throwIfAborted()
     const config = this.getConfig()
+    // Past-turn thoughts must not force later JSON or audio requests onto raw completions.
+    if (isGemma(config.modelId)) messages = trimThoughts(messages, options.dynamicTrailingBlocks)
+    if (config.request?.tool_choice === 'none' && !options.toolChoice)
+      options = { ...options, toolSpecs: [] }
     const stream = usesGemmaProtocol(config, messages, options) ? gemmaStream : chatStream
     yield* stream(this.engine, config, messages, options, this.onChunk)
   }

@@ -25,6 +25,30 @@ async function aggregate(model: WebLLMModel, options: StreamOptions = {}) {
 }
 
 describe('WebLLMModel', () => {
+  it('can disable tools for a call while retaining the Agent tool registry', async () => {
+    const { model, create } = setup(chunk({ content: 'Hello' }, 'stop'))
+    model.updateConfig({ request: { tool_choice: 'none' } })
+    const callback = vi.fn(() => 'unused')
+    const agent = new Agent({
+      model,
+      printer: false,
+      tools: [
+        new FunctionTool({
+          name: 'weather',
+          description: 'Get the weather',
+          callback,
+        }),
+      ],
+    })
+    await agent.invoke('Say hello without using tools.')
+    expect(callback).not.toHaveBeenCalled()
+    expect(create.mock.calls[0]![0].tool_choice).toBe('none')
+    expect(create.mock.calls[0]![0]).not.toHaveProperty('tools')
+    create.mockResolvedValueOnce(chunks(chunk({ content: 'Hello' }, 'stop')))
+    await collect(model.stream(messages, { toolSpecs: tools, toolChoice: { auto: {} } }))
+    expect(create.mock.calls[1]![0].tool_choice).toBe('auto')
+    expect(create.mock.calls[1]![0].tools).toHaveLength(1)
+  })
   it('lets a completed-block hook use the same engine before the outer stream returns', async () => {
     const { model, engine, create } = setup(chunk({ content: 'First' }, 'stop'))
     create.mockResolvedValueOnce(chunks(chunk({ content: 'First' }, 'stop')))

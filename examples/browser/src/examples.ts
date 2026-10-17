@@ -1,7 +1,7 @@
 import { chat, grammar, json } from './chat.js'
 import { tools } from './tools.js'
-import { media } from './media.js'
-import { completions, embeddings, rawAudio, resume } from './native.js'
+import { media, rawAudio } from './media.js'
+import { completions, embeddings, resume } from './native.js'
 import type { ExampleInput } from './output.js'
 import { tags, thinking, sampling } from './advanced.js'
 
@@ -105,12 +105,11 @@ export const examples: Example[] = [
   },
   {
     id: 'raw-audio',
-    name: 'Native PCM audio',
+    name: 'PCM audio',
     model: gemma,
     prompt: 'Transcribe this audio.',
     accept: 'audio/*',
     contextWindow: 8192,
-    native: true,
     run: rawAudio,
   },
   {

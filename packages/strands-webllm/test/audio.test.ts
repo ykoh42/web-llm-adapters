@@ -1,0 +1,39 @@
+import { Agent, Message, TextBlock } from '@strands-agents/sdk'
+import { expect, it } from 'vitest'
+import { pcmAudio } from '../src/index.js'
+import { chunk, setup } from './helpers.js'
+
+it('preserves float32 PCM and sample rate through Strands message storage and inference', async () => {
+  const samples = new Float32Array([-1, -0.12345678, 0, 0.12345678, 1])
+  const audio = pcmAudio(samples, 24000)
+  const message = Message.fromJSON(new Message({ role: 'user', content: [audio] }).toJSON())
+  samples.fill(0)
+  const { model, create } = setup(chunk({ content: 'Audio received' }, 'stop'))
+  const result = await new Agent({ model, printer: false }).invoke(message.content)
+  expect(result.lastMessage.content).toEqual([new TextBlock('Audio received')])
+  const content = create.mock.calls[0]![0].messages[0]!.content
+  if (!Array.isArray(content)) throw new Error('Expected media content')
+  const part = content.find((part) => part.type === 'input_audio')
+  if (part?.input_audio.format !== 'wav') throw new Error('Expected WAV audio')
+  const bytes = Uint8Array.from(atob(part.input_audio.data), (char) => char.charCodeAt(0))
+  const view = new DataView(bytes.buffer)
+  expect(new TextDecoder().decode(bytes.slice(0, 4))).toBe('RIFF')
+  expect(view.getUint32(4, true)).toBe(bytes.length - 8)
+  expect(view.getUint16(20, true)).toBe(3)
+  expect(view.getUint16(22, true)).toBe(1)
+  expect(view.getUint32(24, true)).toBe(24000)
+  expect(view.getUint32(44, true)).toBe(5)
+  const decoded = Array.from({ length: 5 }, (_, i) => view.getFloat32(56 + i * 4, true))
+  expect(decoded).toEqual([...new Float32Array([-1, -0.12345678, 0, 0.12345678, 1])])
+})
+
+it.each([0, -1, 1.5, NaN, Infinity, 0x40000000])('rejects invalid sample rate %s', (rate) => {
+  expect(() => pcmAudio(new Float32Array([0]), rate)).toThrow('Sample rate')
+})
+
+it.each([[], [NaN], [Infinity], [-Infinity]].map((samples) => ({ samples })))(
+  'rejects invalid samples $samples',
+  ({ samples }) => {
+    expect(() => pcmAudio(new Float32Array(samples), 16000)).toThrow('finite samples')
+  },
+)

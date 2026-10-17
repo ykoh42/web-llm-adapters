@@ -8,17 +8,19 @@ import {
 } from '@strands-agents/sdk'
 import type { WebLLMModelConfig } from '../types.js'
 import { formatSystemPrompt } from '../messages.js'
-import type { BrowserPage, BrowserRequest } from './types.js'
+import type { BrowserModelOptions, BrowserPage, BrowserRequest } from './types.js'
 
 /** Runs the adapter in a controlled browser; Harness and its tools stay in Node.js. */
 export class BrowserModel extends Model<WebLLMModelConfig> {
   private readonly page: BrowserPage
   private config: WebLLMModelConfig
+  private readonly onChunk: BrowserModelOptions['onChunk']
 
-  constructor(page: BrowserPage, config: WebLLMModelConfig) {
+  constructor(page: BrowserPage, { onChunk, ...config }: BrowserModelOptions) {
     super()
     this.page = page
     this.config = structuredClone(config)
+    this.onChunk = onChunk
   }
 
   override getConfig() {
@@ -44,7 +46,7 @@ export class BrowserModel extends Model<WebLLMModelConfig> {
     cancelSignal?.throwIfAborted()
     const id = await this.page.evaluate(
       (json) => window.webllmBridge.start(JSON.parse(json)),
-      encodeRequest(messages, this.getConfig(), options),
+      encodeRequest(messages, this.getConfig(), options, Boolean(this.onChunk)),
     )
     // Strands may leave its iterator suspended on cancel, so stop the browser directly.
     let closing: Promise<void> | undefined
@@ -58,6 +60,7 @@ export class BrowserModel extends Model<WebLLMModelConfig> {
       while (true) {
         const result = await this.page.evaluate((id) => window.webllmBridge.next(id), id)
         cancelSignal?.throwIfAborted()
+        for (const chunk of result.chunks ?? []) this.onChunk?.(chunk)
         if ('error' in result) {
           const { name, message } = result.error
           if (name === 'ContextWindowOverflowError') throw new ContextWindowOverflowError(message)
@@ -74,10 +77,16 @@ export class BrowserModel extends Model<WebLLMModelConfig> {
 }
 
 /** Send only provider inputs; SDK message JSON preserves media bytes as base64. */
-function encodeRequest(messages: Message[], config: WebLLMModelConfig, options: StreamOptions) {
+function encodeRequest(
+  messages: Message[],
+  config: WebLLMModelConfig,
+  options: StreamOptions,
+  includeChunks = false,
+) {
   const { systemPrompt, toolSpecs, toolChoice, dynamicTrailingBlocks } = options
   const prompt = formatSystemPrompt(systemPrompt)
   const request: BrowserRequest = {
+    ...(includeChunks && { includeChunks }),
     messages: messages.map((message) => message.toJSON()),
     config,
     options: {

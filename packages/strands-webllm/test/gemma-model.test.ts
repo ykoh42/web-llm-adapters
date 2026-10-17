@@ -49,6 +49,40 @@ async function aggregate(model: WebLLMModel) {
 }
 
 describe('Gemma tool model', () => {
+  it('returns to native JSON after a thinking turn without changing stored reasoning', async () => {
+    const { model, create, chat } = setup(part('<|channel>thought\nCheck.<channel|>42', 'stop'))
+    model.updateConfig({ request: { extra_body: { enable_thinking: true } } })
+    const agent = new Agent({ model, printer: false })
+    await agent.invoke('What is the answer?')
+    model.updateConfig({ request: { response_format: { type: 'json_object' } } })
+    chat.mockResolvedValueOnce(
+      (async function* () {
+        yield chunk({ content: '{"answer":42}' }, 'stop')
+      })(),
+    )
+    const result = await agent.invoke('Return the answer in JSON.')
+    expect(result.lastMessage.content).toEqual([new TextBlock('{"answer":42}')])
+    expect(create).toHaveBeenCalledOnce()
+    expect(chat.mock.calls[0]![0].messages).toContainEqual({ role: 'assistant', content: '42' })
+    expect(agent.messages[1]!.content).toContainEqual(new ReasoningBlock({ text: 'Check.' }))
+  })
+  it('keeps thinking but omits tool declarations when tools are disabled', async () => {
+    const { model, create } = setup(part('<|channel>thought\nThink.<channel|>Hello', 'stop'))
+    model.updateConfig({ request: { tool_choice: 'none', extra_body: { enable_thinking: true } } })
+    const result = await aggregate(model)
+    expect(result.message.content).toEqual([
+      new ReasoningBlock({ text: 'Think.' }),
+      new TextBlock('Hello'),
+    ])
+    expect(create.mock.calls[0]![0].prompt).not.toContain('declaration:')
+    expect(create.mock.calls[0]![0]).not.toHaveProperty('tool_choice')
+  })
+
+  it('never executes an unsolicited Gemma tool call when tools are disabled', async () => {
+    const { model } = setup(part(call, 'stop'))
+    model.updateConfig({ request: { tool_choice: 'none', extra_body: { enable_thinking: true } } })
+    await expect(aggregate(model)).rejects.toThrow('unknown or malformed tool call')
+  })
   it('counts only thoughts kept in the current user turn without changing history', async () => {
     const { model } = setup()
     const history = [
@@ -241,7 +275,7 @@ describe('Gemma tool model', () => {
       new ReasoningBlock({ text: 'Check.' }),
       new TextBlock('42'),
     ])
-    model.updateConfig({ request: {} })
+    model.updateConfig({ request: { extra_body: { enable_thinking: false } } })
     create.mockResolvedValueOnce(parts(part('Still 42', 'stop')))
     expect(String(await agent.invoke('Again.'))).toBe('Still 42')
     expect(create.mock.calls[1]![0].prompt).not.toContain('<|think|>')

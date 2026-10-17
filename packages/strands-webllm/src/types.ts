@@ -13,7 +13,10 @@ export type WebLLMChunk = ChatCompletionChunk | Completion
 export type WebLLMRequest = Omit<
   ChatCompletionRequestBase,
   'messages' | 'model' | 'stream' | 'stream_options' | 'tools' | 'tool_choice' | 'n'
->
+> & {
+  /** Disable tools unless Strands supplies an explicit tool choice for this call. */
+  tool_choice?: 'none'
+}
 
 export interface WebLLMModelConfig extends BaseModelConfig {
   modelId: string

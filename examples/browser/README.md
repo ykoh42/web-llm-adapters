@@ -12,23 +12,23 @@ then **Send**. **Unload** before changing either. Each run starts a new conversa
 The model list comes from the installed WebLLM catalog; choosing an incompatible
 model reports WebLLM's error. FP16 models need `shader-f16`. FP32 variants use more memory.
 
-| Example                   | Read                           | What it does                                                   |
-| ------------------------- | ------------------------------ | -------------------------------------------------------------- |
-| Chat                      | [chat.ts](src/chat.ts)         | Strands text streaming, usage, and cancellation                |
-| JSON schema + logprobs    | [chat.ts](src/chat.ts)         | JSON schema, seed, and native token probabilities              |
-| Grammar                   | [chat.ts](src/chat.ts)         | Restrict output to three colors with EBNF                      |
-| Structural tags           | [advanced.ts](src/advanced.ts) | Constrain tagged JSON                                          |
-| Qwen thinking on and off  | [advanced.ts](src/advanced.ts) | Compare empty and populated thinking blocks                    |
-| Gemma thinking on and off | [advanced.ts](src/advanced.ts) | Compare thinking modes; reasoning stays in Details             |
-| Gemma thinking + tools    | [tools.ts](src/tools.ts)       | Think, call the clock, then answer using the result            |
-| Sampling + latency        | [advanced.ts](src/advanced.ts) | Repeat a seeded sample, inspect timings, and stop at a newline |
-| Gemma tool call + answer  | [tools.ts](src/tools.ts)       | Gemma calls a clock tool, then answers with the result         |
-| Hermes tool batch         | [tools.ts](src/tools.ts)       | Legacy native tool API, ends after executing the tools         |
-| Image / WAV audio         | [media.ts](src/media.ts)       | Pass file bytes through Strands content blocks                 |
-| Native PCM audio          | [native.ts](src/native.ts)     | Decode audio, mix to mono, and pass Float32 samples            |
-| Native embeddings         | [native.ts](src/native.ts)     | Use a dedicated embedding model                                |
-| Native text completion    | [native.ts](src/native.ts)     | Raw prompt and two non-streaming choices                       |
-| Native save + resume      | [native.ts](src/native.ts)     | Interrupt after eight chunks, recover, then continue           |
+| Example                   | Read                           | What it does                                                              |
+| ------------------------- | ------------------------------ | ------------------------------------------------------------------------- |
+| Chat                      | [chat.ts](src/chat.ts)         | Strands text streaming, usage, and cancellation                           |
+| JSON schema + logprobs    | [chat.ts](src/chat.ts)         | JSON schema, seed, and native token probabilities                         |
+| Grammar                   | [chat.ts](src/chat.ts)         | Restrict output to three colors with EBNF                                 |
+| Structural tags           | [advanced.ts](src/advanced.ts) | Constrain tagged JSON                                                     |
+| Qwen thinking on and off  | [advanced.ts](src/advanced.ts) | Compare empty and populated thinking blocks                               |
+| Gemma thinking on and off | [advanced.ts](src/advanced.ts) | Compare thinking modes; reasoning stays in Details                        |
+| Gemma thinking + tools    | [tools.ts](src/tools.ts)       | Think, call the clock, then answer using the result                       |
+| Sampling + latency        | [advanced.ts](src/advanced.ts) | Repeat a seeded sample, inspect timings, and stop at a newline            |
+| Gemma tool call + answer  | [tools.ts](src/tools.ts)       | Gemma calls a clock tool, then answers with the result                    |
+| Hermes tool batch         | [tools.ts](src/tools.ts)       | Legacy native tool API, ends after executing the tools                    |
+| Image / WAV audio         | [media.ts](src/media.ts)       | Pass file bytes through Strands content blocks                            |
+| PCM audio                 | [media.ts](src/media.ts)       | Decode audio, mix to mono, then send `pcmAudio()` through a Strands Agent |
+| Native embeddings         | [native.ts](src/native.ts)     | Use a dedicated embedding model                                           |
+| Native text completion    | [native.ts](src/native.ts)     | Raw prompt and two non-streaming choices                                  |
+| Native save + resume      | [native.ts](src/native.ts)     | Interrupt after eight chunks, recover, then continue                      |
 
 [engines.ts](src/engines.ts) owns loading and unloading. A Web Worker is terminated
 when unloaded. The Service Worker handler stays registered; unloading still frees

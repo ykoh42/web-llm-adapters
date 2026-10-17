@@ -1,6 +1,7 @@
 import { Message } from '@strands-agents/sdk'
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
 import { WebLLMModel } from '../model.js'
+import type { WebLLMChunk } from '../types.js'
 import type { BrowserBridge, BrowserRequest, BrowserResult, BrowserCountRequest } from './types.js'
 
 /** Serve a loaded engine on a private browser page. The caller owns its lifetime. */
@@ -9,6 +10,7 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
     stream: ReturnType<WebLLMModel['stream']>
     controller: AbortController
     closing?: Promise<void>
+    chunks: WebLLMChunk[]
   }
   const calls = new Map<string, Call>()
   let closed = false
@@ -21,16 +23,21 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
       const model = new WebLLMModel({ engine, ...config })
       return model.countTokens(messages.map(Message.fromJSON), options)
     },
-    async start({ messages, config, options }: BrowserRequest) {
+    async start({ messages, config, options, includeChunks }: BrowserRequest) {
       checkOpen()
       const id = crypto.randomUUID()
       const controller = new AbortController()
-      const model = new WebLLMModel({ engine, ...config })
+      const chunks: WebLLMChunk[] = []
+      const model = new WebLLMModel({
+        engine,
+        ...config,
+        ...(includeChunks && { onChunk: (chunk: WebLLMChunk) => chunks.push(chunk) }),
+      })
       const stream = model.stream(messages.map(Message.fromJSON), {
         ...options,
         cancelSignal: controller.signal,
       })
-      calls.set(id, { stream, controller })
+      calls.set(id, { stream, controller, chunks })
       return id
     },
     async next(id: string): Promise<BrowserResult> {
@@ -39,10 +46,11 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
         if (!call) throw new Error('Unknown browser call.')
         const result = await call.stream.next()
         if (result.done) calls.delete(id)
-        return result
+        return { ...result, ...(call.chunks.length && { chunks: call.chunks.splice(0) }) }
       } catch (error) {
         calls.delete(id)
         return {
+          ...(call?.chunks.length && { chunks: call.chunks.splice(0) }),
           error: {
             name: error instanceof Error ? error.name : 'Error',
             message: error instanceof Error ? error.message : String(error),

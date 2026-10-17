@@ -29,8 +29,77 @@ function open() {
   const config = { modelId: 'test-model', maxTokens: 128, contextWindowLimit: 8192 }
   const model = new BrowserModel(page, config)
   const request = { messages: messages.map((message) => message.toJSON()), config, options: {} }
-  return { ...native, model, bridge, request }
+  return { ...native, model, bridge, request, page }
 }
+
+it('delivers native chunks with logprobs through a Strands Agent in order', async () => {
+  const { page, create, model } = open()
+  const first = chunk({ content: 'Hi' })
+  first.choices[0]!.logprobs = {
+    content: [{ token: 'Hi', logprob: -0.25, bytes: [72, 105], top_logprobs: [] }],
+  }
+  const last = chunk({}, 'stop')
+  create.mockResolvedValueOnce(chunks(first, last))
+  const onChunk = vi.fn()
+  const browser = new BrowserModel(page, { ...model.getConfig(), onChunk })
+  const result = await new Agent({ model: browser, printer: false }).invoke('Hello')
+  expect(result.lastMessage.content).toEqual([new TextBlock('Hi')])
+  expect(onChunk.mock.calls.map(([value]) => value)).toEqual([first, last])
+  expect(browser.getConfig()).not.toHaveProperty('onChunk')
+})
+
+it('delivers the native chunk that caused a protocol error before reporting it', async () => {
+  const { page, create, model } = open()
+  const invalid = chunk({ content: 'Hi' }, 'stop')
+  invalid.choices[0]!.index = 1
+  create.mockResolvedValueOnce(chunks(invalid))
+  const onChunk = vi.fn()
+  const browser = new BrowserModel(page, { ...model.getConfig(), onChunk })
+  await expect(collect(browser.stream(messages))).rejects.toThrow('one response')
+  expect(onChunk).toHaveBeenCalledExactlyOnceWith(invalid)
+  await expect(collect(browser.stream(messages))).resolves.toContainEqual({
+    type: 'modelMessageStopEvent',
+    stopReason: 'endTurn',
+  })
+})
+
+it('closes the native stream when the Node.js chunk callback throws', async () => {
+  const { page, model, create, stop } = open()
+  const closed = vi.fn()
+  create.mockResolvedValueOnce(
+    (async function* () {
+      try {
+        yield chunk({ content: 'Hi' })
+      } finally {
+        closed()
+      }
+    })(),
+  )
+  const browser = new BrowserModel(page, {
+    ...model.getConfig(),
+    onChunk: () => {
+      throw new Error('Callback failed')
+    },
+  })
+  await expect(collect(browser.stream(messages))).rejects.toThrow('Callback failed')
+  expect(closed).toHaveBeenCalledOnce()
+  expect(stop).toHaveBeenCalledOnce()
+  await expect(collect(model.stream(messages))).resolves.toContainEqual({
+    type: 'modelMessageStopEvent',
+    stopReason: 'endTurn',
+  })
+})
+
+it('does not transfer native chunks unless requested', async () => {
+  const { bridge, request } = open()
+  const id = await bridge.start(request)
+  while (true) {
+    const result = await bridge.next(id)
+    expect(result).not.toHaveProperty('chunks')
+    if ('error' in result) throw new Error(result.error.message)
+    if (result.done) break
+  }
+})
 
 it('runs a Strands Agent through the public browser bridge and keeps config snapshots', async () => {
   const { model, create, engine } = open()

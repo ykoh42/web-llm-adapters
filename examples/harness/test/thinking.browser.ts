@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHarness } from '@strands-agents/harness'
 import { test, expect } from '../../../test/browser.js'
-import { BrowserModel } from 'strands-webllm'
+import { BrowserModel, type WebLLMChunk } from 'strands-webllm'
 
 declare global {
   interface Window {
@@ -34,11 +34,13 @@ test('Gemma thinks, calls Harness read, answers, and strips old thoughts on the 
     await page.goto('http://127.0.0.1:4173/harness.html')
     await page.waitForFunction(() => Boolean(window.harness))
     await page.evaluate((id) => window.harness.open(id), modelId)
+    const chunks: WebLLMChunk[] = []
     const agent = await createHarness({
       model: new BrowserModel(page, {
         modelId,
         maxTokens: 1024,
         temperature: 0,
+        onChunk: (chunk) => chunks.push(chunk),
         request: { extra_body: { enable_thinking: true } },
       }),
       builtinTools: ['read'],
@@ -81,6 +83,15 @@ test('Gemma thinks, calls Harness read, answers, and strips old thoughts on the 
     expect(order.lastIndexOf('answer')).toBeGreaterThan(order.indexOf('tool'))
     expect(answer).toContain(code)
     expect(answer).not.toMatch(/<\|channel>|<channel\|>|<\|tool_call>/)
+    expect(chunks.every((chunk) => chunk.object === 'text_completion')).toBe(true)
+    const raw = chunks
+      .flatMap((chunk) =>
+        chunk.object === 'text_completion' ? chunk.choices.map((choice) => choice.text) : [],
+      )
+      .join('')
+    expect(raw).toContain('<|tool_call>')
+    expect(raw).toContain(code)
+    expect(chunks.some((chunk) => chunk.usage?.total_tokens)).toBe(true)
     const prompts = await page.evaluate(() => window.gemmaPrompts)
     expect(prompts).toHaveLength(2)
     expect(prompts[0]).toContain('<|think|>')

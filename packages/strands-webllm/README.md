@@ -64,6 +64,7 @@ const model = new BrowserModel(page, {
   contextWindowLimit: 16384, // Match the engine's loaded context window.
   maxTokens: 4096,
   request: { extra_body: { enable_thinking: true } },
+  onChunk: (chunk) => console.log(chunk), // Optional native chunks, including logprobs.
 })
 const agent = await createHarness({ model })
 try {
@@ -78,6 +79,11 @@ Harness runs tools in Node.js; the bridge returns Strands stream events from the
 browser. Thinking, tool choice, trailing Harness context, cancellation, and
 context overflow errors pass through this connection. SDK message JSON preserves
 media bytes. Model support and Gemma protocol restrictions still apply.
+
+`onChunk` runs in Node.js. Original chunks arrive in order with the next Strands
+event or error; they can be batched while the provider buffers a tool call. They
+are transferred only when a callback is supplied. A callback error stops the call
+and releases the engine. The callback is not part of the serializable model config.
 
 `BrowserPage` requires only `evaluate()` and accepts a Playwright Page without a
 Playwright dependency in this package. The application owns browser startup,
@@ -177,6 +183,66 @@ translated to Strands's recovery error,
 including errors returned as strings by a WebLLM Worker. Set `contextWindowLimit`
 to the window used when loading the engine.
 
+## WebLLM API coverage
+
+This inventory targets WebLLM **0.2.86** and Strands SDK **1.21.0**. "Native only"
+means the engine API remains available; it does not count as a Strands integration.
+Both model classes support the mapped generation features below.
+
+| WebLLM surface                                                                                                           | Strands connection                                                            | Boundary                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Chat messages, system prompt, tool definitions and results                                                               | Agent messages, `systemPrompt`, and registered tools                          | Unsupported Strands block types raise errors                                             |
+| `model`                                                                                                                  | `modelId`                                                                     | Selects an already loaded model                                                          |
+| `max_tokens`, `temperature`, `top_p`                                                                                     | `request`, or SDK `maxTokens`, `temperature`, `topP`                          | SDK settings take precedence                                                             |
+| `frequency_penalty`, `presence_penalty`, `repetition_penalty`, `seed`, `stop`, `logit_bias`                              | `request`                                                                     | Passed to the native request                                                             |
+| `logprobs`, `top_logprobs`                                                                                               | `request` and `onChunk`                                                       | Original probabilities available in both model classes                                   |
+| Usage, timing, latency breakdown                                                                                         | Strands usage/trace, `onChunk`, `request.extra_body.enable_latency_breakdown` | Native extra fields retained                                                             |
+| `response_format`: text, JSON schema, grammar, structural tags                                                           | `request.response_format`                                                     | Native chat path; Gemma raw protocol has no format API                                   |
+| `tool_choice`: auto, named, none                                                                                         | SDK `toolChoice`; `request.tool_choice: 'none'`                               | An explicit SDK choice overrides the config; native tools are model-restricted           |
+| Image URL, data URL and bytes                                                                                            | SDK `ImageBlock`                                                              | Requires a vision model; Gemma raw protocol is text-only                                 |
+| User/assistant message `name`                                                                                            | Not mapped                                                                    | SDK messages have no corresponding name field                                            |
+| WAV and float32 PCM audio                                                                                                | SDK `AudioBlock`; `pcmAudio(samples, sampleRate)`                             | PCM is carried losslessly in float WAV; requires an audio model                          |
+| Thinking toggle                                                                                                          | `request.extra_body.enable_thinking`                                          | Gemma reasoning is separated; other native models retain their own output format         |
+| `ignore_eos`                                                                                                             | `request.ignore_eos` on native chat                                           | Gemma protocol rejects it to preserve turn boundaries                                    |
+| Streaming and non-streaming chat consumption                                                                             | `agent.stream()` and `agent.invoke()`                                         | Both consume one native stream; no independent non-streaming backend mode                |
+| Multiple choices (`n > 1`)                                                                                               | Native only                                                                   | Strands Model produces one assistant turn; WebLLM also rejects multiple streamed choices |
+| Crash-resumable request configuration                                                                                    | `request.extra_body.resumable` on native chat                                 | Session listing/recovery/deletion are native only; Agent/tool state is not restored      |
+| Raw completions (`prompt`, `echo`, multiple non-streaming choices)                                                       | Native only                                                                   | The internal Gemma completion path is not a public raw-completion adapter                |
+| Embeddings                                                                                                               | Native only                                                                   | SDK Model has no embedding method; BrowserModel does not expose engine RPC               |
+| Reload/unload, app config, progress callbacks, reset, saved message, stats, GPU queries, log level, token-level sampling | Caller-owned engine                                                           | Keep operations outside active/queued model calls                                        |
+| Cache backends, cache inspection/deletion, integrity, custom models and logit processors                                 | Caller-owned WebLLM setup                                                     | Pass the configured engine; the adapter does not recreate it                             |
+| Main thread, Web Worker, Service Worker, extension worker                                                                | Pass any `MLCEngineInterface`                                                 | BrowserModel additionally carries the provider to Node.js                                |
+
+This is not full engine API parity. Outstanding integrations are Agent-aware
+generation recovery and a Node.js bridge for native operations such as embeddings
+and raw completions. Gemma media plus tools/thinking, constrained output in the raw
+protocol, and `ignore_eos` with protocol parsing remain unavailable combinations.
+No fallback model or prompt instruction silently substitutes for those features.
+
+The distinction follows the native [chat request](https://github.com/mlc-ai/web-llm/blob/v0.2.86/src/openai_api_protocols/chat_completion.ts),
+[completion request](https://github.com/mlc-ai/web-llm/blob/v0.2.86/src/openai_api_protocols/completion.ts),
+and [engine interface](https://github.com/mlc-ai/web-llm/blob/v0.2.86/src/types.ts).
+WebLLM rejects `image_url.detail` even though its type declares that field.
+Raw completions explicitly reject resumable configuration. Native availability
+does not imply that all combinations are accepted by WebLLM or the loaded artifact.
+
+## PCM audio
+
+```ts
+import { pcmAudio } from 'strands-webllm'
+import { TextBlock } from '@strands-agents/sdk'
+
+// Mono Float32Array, for example from AudioBuffer.getChannelData(0).
+const audio = pcmAudio(samples, sampleRate)
+await agent.invoke([new TextBlock('Transcribe this audio.'), audio])
+```
+
+The helper returns a normal SDK `AudioBlock`. It preserves float32 samples and the
+sample rate in an IEEE float WAV, so storage and the browser bridge need no custom
+message type. It does not resample, downmix, or quantize. Mix multichannel input to
+mono before calling it. As with WAV input, omit the explicit Gemma thinking flag
+and tools to use its native audio path.
+
 ## Gemma thinking
 
 Enable thinking with the existing request option:
@@ -218,6 +284,8 @@ The real GPU tests use `gemma-4-E2B-it-q4f16_1-MLC`.
 
 Gemma protocol mode supports text, JSON tool arguments/results, system prompts, auto
 or named tool choice, sampling, usage, cancellation, and streamed answer text.
+Use `request: { tool_choice: 'none' }` to omit tool declarations while keeping the
+Agent's registry. An explicit SDK `toolChoice` for a call takes precedence.
 Named choice prefills the selected call and its first required field; the model
 still supplies the values. Structured JSON and multiple result blocks retain
 their structure. Harness reminders and background continuations stay inside the
@@ -227,7 +295,9 @@ It rebuilds the raw prompt on each call, so it does not reuse chat KV state.
 Use the standard WebLLM Gemma 4 catalog records, whose artifact loader supplies BOS;
 custom aliases and older Gemma templates are not covered. Gemma uses WebLLM's
 normal chat API when there are no tools, no explicit thinking flag, and no reasoning
-blocks in history; this path includes its text and audio support.
+from the current tool loop. Past-turn thoughts are removed before choosing the
+request path, so a later user turn can return to native JSON or audio without
+clearing Agent history. The native path includes text and audio support.
 
 WebLLM 0.2.86's native `tools` API accepts only its listed Hermes models. That path
 remains available: Hermes supplies its own system prompt and JSON grammar. Set
@@ -235,7 +305,7 @@ Harness `systemPrompt: ''` for this legacy mode. The Hermes example ends after t
 tool batch because Hermes retains the tool grammar on subsequent calls.
 Strands `toolChoice.any` is rejected in both modes. Use Phi vision for images.
 
-Supported media use image URLs/bytes or WAV bytes. Raw PCM uses the native engine.
+Supported media use image URLs/bytes, WAV bytes, or PCM through `pcmAudio()`.
 S3 media, video, documents, guardrails, and media in tool results
 raise explicit errors. Text blocks are joined into WebLLM's single text part.
 Reasoning blocks are supported only by the Gemma protocol path.
