@@ -1,6 +1,6 @@
 import { FunctionTool } from '@strands-agents/sdk'
 import { join } from 'node:path'
-import { test, expect } from '../../test/browser.js'
+import { test, expect } from '../../fixtures/browser.js'
 import { openHarness, useTool, finalText } from './setup.js'
 
 declare global {

@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises'
 import { Agent, Message, TextBlock } from '@strands-agents/sdk'
 import { BrowserModel, type BrowserPage } from 'strands-web-llm'
-import { test, expect } from '../../test/browser.js'
+import { test, expect } from '../../fixtures/browser.js'
 
 type Mode = 'native' | 'provider' | 'bridge'
 type Sample = {

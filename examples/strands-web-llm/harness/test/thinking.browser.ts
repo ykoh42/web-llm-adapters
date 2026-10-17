@@ -2,7 +2,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHarness } from '@strands-agents/harness'
-import { test, expect } from '../../test/browser.js'
+import { test, expect } from '../../fixtures/browser.js'
 import { BrowserModel, type WebLLMChunk } from 'strands-web-llm'
 
 declare global {

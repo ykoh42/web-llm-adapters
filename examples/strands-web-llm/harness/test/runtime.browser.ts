@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { Message, type StreamOptions } from '@strands-agents/sdk'
-import { test, expect } from '../../test/browser.js'
+import { test, expect } from '../../fixtures/browser.js'
 import { openHarness } from './setup.js'
 
 test('the recorded automatic archive call uses its own parameters', async ({ page }) => {

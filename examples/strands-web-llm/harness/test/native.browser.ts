@@ -1,5 +1,5 @@
 import { Agent, TextBlock } from '@strands-agents/sdk'
-import { test, expect } from '../../test/browser.js'
+import { test, expect } from '../../fixtures/browser.js'
 import { BrowserModel, pcmAudio, type WebLLMChunk } from 'strands-web-llm'
 
 test('Gemma returns constrained JSON, native logprobs and PCM results through BrowserModel', async ({

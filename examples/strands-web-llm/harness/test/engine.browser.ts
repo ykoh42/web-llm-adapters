@@ -1,5 +1,5 @@
 import { FunctionTool } from '@strands-agents/sdk'
-import { test, expect } from '../../test/browser.js'
+import { test, expect } from '../../fixtures/browser.js'
 import { openHarness, useTool, finalText } from './setup.js'
 
 test('Harness tools share WebLLM embeddings, raw completions and resumable generation', async ({

@@ -1,6 +1,6 @@
 import { writeFile } from 'node:fs/promises'
 import { Message, TextBlock, FunctionTool, AfterModelCallEvent } from '@strands-agents/sdk'
-import { test, expect } from '../../test/browser.js'
+import { test, expect } from '../../fixtures/browser.js'
 import { openHarness, useTool, finalText } from './setup.js'
 import { BrowserModel, type WebLLMChunk } from 'strands-web-llm'
 

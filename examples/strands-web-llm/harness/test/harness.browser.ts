@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHarness, type HarnessAgentOptions } from '@strands-agents/harness'
 import { AfterToolsEvent, BeforeModelCallEvent, FunctionTool } from '@strands-agents/sdk'
-import { test, expect } from '../../test/browser.js'
+import { test, expect } from '../../fixtures/browser.js'
 import { BrowserModel } from 'strands-web-llm'
 
 const defaults: HarnessAgentOptions = {

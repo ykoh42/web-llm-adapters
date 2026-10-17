@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
-import { expect } from '../../test/browser.js'
-export { test, expect } from '../../test/browser.js'
+import { expect } from '../../fixtures/browser.js'
+export { test, expect } from '../../fixtures/browser.js'
 
 export async function load(page: Page, example: string, engine = 'worker') {
   await page.getByLabel('Example', { exact: true }).selectOption(example)

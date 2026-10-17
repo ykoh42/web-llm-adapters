@@ -1,7 +1,7 @@
 import { ImageBlock, Message, TextBlock } from '@strands-agents/sdk'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { test, expect } from '../../test/browser.js'
+import { test, expect } from '../../fixtures/browser.js'
 import { BrowserModel } from 'strands-web-llm'
 import { openHarness, useTool, finalText } from './setup.js'
 import { pdf } from './pdf.js'
