@@ -5,7 +5,7 @@ import {
   type ToolChoice,
   type ToolSpec,
 } from '@strands-agents/sdk'
-import type { CompletionCreateParamsStreaming } from '@mlc-ai/web-llm'
+import type { CompletionCreateParamsStreaming, ResponseFormat } from '@mlc-ai/web-llm'
 import type { WebLLMModelConfig } from '../types.js'
 import { generationOptions } from '../request.js'
 import { toolPrompt } from './prompt.js'
@@ -35,9 +35,13 @@ export function gemmaRequest(
   const { response_format, extra_body, ...sampling } = generationOptions(config)
   // Tool choice is handled by the adapter; raw completions have no tool field.
   delete sampling.tool_choice
-  if (response_format != null || extra_body?.resumable?.enabled || sampling.ignore_eos) {
+  if (
+    (response_format && !isTextFormat(response_format)) ||
+    extra_body?.resumable?.enabled ||
+    sampling.ignore_eos
+  ) {
     throw new ModelError(
-      'Gemma protocol mode does not support response_format, resume, or ignore_eos.',
+      'Gemma protocol mode does not support constrained response_format, resume, or ignore_eos.',
     )
   }
   const thinking = extra_body?.enable_thinking === true
@@ -53,6 +57,16 @@ export function gemmaRequest(
     }),
   }
   return { request, prefix }
+}
+
+/** Plain text is the raw protocol's existing output mode, so no native option is needed. */
+function isTextFormat(format: ResponseFormat) {
+  return (
+    (format.type == null || format.type === 'text') &&
+    format.schema == null &&
+    format.grammar == null &&
+    format.structural_tag == null
+  )
 }
 
 function toolPrefix(tools: ToolSpec[], choice?: ToolChoice) {

@@ -30,7 +30,10 @@ test('Gemma returns constrained JSON, native logprobs and PCM results through Br
       },
     })
     const jsonRequest = model.getConfig().request!
-    model.updateConfig({ request: { extra_body: { enable_thinking: true } }, maxTokens: 512 })
+    model.updateConfig({
+      request: { response_format: { type: 'text' }, extra_body: { enable_thinking: true } },
+      maxTokens: 512,
+    })
     const agent = new Agent({ model, printer: false })
     const thought = await agent.invoke('What is 2 plus 2?')
     expect(thought.lastMessage.content.some((b) => b.type === 'reasoningBlock' && b.text)).toBe(

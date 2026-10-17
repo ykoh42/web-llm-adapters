@@ -542,6 +542,22 @@ describe('Gemma tool model', () => {
     )
   })
 
+  it.each([{}, { type: 'text' as const }])(
+    'allows plain text format with tools and thinking: %j',
+    async (response_format) => {
+      const { model, create } = setup(part('<|channel>thought\nFind x.<channel|>' + call, 'stop'))
+      model.updateConfig({
+        request: { response_format, extra_body: { enable_thinking: true } },
+      })
+      const result = await aggregate(model)
+      expect(result.message.content).toContainEqual(new ReasoningBlock({ text: 'Find x.' }))
+      expect(result.message.content).toContainEqual(
+        expect.objectContaining({ type: 'toolUseBlock', name: 'lookup' }),
+      )
+      expect(create.mock.calls[0]![0]).not.toHaveProperty('response_format')
+    },
+  )
+
   it('allows tools when native persistence is explicitly disabled', async () => {
     const { model, create } = setup(part(call, 'stop'))
     model.updateConfig({ request: { extra_body: { resumable: { enabled: false } } } })
@@ -554,6 +570,9 @@ describe('Gemma tool model', () => {
 
   it.each([
     { response_format: { type: 'json_object' as const } },
+    { response_format: { type: 'text' as const, schema: '{}' } },
+    { response_format: { type: 'text' as const, grammar: 'root ::= "x"' } },
+    { response_format: { type: 'text' as const, structural_tag: '{}' } },
     { extra_body: { resumable: { enabled: true } } },
     { ignore_eos: true },
   ])('rejects incompatible options before opening a native call', async (request) => {

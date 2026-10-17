@@ -235,6 +235,13 @@ to the window used when loading the engine.
 
 ## WebLLM API coverage
 
+The compatibility goal is to preserve everything the two libraries support:
+request settings, input data, output data, errors, and engine behavior. Adapter
+work closes losses or unnecessary restrictions in that connection. Features keep
+their recommended API: Strands model turns use `Model`; other engine operations
+use WebLLM directly through the shared queue. Upstream restrictions are documented
+as boundaries of the supported versions.
+
 This inventory targets WebLLM **0.2.86** and Strands SDK **1.21.0**. Both model
 classes support the mapped generation features below. “Native scope” means
 `withEngine(engine, callback)` in the browser or `window.webllmBridge.withEngine(callback)`
@@ -249,7 +256,7 @@ with Strands; it does not change the SDK Model contract.
 | `frequency_penalty`, `presence_penalty`, `repetition_penalty`, `seed`, `stop`, `logit_bias`                              | `request`                                                                     | Passed to the native request                                                             |
 | `logprobs`, `top_logprobs`                                                                                               | `request` and `onChunk`                                                       | Original probabilities available in both model classes                                   |
 | Usage, timing, latency breakdown                                                                                         | Strands usage/trace, `onChunk`, `request.extra_body.enable_latency_breakdown` | Native extra fields retained                                                             |
-| `response_format`: text, JSON schema, grammar, structural tags                                                           | `request.response_format`                                                     | Native chat path; Gemma raw protocol has no format API                                   |
+| `response_format`: text, JSON schema, grammar, structural tags                                                           | `request.response_format`                                                     | Native chat supports constraints; Gemma raw mode accepts plain text                      |
 | `tool_choice`: auto, named, none                                                                                         | SDK `toolChoice`; `request.tool_choice: 'none'`                               | An explicit SDK choice overrides the config; native tools are model-restricted           |
 | Image URL, data URL and bytes                                                                                            | SDK `ImageBlock`                                                              | Requires a vision model; Gemma raw protocol is text-only                                 |
 | User/assistant message `name`                                                                                            | Native scope                                                                  | SDK messages have no corresponding name field                                            |
@@ -358,7 +365,9 @@ Named choice prefills the selected call and its first required field; the model
 still supplies the values. Structured JSON and multiple result blocks retain
 their structure. Harness reminders and background continuations stay inside the
 current tool turn without changing the stored conversation.
-It rejects media, `response_format`, enabled resume, and `ignore_eos`.
+It accepts `response_format: { type: 'text' }` or an empty format with tools and
+thinking. Plain text is already the raw protocol's output mode. It rejects media,
+constrained output formats, enabled resume, and `ignore_eos`.
 `extra_body.resumable: { enabled: false }` is accepted and does not enable
 persistence on the raw completion path.
 It rebuilds the raw prompt on each call, so it does not reuse chat KV state.
