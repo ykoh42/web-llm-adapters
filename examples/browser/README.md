@@ -30,36 +30,13 @@ model reports WebLLM's error. FP16 models need `shader-f16`. FP32 variants use m
 | Native text completion    | [native.ts](src/native.ts)     | Raw prompt and two non-streaming choices                                  |
 | Native save + resume      | [native.ts](src/native.ts)     | Interrupt after eight chunks, recover, then continue                      |
 
-[engines.ts](src/engines.ts) owns loading and unloading. A Web Worker is terminated
-when unloaded. The Service Worker handler stays registered; unloading still frees
-the model. Its startup handler is in [service-worker.ts](src/service-worker.ts).
-[output.ts](src/output.ts) only reads Strands events. Feature files call WebLLM and
-Strands directly; they do not depend on the page's DOM.
+**Details** shows usage, native chunks, tool results, and Gemma reasoning.
+**Response** shows answer text. See the [support table](../../packages/strands-webllm/README.md#support)
+for model and feature restrictions.
 
-Gemma 4 E2B handles text and audio in WebLLM 0.2.86. The adapter also supports its
-native function-call format through raw completions: the clock result returns to
-Gemma for a final answer. WebLLM's separate native `tools` API remains restricted
-to Hermes; the legacy Hermes example ends after the tool batch. The image example
-uses Phi vision. These other models need separate, large downloads. See the
-[provider limits](../../packages/strands-webllm/README.md#limits) for tool-mode options.
-
-**Details** shows usage, native metadata, and tool results.
-Gemma reasoning is shown separately in **Details**; **Response** contains only
-answer text. Raw native chunks still contain the original thinking control tokens.
-
-**Check cache** and
-**Delete cached model** use the selected cache backend. Deletion is only enabled
-after unloading. OPFS and IndexedDB have separate stored copies. The experimental
-cross-origin backend needs the separate Cross-Origin Storage extension and a
-localhost page. Choose **Main thread** for that backend. Shared cache deletion is
-disabled because the upstream extension has no delete API. Model weights can be
-shared across origins; small config and hash lookup requests can still use the network.
-
-The resume example demonstrates an orderly interruption, not a browser crash.
-It deletes its session after a successful continuation. A manually stopped or
-failed run can leave a native persisted session; inspect or remove it through
-`engine.listResumableSessions()` and `engine.deleteResumableSession(id)`.
-This persistence does not restore Strands messages or tool state.
+Cache deletion requires unloading. Cross-origin cache needs the separate
+Cross-Origin Storage extension and **Main thread** mode; shared deletion is unavailable.
+The resume example saves native generation, separate from Strands conversation state.
 
 Open [engine.html](engine.html) on the same local server for the lower-level examples:
 
@@ -70,9 +47,8 @@ Open [engine.html](engine.html) on the same local server for the lower-level exa
 | Engine state    | [state.ts](src/checks/state.ts)         | Progress, GPU info, logging, history, stats, and reset                          |
 | Integrity       | [integrity.ts](src/checks/integrity.ts) | Custom manifest model with valid and invalid config, Wasm, and tokenizer hashes |
 
-The integrity example computes hashes to demonstrate validation. A real release
-must pin hashes obtained from a trusted publisher. `resetChat()` resets native KV
-and conversation state; it does not erase Strands history or WebLLM's last output string.
+The integrity demo computes hashes; production apps should pin trusted hashes.
+`withEngine()` coordinates native operations with Strands on the same engine.
 
 For the Chrome extension worker, run `npm run build`, open `chrome://extensions`,
 enable Developer mode, and load `examples/browser/dist` as an unpacked extension.
