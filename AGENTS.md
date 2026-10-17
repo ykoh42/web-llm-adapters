@@ -1,0 +1,3 @@
+- Write simple, textbook-quality code: plain names, short functions, flat flow.
+- Fully bridge WebLLM and Strands via recommended APIs; keep fixes small and packages independent.
+- Verify real WebLLM–Strands flows; preserve outputs, report limits, and avoid filler, fakes, and fallbacks.
