@@ -1,8 +1,8 @@
 import { ModelError, type ToolSpec } from '@strands-agents/sdk'
-import type { ChatCompletionChunk, Completion } from '@mlc-ai/web-llm'
+import type { Completion } from '@mlc-ai/web-llm'
 import { readArguments } from './value.js'
 import { splitThinking } from './thinking.js'
-import type { StreamChunk } from '../stream.js'
+import { stopReason, type StreamChunk, type ToolDelta } from '../chunks.js'
 
 const begin = '<|tool_call>'
 const end = '<tool_call|>'
@@ -18,7 +18,7 @@ export async function* gemmaChunks(
   for await (const chunk of splitThinking(chunks, onChunk, prefix)) {
     const choice = chunk.choices[0]
     let content = ''
-    let calls: ChatCompletionChunk.Choice.Delta.ToolCall[] = []
+    let calls: ToolDelta[] = []
     if (choice) {
       if (toolText) toolText += choice.text
       else {
@@ -42,24 +42,18 @@ export async function* gemmaChunks(
       }
     }
     yield {
-      ...chunk,
-      object: 'chat.completion.chunk',
-      choices: choice
-        ? [
-            {
-              index: 0,
-              delta: { ...(content && { content }), ...(calls.length && { tool_calls: calls }) },
-              finish_reason: calls.length ? 'tool_calls' : choice.finish_reason,
-              ...(choice.logprobs !== undefined && { logprobs: choice.logprobs }),
-            },
-          ]
-        : [],
+      text: content,
+      reasoning: chunk.reasoning ?? '',
+      toolText: '',
+      calls,
+      stop: calls.length ? 'toolUse' : stopReason(choice?.finish_reason),
+      usage: chunk.usage,
     }
   }
 }
 
 function readCalls(source: string, tools: ToolSpec[]) {
-  const calls: ChatCompletionChunk.Choice.Delta.ToolCall[] = []
+  const calls: ToolDelta[] = []
   let rest = source.trim()
   while (rest) {
     const head = /^<\|tool_call>call:([^\s{]+)\s*/.exec(rest)
@@ -72,7 +66,8 @@ function readCalls(source: string, tools: ToolSpec[]) {
     calls.push({
       index: calls.length,
       id: crypto.randomUUID(),
-      function: { name, arguments: JSON.stringify(args.input) },
+      name,
+      input: JSON.stringify(args.input),
     })
     rest = rest.slice(end.length).trim()
   }

@@ -1,15 +1,14 @@
 import { ModelError, type ModelStreamEvent, type StopReason } from '@strands-agents/sdk'
-import type { ChatCompletionChunk, CompletionUsage } from '@mlc-ai/web-llm'
+import type { CompletionUsage } from '@mlc-ai/web-llm'
+import type { StreamChunk } from './chunks.js'
 
 type ToolCall = { id: string; name: string; input: string }
-/** Normalized chat chunks can carry a separate reasoning part. */
-export type StreamChunk = ChatCompletionChunk & { reasoning?: string }
 
-export async function* readStream(
-  chunks: AsyncIterable<StreamChunk>,
-  hasTools: boolean,
+export async function* readStream<T>(
+  chunks: AsyncIterable<T>,
+  decode: (chunk: T) => StreamChunk,
   signal?: AbortSignal,
-  onChunk?: (chunk: ChatCompletionChunk) => void,
+  onChunk?: (chunk: T) => void,
 ): AsyncGenerator<ModelStreamEvent> {
   let block: 'textDelta' | 'reasoningContentDelta' | undefined
   let toolText = ''
@@ -22,21 +21,15 @@ export async function* readStream(
     yield { type: 'modelMessageStopEvent', stopReason: 'cancelled' }
     return
   }
-  for await (const chunk of chunks) {
+  for await (const raw of chunks) {
     if (signal?.aborted) break
-    onChunk?.(chunk)
+    onChunk?.(raw)
+    const chunk = decode(raw)
     if (chunk.usage) usage = chunk.usage
-    const choice = chunk.choices[0]
-    if (!choice) continue
-    if (chunk.choices.length > 1 || choice.index !== 0) {
-      throw new ModelError('Strands needs one response per request.')
-    }
-    const text = choice.delta.content
-    // WebLLM's native tools API streams JSON before its parsed calls arrive.
-    if (hasTools && text) toolText += text
+    toolText += chunk.toolText
     for (const [type, value] of [
       ['reasoningContentDelta', chunk.reasoning],
-      ['textDelta', hasTools ? undefined : text],
+      ['textDelta', chunk.text],
     ] as const) {
       if (!value) continue
       if (block !== type) {
@@ -46,27 +39,14 @@ export async function* readStream(
       }
       yield { type: 'modelContentBlockDeltaEvent', delta: { type, text: value } }
     }
-    for (const delta of choice.delta.tool_calls ?? []) {
+    for (const delta of chunk.calls) {
       const call = calls.get(delta.index) ?? { id: crypto.randomUUID(), name: '', input: '' }
       if (delta.id) call.id = delta.id
-      if (delta.function?.name) call.name += delta.function.name
-      if (delta.function?.arguments) call.input += delta.function.arguments
+      if (delta.name) call.name += delta.name
+      if (delta.input) call.input += delta.input
       calls.set(delta.index, call)
     }
-    switch (choice.finish_reason) {
-      case 'stop':
-        stopReason = 'endTurn'
-        break
-      case 'length':
-        stopReason = 'maxTokens'
-        break
-      case 'abort':
-        stopReason = 'cancelled'
-        break
-      case 'tool_calls':
-        stopReason = 'toolUse'
-        break
-    }
+    if (chunk.stop) stopReason = chunk.stop
   }
 
   if (signal?.aborted) stopReason = 'cancelled'

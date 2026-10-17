@@ -21,7 +21,7 @@ export function gemmaStream(
     (chunks) =>
       readStream(
         gemmaChunks(chunks, options.toolSpecs ?? [], onChunk, prefix),
-        false,
+        (chunk) => chunk,
         options.cancelSignal,
       ),
     options.cancelSignal,
