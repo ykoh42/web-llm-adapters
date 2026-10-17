@@ -110,7 +110,6 @@ for (const { choice, repeated } of [
       })
       const model = new BrowserModel(page, {
         ...harness.model.getConfig(),
-        maxTokens: 1024,
         onChunk: (chunk) => chunks.push(chunk),
       })
       const agent = await harness.create({ model, tools: [archive] })
