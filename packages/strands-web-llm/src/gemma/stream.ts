@@ -3,7 +3,7 @@ import type { Completion } from '@mlc-ai/web-llm'
 import { readArguments } from './value.js'
 import { splitThinking } from './thinking.js'
 import { textEnd } from './markers.js'
-import type { StreamChunk, ToolDelta } from '../chunks.js'
+import type { StreamChunk, ToolDelta } from '../stream/chunks.js'
 
 const begin = '<|tool_call>'
 const end = '<tool_call|>'

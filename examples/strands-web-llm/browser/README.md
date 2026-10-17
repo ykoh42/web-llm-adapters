@@ -16,23 +16,23 @@ model reports WebLLM's error. FP16 models need `shader-f16`. FP32 variants use m
 Gemma 4 E2B uses the package's [cache-fixed runtime](../../../packages/strands-web-llm/runtime/README.md)
 with the installed WebLLM 0.2.86 and original model weights.
 
-| Example                   | Read                           | What it does                                                              |
-| ------------------------- | ------------------------------ | ------------------------------------------------------------------------- |
-| Chat                      | [chat.ts](src/chat.ts)         | Strands text streaming, usage, and cancellation                           |
-| JSON schema + logprobs    | [chat.ts](src/chat.ts)         | JSON schema, seed, and native token probabilities                         |
-| Grammar                   | [chat.ts](src/chat.ts)         | Restrict output to three colors with EBNF                                 |
-| Structural tags           | [advanced.ts](src/advanced.ts) | Constrain tagged JSON                                                     |
-| Qwen thinking on and off  | [advanced.ts](src/advanced.ts) | Compare empty and populated thinking blocks                               |
-| Gemma thinking on and off | [advanced.ts](src/advanced.ts) | Compare thinking modes; reasoning stays in Details                        |
-| Gemma thinking + tools    | [tools.ts](src/tools.ts)       | Think, call the clock, then answer using the result                       |
-| Sampling + latency        | [advanced.ts](src/advanced.ts) | Repeat a seeded sample, inspect timings, and stop at a newline            |
-| Gemma tool call + answer  | [tools.ts](src/tools.ts)       | Gemma calls a clock tool, then answers with the result                    |
-| Hermes tool batch         | [tools.ts](src/tools.ts)       | Legacy native tool API, ends after executing the tools                    |
-| Image / WAV audio         | [media.ts](src/media.ts)       | Pass file bytes through Strands content blocks                            |
-| PCM audio                 | [media.ts](src/media.ts)       | Decode audio, mix to mono, then send `pcmAudio()` through a Strands Agent |
-| Native embeddings         | [native.ts](src/native.ts)     | Use a dedicated embedding model                                           |
-| Native text completion    | [native.ts](src/native.ts)     | Raw prompt and two non-streaming choices                                  |
-| Native save + resume      | [native.ts](src/native.ts)     | Interrupt after eight chunks, recover, then continue                      |
+| Example                   | Read                                    | What it does                                                              |
+| ------------------------- | --------------------------------------- | ------------------------------------------------------------------------- |
+| Chat                      | [chat.ts](src/examples/chat.ts)         | Strands text streaming, usage, and cancellation                           |
+| JSON schema + logprobs    | [chat.ts](src/examples/chat.ts)         | JSON schema, seed, and native token probabilities                         |
+| Grammar                   | [chat.ts](src/examples/chat.ts)         | Restrict output to three colors with EBNF                                 |
+| Structural tags           | [advanced.ts](src/examples/advanced.ts) | Constrain tagged JSON                                                     |
+| Qwen thinking on and off  | [advanced.ts](src/examples/advanced.ts) | Compare empty and populated thinking blocks                               |
+| Gemma thinking on and off | [advanced.ts](src/examples/advanced.ts) | Compare thinking modes; reasoning stays in Details                        |
+| Gemma thinking + tools    | [tools.ts](src/examples/tools.ts)       | Think, call the clock, then answer using the result                       |
+| Sampling + latency        | [advanced.ts](src/examples/advanced.ts) | Repeat a seeded sample, inspect timings, and stop at a newline            |
+| Gemma tool call + answer  | [tools.ts](src/examples/tools.ts)       | Gemma calls a clock tool, then answers with the result                    |
+| Hermes tool batch         | [tools.ts](src/examples/tools.ts)       | Legacy native tool API, ends after executing the tools                    |
+| Image / WAV audio         | [media.ts](src/examples/media.ts)       | Pass file bytes through Strands content blocks                            |
+| PCM audio                 | [media.ts](src/examples/media.ts)       | Decode audio, mix to mono, then send `pcmAudio()` through a Strands Agent |
+| Native embeddings         | [native.ts](src/examples/native.ts)     | Use a dedicated embedding model                                           |
+| Native text completion    | [native.ts](src/examples/native.ts)     | Raw prompt and two non-streaming choices                                  |
+| Native save + resume      | [native.ts](src/examples/native.ts)     | Interrupt after eight chunks, recover, then continue                      |
 
 **Details** shows usage, native chunks, tool results, and Gemma reasoning.
 **Response** shows answer text. See the [support table](../../../packages/strands-web-llm/README.md#support)
@@ -57,7 +57,7 @@ The integrity demo computes hashes; production apps should pin trusted hashes.
 For the Chrome extension worker, run `npm run build`, open `chrome://extensions`,
 enable Developer mode, and load `examples/strands-web-llm/browser/dist` as an unpacked extension.
 Open its `index.html` page and choose **Chrome extension worker**. Its handler is in
-[background.ts](src/extension/background.ts). Unload frees the model and disconnects the client port.
+[extension.ts](src/engine/extension.ts). Unload frees the model and disconnects the client port.
 
 `npm run test:browser` checks the ordinary pages with Chrome and real WebGPU.
 `npx playwright install chromium` followed by `npm run test:extensions` checks the

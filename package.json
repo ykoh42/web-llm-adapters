@@ -22,7 +22,7 @@
     "check:unused": "knip",
     "check:packages": "npm run check:package --workspaces --if-present",
     "check": "npm run format:check && npm run lint && npm run build && npm run typecheck && npm run test:coverage && npm run check:unused && npm run check:packages",
-    "test:extensions": "node examples/strands-web-llm/browser/test/extensions/setup.ts && playwright test --config playwright.extension.config.ts",
+    "test:extensions": "node examples/strands-web-llm/browser/scripts/setup-extension.ts && playwright test --config playwright.extension.config.ts",
     "test:install": "npm run test:install --workspaces --if-present",
     "check:release": "npm run check && npm run test:install && npm run test:browser && npm run test:extensions",
     "dev:strands": "npm run build --workspace strands-web-llm && npm run dev --workspace @web-llm-adapters/strands-browser",

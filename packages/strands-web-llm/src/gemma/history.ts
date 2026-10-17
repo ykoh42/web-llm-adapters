@@ -1,6 +1,6 @@
 import { Message, ModelError, type SystemPrompt } from '@strands-agents/sdk'
 import type { ChatCompletionMessageParam } from '@mlc-ai/web-llm'
-import { formatMessages, formatAssistant, formatUser } from '../messages.js'
+import { formatMessages, formatAssistant, formatUser } from '../chat/messages.js'
 
 type GemmaMessage = ChatCompletionMessageParam & {
   reasoning?: string

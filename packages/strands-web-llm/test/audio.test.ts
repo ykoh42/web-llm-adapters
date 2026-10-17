@@ -1,7 +1,7 @@
 import { Agent, Message, TextBlock } from '@strands-agents/sdk'
 import { expect, it } from 'vitest'
 import { pcmAudio } from '../src/index.js'
-import { chunk, setup } from './helpers.js'
+import { chunk, setup } from '../fixtures/engine.js'
 
 it('preserves float32 PCM and sample rate through Strands message storage and inference', async () => {
   const samples = new Float32Array([-1, -0.12345678, 0, 0.12345678, 1])

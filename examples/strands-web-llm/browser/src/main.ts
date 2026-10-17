@@ -1,6 +1,6 @@
 import { deleteModelAllInfoInCache, hasModelInCache, prebuiltAppConfig } from '@mlc-ai/web-llm'
-import { openEngine, cacheConfig } from './engines.js'
-import { examples } from './examples.js'
+import { openEngine, cacheConfig } from './engine/load.js'
+import { examples } from './examples/catalog.js'
 
 const exampleSelect = document.querySelector<HTMLSelectElement>('#example')!
 const engineSelect = document.querySelector<HTMLSelectElement>('#engine')!

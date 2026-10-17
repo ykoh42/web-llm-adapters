@@ -1,6 +1,6 @@
 import { ModelError } from '@strands-agents/sdk'
 import type { Completion } from '@mlc-ai/web-llm'
-import { stopReason, type StreamChunk } from '../chunks.js'
+import { stopReason, type StreamChunk } from '../stream/chunks.js'
 import { textEnd } from './markers.js'
 
 type ThinkingChunk = Pick<StreamChunk, 'text' | 'reasoning' | 'stop' | 'usage'>

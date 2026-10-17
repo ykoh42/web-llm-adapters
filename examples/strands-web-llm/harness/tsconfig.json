@@ -5,5 +5,5 @@
     "allowImportingTsExtensions": true,
     "types": ["node"]
   },
-  "include": ["*.ts", "test", "../browser/src/harness-api.ts"]
+  "include": ["src", "test", "fixtures", "../browser/src/harness/types.ts"]
 }

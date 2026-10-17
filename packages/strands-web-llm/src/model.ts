@@ -6,7 +6,7 @@ import {
 } from '@strands-agents/sdk'
 import type { ModelStreamEvent } from '@strands-agents/sdk'
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
-import { chatStream } from './chat.js'
+import { chatStream } from './chat/model.js'
 import { isGemma, usesGemmaProtocol } from './gemma/request.js'
 import { gemmaStream } from './gemma/model.js'
 import { promptTokens } from './gemma/prompt.js'

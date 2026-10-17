@@ -36,15 +36,15 @@ specific first step; use the actual tool result when exact values matter.
 
 ## Examples
 
-| Feature                  | Source                                          | Notes                                                     |
-| ------------------------ | ----------------------------------------------- | --------------------------------------------------------- |
-| Full CLI setup           | [main.ts](main.ts)                              | Browser startup, model config, Harness, shutdown          |
-| Text, PDF, image reading | [read.ts](read.ts)                              | Extends Harness `read`; text paging retained              |
-| Image OCR                | [ocr.ts](ocr.ts)                                | English/Korean PNG and JPEG; local CPU processing         |
-| Summaries                | [summary-model.ts](summary-model.ts)            | Reads long context in parts using the same weights        |
-| Memory                   | [memory.ts](memory.ts)                          | Harness memory policy with native JSON extraction         |
-| Native APIs in tools     | [engine.browser.ts](test/engine.browser.ts)     | Embeddings, raw completions, and generation recovery      |
-| Restart recovery         | [recovery.browser.ts](test/recovery.browser.ts) | Restore WebLLM checkpoints and Harness history separately |
+| Feature                  | Source                                                  | Notes                                                     |
+| ------------------------ | ------------------------------------------------------- | --------------------------------------------------------- |
+| Full CLI setup           | [main.ts](src/main.ts)                                  | Browser startup, model config, Harness, shutdown          |
+| Text, PDF, image reading | [read.ts](src/tools/read.ts)                            | Extends Harness `read`; text paging retained              |
+| Image OCR                | [ocr.ts](src/tools/ocr.ts)                              | English/Korean PNG and JPEG; local CPU processing         |
+| Summaries                | [summary-model.ts](src/summary-model.ts)                | Reads long context in parts using the same weights        |
+| Memory                   | [memory.ts](src/memory.ts)                              | Harness memory policy with native JSON extraction         |
+| Native APIs in tools     | [engine.browser.ts](test/browser/engine.browser.ts)     | Embeddings, raw completions, and generation recovery      |
+| Restart recovery         | [recovery.browser.ts](test/browser/recovery.browser.ts) | Restore WebLLM checkpoints and Harness history separately |
 
 Sessions, skills, memory, background tasks, subagents, and ordinary tools keep
 their Harness defaults.

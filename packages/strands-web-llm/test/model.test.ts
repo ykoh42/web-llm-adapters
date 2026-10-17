@@ -11,7 +11,7 @@ import {
 } from '@strands-agents/sdk'
 import type { ModelStreamEvent, StreamOptions } from '@strands-agents/sdk'
 import { WebLLMModel } from '../src/index.js'
-import { chunk, chunks, collect, pause, setup } from './helpers.js'
+import { chunk, chunks, collect, pause, setup } from '../fixtures/engine.js'
 
 const messages = [new Message({ role: 'user', content: [new TextBlock('Hi')] })]
 const tools = [{ name: 'weather', description: 'Get the weather' }]

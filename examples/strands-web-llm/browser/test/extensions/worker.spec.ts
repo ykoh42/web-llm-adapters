@@ -1,5 +1,5 @@
-import { test, expect } from './helpers.js'
-import { load, run, unload } from '../helpers.js'
+import { test, expect } from '../../fixtures/extension.js'
+import { load, run, unload } from '../../fixtures/page.js'
 
 test('Strands streams, stops and reuses a real Chrome extension worker', async ({
   page,

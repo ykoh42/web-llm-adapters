@@ -4,5 +4,5 @@
     "noEmit": true,
     "types": ["vite/client", "chrome"]
   },
-  "include": ["src", "test", "vite.config.ts"]
+  "include": ["src", "test", "fixtures", "scripts", "vite.config.ts"]
 }

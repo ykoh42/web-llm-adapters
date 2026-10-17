@@ -7,7 +7,7 @@ import {
   type StreamOptions,
 } from '@strands-agents/sdk'
 import type { WebLLMModelConfig } from '../types.js'
-import { formatSystemPrompt } from '../messages.js'
+import { formatSystemPrompt } from '../chat/messages.js'
 import type { BrowserModelOptions, BrowserPage, BrowserRequest } from './types.js'
 
 /** Runs the adapter in a controlled browser; Harness and its tools stay in Node.js. */

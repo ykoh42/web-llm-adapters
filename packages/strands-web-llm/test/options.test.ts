@@ -7,7 +7,7 @@ import {
   type ResponseFormat,
 } from '@mlc-ai/web-llm'
 import { BrowserModel, WebLLMModel, createBrowserBridge, type BrowserPage } from '../src/index.js'
-import { chunk, chunks, setup } from './helpers.js'
+import { chunk, chunks, setup } from '../fixtures/engine.js'
 
 // Derived from WebLLM so a new native option requires an explicit coverage decision.
 type NativeOptions = Required<

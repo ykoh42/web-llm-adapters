@@ -4,12 +4,12 @@ export default defineConfig({
   projects: [
     {
       name: 'strands-browser',
-      testDir: './examples/strands-web-llm/browser/test',
-      testMatch: '**/test/*.spec.ts',
+      testDir: './examples/strands-web-llm/browser/test/browser',
+      testMatch: '**/*.spec.ts',
     },
     {
       name: 'strands-harness',
-      testDir: './examples/strands-web-llm/harness/test',
+      testDir: './examples/strands-web-llm/harness/test/browser',
       testMatch: '**/*.browser.ts',
     },
   ],

@@ -6,9 +6,7 @@ export default defineConfig({
   build: {
     rolldownOptions: {
       input: {
-        'extension-worker': fileURLToPath(
-          new URL('./src/extension/background.ts', import.meta.url),
-        ),
+        'extension-worker': fileURLToPath(new URL('./src/engine/extension.ts', import.meta.url)),
         main: fileURLToPath(new URL('./index.html', import.meta.url)),
         harness: fileURLToPath(new URL('./harness.html', import.meta.url)),
         engine: fileURLToPath(new URL('./engine.html', import.meta.url)),
