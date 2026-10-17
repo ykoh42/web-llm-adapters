@@ -268,13 +268,18 @@ with Strands; it does not change the SDK Model contract.
 Every method on the original engine is available in native scope, including from
 Node.js Harness tools. This is API access, not a claim that every API combination
 has been tested. Real GPU coverage includes an embedding tool with Gemma, concurrent
-raw multiple completions, and orderly interrupted native generation recovery.
+raw multiple completions, orderly interruption, and recovery after destroying the
+page during generation. The recovery test uses exact persistence, recreates the
+engine, resumes the native checkpoint, and separately restores a saved Harness
+conversation with its reasoning and completed tool results.
 
 Native generation checkpoints do not restore a Strands Agent, its tool execution,
 or its history. Use Strands session persistence for that state and WebLLM's own
 recovery API for native generation. Automatic recovery of a partially executed
-Agent turn is not provided. Gemma media plus tools/thinking, constrained output in
-the raw protocol, and `ignore_eos` with protocol parsing remain unavailable
+Agent turn is not provided. A tool interrupted after its external effect but
+before its result was saved needs application-level idempotency or reconciliation;
+replaying model tokens cannot establish whether that effect happened. Gemma media
+plus tools/thinking, constrained output in the raw protocol, and `ignore_eos` with protocol parsing remain unavailable
 combinations. No fallback model or prompt instruction substitutes for them.
 
 This separation follows Strands's [custom model provider contract](https://strandsagents.com/docs/user-guide/sdk/model-providers/custom_model_provider/)
@@ -353,7 +358,9 @@ Named choice prefills the selected call and its first required field; the model
 still supplies the values. Structured JSON and multiple result blocks retain
 their structure. Harness reminders and background continuations stay inside the
 current tool turn without changing the stored conversation.
-It rejects media, `response_format`, resume, and `ignore_eos`.
+It rejects media, `response_format`, enabled resume, and `ignore_eos`.
+`extra_body.resumable: { enabled: false }` is accepted and does not enable
+persistence on the raw completion path.
 It rebuilds the raw prompt on each call, so it does not reuse chat KV state.
 Use the standard WebLLM Gemma 4 catalog records, whose artifact loader supplies BOS;
 custom aliases and older Gemma templates are not covered. Gemma uses WebLLM's
@@ -378,8 +385,9 @@ controls generated thinking text; it does not create Strands reasoning blocks.
 Multiple choices, non-streaming requests, text completion, embeddings, cache,
 loading, token-level sampling, and save/resume keep WebLLM's native APIs. Native
 persistence does not restore a Strands Agent, its tools, or its history. Our resume
-example checks an orderly interruption. Shared cross-origin cache needs its separate
-extension; this example uses it on the main thread and disables unsupported deletion.
+example checks an orderly interruption; the Harness recovery test also destroys
+the page during an active generation and restores its saved checkpoint.
+Shared cross-origin cache needs its separate extension; this example uses it on the main thread and disables unsupported deletion.
 
 The [browser examples](../../examples/browser/README.md) and their executable GPU
 tests demonstrate each feature group. Native access does not imply that every

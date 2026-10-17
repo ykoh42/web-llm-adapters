@@ -148,6 +148,35 @@ from sessions and is searched for a new session too. Put skills under
 `.agent/skills/<name>/SKILL.md`, or set `skills` to another directory. Always shut
 agents down before closing the browser so pending memory extraction can finish.
 
+The [recovery test](./test/recovery.browser.ts) destroys the browser page while a
+native generation is active, creates a new engine, and resumes its WebLLM
+checkpoint. It also creates a new Harness agent with the same session ID and
+checks that reasoning, completed tool calls, and their results survive unchanged.
+The next answer uses the saved result without running the completed tool again.
+
+These are separate persistence APIs. A Harness session ID restores the conversation;
+WebLLM's generation session ID restores native generation. Native checkpoints do
+not restore an Agent turn or decide whether an interrupted tool already changed
+external state. Use idempotent tool operations or reconcile that state before retrying.
+
+For a native checkpoint created with `extra_body.resumable`, use the original API:
+
+```ts
+const result = await page.evaluate(
+  (sessionId) =>
+    window.webllmBridge.withEngine((engine) =>
+      engine.resumeChatCompletion(sessionId, { continueGeneration: true }),
+    ),
+  generationSessionId,
+)
+```
+
+Keep the browser's storage and origin, reload the same model, and retain the
+checkpoint ID. In WebLLM 0.2.86, calling `resumeChatCompletion(id)` without
+`continueGeneration` reads saved text only. Native recovery can return `text_only`
+when generation cannot continue; inspect the returned `recoveryMode`. This API
+is available for native chat, not Gemma's raw tool/thinking protocol.
+
 Multiple agents can share these configurations and the browser page:
 
 ```ts

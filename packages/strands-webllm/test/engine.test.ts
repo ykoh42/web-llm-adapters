@@ -141,3 +141,19 @@ it('preserves native errors and releases the engine after a failed callback', as
   ).rejects.toBe(failure)
   expect(await withEngine(engine, () => 'next')).toBe('next')
 })
+
+it('reports native cleanup errors after closing an escaped stream', async () => {
+  const { engine, stop } = setup()
+  const failure = new Error('Interrupt failed')
+  stop.mockRejectedValueOnce(failure)
+  const returned = vi.fn(async () => ({ done: true as const, value: undefined }))
+  const source = {
+    [Symbol.asyncIterator]: () => ({
+      next: async () => ({ done: false, value: 1 }),
+      return: returned,
+    }),
+  }
+  await expect(withEngine(engine, () => source)).rejects.toBe(failure)
+  expect(returned).toHaveBeenCalledOnce()
+  expect(await withEngine(engine, () => 'next')).toBe('next')
+})

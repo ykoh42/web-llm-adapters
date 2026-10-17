@@ -35,7 +35,7 @@ export function gemmaRequest(
   const { response_format, extra_body, ...sampling } = generationOptions(config)
   // Tool choice is handled by the adapter; raw completions have no tool field.
   delete sampling.tool_choice
-  if (response_format != null || extra_body?.resumable || sampling.ignore_eos) {
+  if (response_format != null || extra_body?.resumable?.enabled || sampling.ignore_eos) {
     throw new ModelError(
       'Gemma protocol mode does not support response_format, resume, or ignore_eos.',
     )

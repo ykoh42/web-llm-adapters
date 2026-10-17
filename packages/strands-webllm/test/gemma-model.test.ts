@@ -542,6 +542,16 @@ describe('Gemma tool model', () => {
     )
   })
 
+  it('allows tools when native persistence is explicitly disabled', async () => {
+    const { model, create } = setup(part(call, 'stop'))
+    model.updateConfig({ request: { extra_body: { resumable: { enabled: false } } } })
+    const result = await aggregate(model)
+    expect(result.message.content).toContainEqual(
+      expect.objectContaining({ type: 'toolUseBlock', name: 'lookup' }),
+    )
+    expect(create.mock.calls[0]![0].extra_body).toBeUndefined()
+  })
+
   it.each([
     { response_format: { type: 'json_object' as const } },
     { extra_body: { resumable: { enabled: true } } },

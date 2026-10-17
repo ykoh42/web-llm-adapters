@@ -15,10 +15,11 @@ export async function withEngine<T>(
     if (result && typeof result === 'object' && Symbol.asyncIterator in result) {
       // A returned iterator would outlive this turn. Consume it inside the callback instead.
       const source = result as AsyncIterable<unknown>
-      await Promise.allSettled([
+      const results = await Promise.allSettled([
         Promise.resolve().then(() => engine.interruptGenerate()),
         Promise.resolve().then(() => source[Symbol.asyncIterator]().return?.()),
       ])
+      for (const result of results) if (result.status === 'rejected') throw result.reason
       throw new TypeError('Consume native streams inside withEngine().')
     }
     return result
