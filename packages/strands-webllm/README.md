@@ -86,14 +86,16 @@ are transferred only when a callback is supplied. A callback error stops the cal
 and releases the engine. The callback is not part of the serializable model config.
 
 `BrowserPage` requires only `evaluate()` and accepts a Playwright Page without a
-Playwright dependency in this package. The application owns browser startup,
+Playwright dependency in this package. The browser app uses TypeScript
+`moduleResolution: "Bundler"` for WebLLM's native types. Node.js Harness callers
+can use `module: "NodeNext"` with `BrowserModel`. The application owns browser startup,
 engine loading, and shutdown. Before unloading the engine or closing the page,
 run `await page.evaluate(() => window.webllmBridge.close())`. This stops model calls, waits for active native callbacks to finish, and rejects
 new requests and queued native callbacks. It does not unload the engine.
 Do not replace a bridge while its calls are running, and expose it only on a
 trusted page controlled by your application.
 
-The [complete Harness example](../../examples/harness/README.md) sets up Chrome,
+The [complete Harness example](https://github.com/ykoh42/webllm-adapters/blob/main/examples/harness/README.md) sets up Chrome,
 the browser page, and optional read, search, memory, and summary behavior. Those
 application choices stay in the example; no example source is needed to import
 the package's connection API.
@@ -154,7 +156,7 @@ const vector = await page.evaluate(
 The callback runs on the browser page. Pass inputs through `evaluate()` and return
 serializable results; Node.js closures do not travel to the browser. Return the
 vector from a Strands tool callback to give it to the agent. The
-[executable Harness test](../../examples/harness/test/engine.browser.ts) registers
+[executable Harness test](https://github.com/ykoh42/webllm-adapters/blob/main/examples/harness/test/engine.browser.ts) registers
 such a tool and runs it alongside another native request.
 
 Await all native work and consume streams **inside** the callback. Returning an
@@ -398,6 +400,6 @@ example checks an orderly interruption; the Harness recovery test also destroys
 the page during an active generation and restores its saved checkpoint.
 Shared cross-origin cache needs its separate extension; this example uses it on the main thread and disables unsupported deletion.
 
-The [browser examples](../../examples/browser/README.md) and their executable GPU
+The [browser examples](https://github.com/ykoh42/webllm-adapters/blob/main/examples/browser/README.md) and their executable GPU
 tests demonstrate each feature group. Native access does not imply that every
 feature has a Strands counterpart or that every model and device is supported.

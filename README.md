@@ -63,7 +63,8 @@ editing its source, or run `npx tsc -p packages/strands-webllm/tsconfig.build.js
 --watch` in a second terminal.
 
 `npm run check` runs formatting, linting, all builds, all workspace type checks,
-test coverage, unused code checks, and package checks. CI runs this same command.
+test coverage, unused code checks, and package checks. CI runs this same command
+and the isolated installation check.
 Run `npm run build` before a standalone `npm run typecheck` so
 examples can resolve workspace packages through their real exports.
 
@@ -82,12 +83,13 @@ OCR, and application policy belong to the caller or examples.
 
 ## Quality checks
 
-| Command                  | What it checks                                                                   |
-| ------------------------ | -------------------------------------------------------------------------------- |
-| `npm test`               | Fast unit and Agent integration tests                                            |
-| `npm run test:coverage`  | Untested code and branches; HTML report in `coverage/index.html`                 |
-| `npm run check:unused`   | Unused files, exports, and dependencies with Knip                                |
-| `npm run check:packages` | Package contents with publint, then TypeScript imports with Are the Types Wrong? |
+| Command                  | What it checks                                                                          |
+| ------------------------ | --------------------------------------------------------------------------------------- |
+| `npm test`               | Fast unit and Agent integration tests                                                   |
+| `npm run test:coverage`  | Untested code and branches; HTML report in `coverage/index.html`                        |
+| `npm run check:unused`   | Unused files, exports, and dependencies with Knip                                       |
+| `npm run test:install`   | Pack, install outside the workspace, check public types, and run SDK/Harness tool loops |
+| `npm run check:packages` | Package contents with publint, then TypeScript imports with Are the Types Wrong?        |
 
 Coverage must stay at least 90% of lines and 85% of branches across package source.
 Coverage is a check for missing tests, not proof that assertions are useful. Tests
@@ -118,7 +120,8 @@ The tests cover the adapter's Strands behavior, actual `createHarness()` calls,
 constrained output, sampling, thinking, media, multiple loaded models, custom
 processors, integrity checks, and native APIs. CPU tests use a mocked engine;
 browser tests run real models. Synthetic silence checks audio decoding and
-inference, not transcription quality. Save/resume checks an orderly interruption.
+inference, not transcription quality. Save/resume checks interruption and recovery
+after destroying the page during generation.
 The Gemma Harness test reads a random code from a temporary file, checks the actual
 tool result, and requires Gemma's final answer to contain that code. It also checks
 a later conversation turn. No hook supplies the answer or ends the tool turn.
@@ -146,6 +149,27 @@ test runner settings. Each new adapter keeps its tests in its own workspace.
 Target versions are WebLLM **0.2.86**, Strands SDK **1.21.0**, and Harness **0.3.0**.
 These checks cover specific models and Harness flows; they do not guarantee a
 model's tool-selection or answer accuracy for every task.
+
+## Before a release
+
+```sh
+npm run check:release
+```
+
+This runs the CPU, isolated installation, real GPU, and extension checks in order.
+Use the same commit you intend to publish, with Chrome, Playwright Chromium, and
+WebGPU available. A failure stops the command. These GPU checks remain local;
+GitHub CI runs CPU and installation checks.
+
+`test:install` packs the library into a temporary directory outside this repository,
+installs only its peers and Harness, and checks browser and Node.js public types.
+It then imports the packed exports and runs actual SDK/Harness tool loops with a
+mocked inference endpoint. Real inference is checked by the GPU suite. The temporary
+project is removed on success or failure. No workspace symlinks or source imports
+are used by the installed consumer.
+
+Choose a license and release version before removing the package's `private` flag.
+The release check does not publish to npm.
 
 ## Add an adapter
 

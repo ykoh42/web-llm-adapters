@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "start": "node --experimental-strip-types main.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:install": "node --experimental-strip-types test/install.ts"
   },
   "dependencies": {
     "@strands-agents/harness": "0.3.0",
