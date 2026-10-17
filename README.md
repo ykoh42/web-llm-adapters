@@ -67,6 +67,19 @@ test coverage, unused code checks, and package checks. CI runs this same command
 Run `npm run build` before a standalone `npm run typecheck` so
 examples can resolve workspace packages through their real exports.
 
+### Provider flow
+
+Inside `packages/strands-webllm/src`, `model.ts` chooses native chat or the Gemma
+protocol. `request.ts` applies shared generation settings; each protocol builds
+its own messages or prompt. `chat.ts` and `gemma/stream.ts` turn native output into
+the small `StreamChunk` type, then `stream.ts` writes Strands events.
+
+`call.ts` owns the native iterator and its cleanup. `queue.ts` gives each engine
+one active call at a time. Keep ownership there: cancellation must close the native
+iterator even when Strands stops reading, and the next call must wait for cleanup.
+`browser/` carries the same provider across a page boundary. Engine loading, tools,
+OCR, and application policy belong to the caller or examples.
+
 ## Quality checks
 
 | Command                  | What it checks                                                                   |

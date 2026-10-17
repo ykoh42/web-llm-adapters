@@ -32,11 +32,7 @@ export class BrowserModel extends Model<WebLLMModelConfig> {
   override async countTokens(messages: Message[], options: CountTokensOptions = {}) {
     return this.page.evaluate(
       (json) => window.webllmBridge.count(JSON.parse(json)),
-      JSON.stringify({
-        messages: messages.map((message) => message.toJSON()),
-        config: this.getConfig(),
-        options: { ...options, systemPrompt: formatSystemPrompt(options.systemPrompt) },
-      }),
+      encodeRequest(messages, this.getConfig(), options),
     )
   }
 
@@ -44,23 +40,11 @@ export class BrowserModel extends Model<WebLLMModelConfig> {
     messages: Message[],
     options: StreamOptions = {},
   ): AsyncGenerator<ModelStreamEvent> {
-    const { cancelSignal, systemPrompt, toolSpecs, toolChoice, dynamicTrailingBlocks } = options
+    const { cancelSignal } = options
     cancelSignal?.throwIfAborted()
-    const prompt = formatSystemPrompt(systemPrompt)
-    const request: BrowserRequest = {
-      messages: messages.map((message) => message.toJSON()),
-      config: this.getConfig(),
-      options: {
-        ...(prompt !== undefined && { systemPrompt: prompt }),
-        ...(toolSpecs !== undefined && { toolSpecs }),
-        ...(toolChoice !== undefined && { toolChoice }),
-        ...(dynamicTrailingBlocks !== undefined && { dynamicTrailingBlocks }),
-      },
-    }
-    // SDK message JSON encodes media bytes as base64 across the browser boundary.
     const id = await this.page.evaluate(
       (json) => window.webllmBridge.start(JSON.parse(json)),
-      JSON.stringify(request),
+      encodeRequest(messages, this.getConfig(), options),
     )
     // Strands may leave its iterator suspended on cancel, so stop the browser directly.
     let closing: Promise<void> | undefined
@@ -87,4 +71,21 @@ export class BrowserModel extends Model<WebLLMModelConfig> {
       await close()
     }
   }
+}
+
+/** Send only provider inputs; SDK message JSON preserves media bytes as base64. */
+function encodeRequest(messages: Message[], config: WebLLMModelConfig, options: StreamOptions) {
+  const { systemPrompt, toolSpecs, toolChoice, dynamicTrailingBlocks } = options
+  const prompt = formatSystemPrompt(systemPrompt)
+  const request: BrowserRequest = {
+    messages: messages.map((message) => message.toJSON()),
+    config,
+    options: {
+      ...(prompt !== undefined && { systemPrompt: prompt }),
+      ...(toolSpecs !== undefined && { toolSpecs }),
+      ...(toolChoice !== undefined && { toolChoice }),
+      ...(dynamicTrailingBlocks !== undefined && { dynamicTrailingBlocks }),
+    },
+  }
+  return JSON.stringify(request)
 }
