@@ -229,7 +229,7 @@ describe('WebLLMModel', () => {
       content: 'Sunny',
     })
     const assistant = request.messages.find((message) => message.role === 'assistant')
-    expect(assistant).toMatchObject({ content: null, tool_calls: [{ id: 'call-1' }] })
+    expect(assistant).toMatchObject({ content: '', tool_calls: [{ id: 'call-1' }] })
   })
 
   it('joins split tool names and JSON without showing raw tool JSON as text', async () => {

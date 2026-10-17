@@ -6,6 +6,7 @@ import {
   Message,
   TextBlock,
   ToolResultBlock,
+  ToolUseBlock,
 } from '@strands-agents/sdk'
 import { ModelType, postInitAndCheckFieldsChatCompletion, prebuiltAppConfig } from '@mlc-ai/web-llm'
 import { formatMessages } from '../../src/chat/messages.js'
@@ -69,6 +70,42 @@ describe('messages', () => {
       }),
     ])
     expect(output).toEqual([{ role: 'tool', tool_call_id: 'a', content: 'Tool error: Not found' }])
+  })
+
+  it('keeps empty assistant tool-call content as a string WebLLM accepts', () => {
+    const output = formatMessages([
+      new Message({ role: 'user', content: [new TextBlock('Get the time.')] }),
+      new Message({
+        role: 'assistant',
+        content: [new ToolUseBlock({ toolUseId: 'a', name: 'clock', input: {} })],
+      }),
+      new Message({
+        role: 'user',
+        content: [
+          new ToolResultBlock({
+            toolUseId: 'a',
+            status: 'success',
+            content: [new TextBlock('12:00')],
+          }),
+        ],
+      }),
+    ])
+    expect(output).toEqual([
+      { role: 'user', content: 'Get the time.' },
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [{ id: 'a', type: 'function', function: { name: 'clock', arguments: '{}' } }],
+      },
+      { role: 'tool', tool_call_id: 'a', content: '12:00' },
+    ])
+    expect(() =>
+      postInitAndCheckFieldsChatCompletion(
+        { messages: output },
+        'Hermes-3-Llama-3.1-8B-q4f16_1-MLC',
+        ModelType.LLM,
+      ),
+    ).not.toThrow()
   })
 
   it('passes image URLs and bytes in WebLLM format', () => {

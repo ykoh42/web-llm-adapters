@@ -8,21 +8,25 @@ or [Node.js Harness example](https://github.com/ykoh42/web-llm-adapters/blob/mai
 
 ## Models
 
-Choose a chat model from WebLLM's catalog. Example IDs in WebLLM **0.2.86**:
+The IDs below match entries in WebLLM **0.2.86**'s official
+[`prebuiltAppConfig.model_list`](https://github.com/mlc-ai/web-llm/blob/v0.2.86/src/config.ts).
+Each row names one exact model and quantization. Results are from real browser
+runs on an Apple M4 Pro with Chrome.
 
-| Model                    | `modelId`                               | Use                                                                                                                                                                |
-| ------------------------ | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Llama 3.2 1B             | `Llama-3.2-1B-Instruct-q4f16_1-MLC`     | Text                                                                                                                                                               |
-| Qwen3 0.6B               | `Qwen3-0.6B-q4f16_1-MLC`                | Text, native thinking output                                                                                                                                       |
-| Gemma 4 E2B              | `gemma-4-E2B-it-q4f16_1-MLC`            | Text, audio, tools, separate thinking blocks; [runtime setup](runtime/README.md) required                                                                          |
-| Phi-3.5 Vision           | `Phi-3.5-vision-instruct-q4f16_1-MLC`   | Text and images                                                                                                                                                    |
-| Hermes 3 8B              | `Hermes-3-Llama-3.1-8B-q4f16_1-MLC`     | Text and native tool batches; see the [batch example](https://github.com/ykoh42/web-llm-adapters/blob/main/examples/strands-web-llm/browser/src/examples/tools.ts) |
-| Snowflake Arctic Embed S | `snowflake-arctic-embed-s-q0f32-MLC-b4` | Native embeddings via `withEngine()`, separate from Agent chat                                                                                                     |
+| Exact WebLLM `model_id`                 | Text / media              | Strands tool calls                                                                | Thinking                                                                                     |
+| --------------------------------------- | ------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `Llama-3.2-1B-Instruct-q4f16_1-MLC`     | Text works                | Rejected by WebLLM 0.2.86 for this ID                                             | No separate thought output observed                                                          |
+| `Qwen3-0.6B-q4f16_1-MLC`                | Text works                | Rejected by WebLLM 0.2.86 for this ID                                             | Works; native `<think>` text stays in the answer, not a separate Strands reasoning block     |
+| `gemma-4-E2B-it-q4f16_1-MLC`            | Text works                | Works through the adapter, including tool result and final answer                 | Works; thinking is a separate Strands reasoning block                                        |
+| `Phi-3.5-vision-instruct-q4f16_1-MLC`   | Text and image input work | Rejected by WebLLM 0.2.86 for this ID                                             | No separate thought output; `false` emitted empty `<think>` blocks until the token limit     |
+| `Hermes-3-Llama-3.1-8B-q4f16_1-MLC`     | Text works                | One call runs; then this ID repeated calls for three turns without a final answer | No reliable switch; `false` exposed raw `<think>` text, while `true` returned a plain answer |
+| `snowflake-arctic-embed-s-q0f32-MLC-b4` | 384-value embedding works | Not a chat model                                                                  | Not a chat model                                                                             |
 
-Other catalog chat models use the same provider. These IDs are examples, not a
-claim that every model or quantization has been tested. List the installed catalog
-with `prebuiltAppConfig.model_list` from `@mlc-ai/web-llm`; it includes each model's
-GPU requirements. Custom models use WebLLM's `appConfig.model_list`.
+The three “Rejected by WebLLM” results are its own model-ID checks. The Hermes
+repeat was reproduced through WebLLM's native API too. Its example ends after one
+tool batch because this model did not produce a final answer in the tested loop.
+Other sizes and quantizations are separate IDs and are not covered by these results.
+Custom model IDs use WebLLM's `appConfig.model_list` and need their own validation.
 
 WebLLM loads each model's Wasm through its `model_lib` URL. The bundled Wasm fixes
 Gemma 4 E2B specifically.
@@ -121,9 +125,11 @@ Both models accept native generation settings in `request` and original output
 chunks through `onChunk`. SDK `maxTokens`, `temperature`, and `topP` take precedence.
 `updateConfig()` merges settings; `modelId` selects an already loaded model.
 
-Use `agent.stream()` for events and `agent.cancel()` to stop generation. Set
-`request.extra_body.enable_thinking` for Gemma reasoning; thinking and answer text
-remain separate. To print only the answer, select `textBlock` values.
+Use `agent.stream()` for events and `agent.cancel()` to stop generation.
+Thinking depends on the model: Gemma returns separate Strands reasoning blocks;
+Qwen returns WebLLM's native `<think>` text with the answer.
+To omit Gemma reasoning, render only `textBlock` values. Qwen's thinking stays in
+the same text as its answer.
 `pcmAudio(samples, sampleRate)` converts mono float32 PCM to a lossless WAV `AudioBlock`.
 
 ## Support
@@ -131,30 +137,30 @@ remain separate. To print only the answer, select `textBlock` values.
 Targets: WebLLM **0.2.86**, Strands SDK **1.21.0**, Harness **0.3.0**.
 “Native” below means WebLLM's original API inside `withEngine()`.
 
-| Feature                                                              | Connection                                                       | Limits                                                               |
-| -------------------------------------------------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------- |
-| Text, system prompts, history                                        | Strands messages and `systemPrompt`                              | Unsupported block types raise errors                                 |
-| Model selection                                                      | `modelId`                                                        | Model must already be loaded                                         |
-| Token limit, sampling, penalties, seed, stop, logit bias             | `request`; SDK config aliases                                    | SDK settings take precedence                                         |
-| Logprobs and original chunks                                         | `request`, `onChunk`                                             | Available in both providers                                          |
-| Usage, latency, timing                                               | Strands metadata and `onChunk`                                   | Native extra fields retained                                         |
-| Plain text, JSON schema, grammar, structural tags                    | `request.response_format`                                        | Gemma protocol mode accepts plain text only                          |
-| Tool declarations, results, auto/named/none choice                   | Strands tools and `toolChoice`; `request.tool_choice: 'none'`    | `any` unsupported; model must support tools                          |
-| Thinking                                                             | `request.extra_body.enable_thinking`                             | Gemma uses Strands reasoning blocks; other models keep native output |
-| Images: URL, data URL, bytes                                         | SDK `ImageBlock`                                                 | Needs a vision model                                                 |
-| WAV and float32 PCM                                                  | SDK `AudioBlock`, `pcmAudio()`                                   | Needs an audio model; WAV bytes only at the native chat boundary     |
-| `ignore_eos`                                                         | `request.ignore_eos`                                             | Unavailable in Gemma protocol mode                                   |
-| Streaming and final response                                         | `agent.stream()`, `agent.invoke()`                               | One assistant response per model call                                |
-| Multiple choices, non-streaming backend                              | Native chat/completion                                           | WebLLM rejects multiple streamed choices                             |
-| Raw prompt and echo                                                  | Native completions                                               | Separate from Strands message turns                                  |
-| Embeddings                                                           | Native embeddings                                                | Use a loaded embedding model                                         |
-| Message `name`                                                       | Native chat                                                      | SDK messages have no name field                                      |
-| Generation persistence                                               | Native chat `request.extra_body.resumable`; native recovery APIs | Separate from Strands sessions; no raw-completion recovery           |
-| Reload/unload, reset, progress, logging, message, stats, GPU queries | Native engine                                                    | Caller owns lifecycle                                                |
-| Token-level sampling and logit processors                            | Native engine and setup                                          | Keep processor setup in WebLLM                                       |
-| Cache backends, inspection, deletion, integrity, custom models       | Native WebLLM setup/cache APIs                                   | Backend and model restrictions apply                                 |
-| Main thread, Web Worker, Service Worker, extension worker            | Any `MLCEngineInterface`                                         | Set up workers with WebLLM's factories and handlers                  |
-| Context counting and overflow                                        | Strands `countTokens()` and recovery error                       | Counts are estimates; set the loaded context window size             |
+| Feature                                                              | Connection                                                       | Limits                                                           |
+| -------------------------------------------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Text, system prompts, history                                        | Strands messages and `systemPrompt`                              | Unsupported block types raise errors                             |
+| Model selection                                                      | `modelId`                                                        | Model must already be loaded                                     |
+| Token limit, sampling, penalties, seed, stop, logit bias             | `request`; SDK config aliases                                    | SDK settings take precedence                                     |
+| Logprobs and original chunks                                         | `request`, `onChunk`                                             | Available in both providers                                      |
+| Usage, latency, timing                                               | Strands metadata and `onChunk`                                   | Native extra fields retained                                     |
+| Plain text, JSON schema, grammar, structural tags                    | `request.response_format`                                        | Gemma protocol mode accepts plain text only                      |
+| Tool declarations, results, auto/named/none choice                   | Strands tools and `toolChoice`; `request.tool_choice: 'none'`    | `any` unsupported; model must support tools                      |
+| Thinking                                                             | `request.extra_body.enable_thinking`                             | Depends on the exact model ID; see the model table above         |
+| Images: URL, data URL, bytes                                         | SDK `ImageBlock`                                                 | Needs a vision model                                             |
+| WAV and float32 PCM                                                  | SDK `AudioBlock`, `pcmAudio()`                                   | Needs an audio model; WAV bytes only at the native chat boundary |
+| `ignore_eos`                                                         | `request.ignore_eos`                                             | Unavailable in Gemma protocol mode                               |
+| Streaming and final response                                         | `agent.stream()`, `agent.invoke()`                               | One assistant response per model call                            |
+| Multiple choices, non-streaming backend                              | Native chat/completion                                           | WebLLM rejects multiple streamed choices                         |
+| Raw prompt and echo                                                  | Native completions                                               | Separate from Strands message turns                              |
+| Embeddings                                                           | Native embeddings                                                | Use a loaded embedding model                                     |
+| Message `name`                                                       | Native chat                                                      | SDK messages have no name field                                  |
+| Generation persistence                                               | Native chat `request.extra_body.resumable`; native recovery APIs | Separate from Strands sessions; no raw-completion recovery       |
+| Reload/unload, reset, progress, logging, message, stats, GPU queries | Native engine                                                    | Caller owns lifecycle                                            |
+| Token-level sampling and logit processors                            | Native engine and setup                                          | Keep processor setup in WebLLM                                   |
+| Cache backends, inspection, deletion, integrity, custom models       | Native WebLLM setup/cache APIs                                   | Backend and model restrictions apply                             |
+| Main thread, Web Worker, Service Worker, extension worker            | Any `MLCEngineInterface`                                         | Set up workers with WebLLM's factories and handlers              |
+| Context counting and overflow                                        | Strands `countTokens()` and recovery error                       | Counts are estimates; set the loaded context window size         |
 
 ## Limits
 

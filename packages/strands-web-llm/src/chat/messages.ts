@@ -30,7 +30,7 @@ export function formatAssistant(content: ContentBlock[]): ChatCompletionAssistan
   const text = textOnly(content.filter((block) => block.type !== 'toolUseBlock'))
   return {
     role: 'assistant',
-    content: text || null,
+    content: text || (calls.length ? '' : null),
     ...(calls.length && {
       tool_calls: calls.map((call) => ({
         id: call.toolUseId,
