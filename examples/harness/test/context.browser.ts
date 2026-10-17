@@ -1,6 +1,8 @@
+import { writeFile } from 'node:fs/promises'
 import { Message, TextBlock, FunctionTool, AfterModelCallEvent } from '@strands-agents/sdk'
 import { test, expect } from '../../../test/browser.js'
 import { openHarness, useTool, finalText } from './setup.js'
+import { BrowserModel, type WebLLMChunk } from 'strands-webllm'
 
 for (const longRecent of [false, true]) {
   test(`default context summary preserves facts with ${longRecent ? 'long' : 'short'} recent messages`, async ({
@@ -82,16 +84,17 @@ test('a real WebLLM context overflow reaches Harness and recovers by trimming hi
   }
 })
 
-test('default offloading keeps the original result and Gemma retrieves its hidden code', async ({
+test('default offloading preserves results and Gemma retrieves them with thinking disabled', async ({
   page,
-}) => {
+}, info) => {
   const harness = await openHarness(page)
+  const chunks: WebLLMChunk[] = []
   try {
     const code = 'archive-' + Math.floor(Math.random() * 1_000_000)
     const lines = Array.from({ length: 500 }, (_, i) =>
       i === 250
         ? `The verification code is ${code}.`
-        : `Archive line ${i}: ordinary project notes without a code.`,
+        : `Project record ${i}: reviewed task ${crypto.randomUUID()}.`,
     )
     const archive = new FunctionTool({
       name: 'archive',
@@ -99,12 +102,20 @@ test('default offloading keeps the original result and Gemma retrieves its hidde
       inputSchema: { type: 'object', properties: {} },
       callback: () => lines.join('\n'),
     })
-    const agent = await harness.create({ tools: [archive] })
+    const model = new BrowserModel(page, {
+      ...harness.model.getConfig(),
+      maxTokens: 1024,
+      temperature: 0,
+      request: { extra_body: { enable_thinking: false } },
+      onChunk: (chunk) => chunks.push(chunk),
+    })
+    const agent = await harness.create({ model, tools: [archive] })
     useTool(agent, 'archive')
-    await agent.invoke(
-      'Call archive in the foreground. Acknowledge receiving the notes without extracting a code yet.',
+    const received = await agent.invoke(
+      'Call archive in the foreground. Keep its result for a later question.',
       { limits: { turns: 4 } },
     )
+    expect(received.stopReason).toBe('endTurn')
     const message = agent.messages.find((m) =>
       m.content.some(
         (b) => b.type === 'toolResultBlock' && JSON.stringify(b).includes('[Truncated:'),
@@ -129,6 +140,14 @@ test('default offloading keeps the original result and Gemma retrieves its hidde
     expect(agent.messages.flatMap((m) => m.content)).toContainEqual(
       expect.objectContaining({ type: 'toolUseBlock', name: 'retrieve_context' }),
     )
+  } catch (error) {
+    const path = info.outputPath('native-chunks.json')
+    await writeFile(
+      path,
+      JSON.stringify({ prompts: await page.evaluate(() => window.gemmaPrompts), chunks }),
+    )
+    await info.attach('native-chunks', { path, contentType: 'application/json' })
+    throw error
   } finally {
     await harness.close()
   }
