@@ -21,9 +21,14 @@ export function usesGemmaProtocol(
   options: StreamOptions,
 ) {
   if (!isGemma(config.modelId)) return false
-  if (options.toolSpecs?.length || config.request?.extra_body?.enable_thinking != null) return true
+  if (options.toolSpecs?.length || config.request?.extra_body?.enable_thinking === true) return true
   return messages.some((message) =>
-    message.content.some((block) => block.type === 'reasoningBlock'),
+    message.content.some(
+      (block) =>
+        block.type === 'reasoningBlock' ||
+        block.type === 'toolUseBlock' ||
+        block.type === 'toolResultBlock',
+    ),
   )
 }
 

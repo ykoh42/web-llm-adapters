@@ -52,7 +52,12 @@ export class WebLLMModel extends Model<WebLLMModelConfig> {
     signal?.throwIfAborted()
     const config = this.getConfig()
     // Past-turn thoughts must not force later JSON or audio requests onto raw completions.
-    if (isGemma(config.modelId)) messages = trimThoughts(messages, options.dynamicTrailingBlocks)
+    if (isGemma(config.modelId)) {
+      messages = trimThoughts(messages, options.dynamicTrailingBlocks)
+      // WebLLM's native false prefix is Qwen-specific; Gemma disables thinking without it.
+      if (config.request?.extra_body?.enable_thinking === false)
+        delete config.request.extra_body.enable_thinking
+    }
     if (config.request?.tool_choice === 'none' && !options.toolChoice)
       options = { ...options, toolSpecs: [] }
     const stream = usesGemmaProtocol(config, messages, options) ? gemmaStream : chatStream

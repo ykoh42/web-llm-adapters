@@ -268,7 +268,7 @@ describe('Gemma tool model', () => {
   })
 
   it('supports thinking without tools and can turn it off with reasoning still in Agent history', async () => {
-    const { model, create } = setup(part('<|channel>thought\nCheck.<channel|>42', 'stop'))
+    const { model, create, chat } = setup(part('<|channel>thought\nCheck.<channel|>42', 'stop'))
     model.updateConfig({ request: { extra_body: { enable_thinking: true } } })
     const agent = new Agent({ model, printer: false })
     expect((await agent.invoke('Answer.')).lastMessage.content).toEqual([
@@ -276,10 +276,64 @@ describe('Gemma tool model', () => {
       new TextBlock('42'),
     ])
     model.updateConfig({ request: { extra_body: { enable_thinking: false } } })
-    create.mockResolvedValueOnce(parts(part('Still 42', 'stop')))
+    chat.mockResolvedValueOnce(
+      (async function* () {
+        yield chunk({ content: 'Still 42' }, 'stop')
+      })(),
+    )
     expect(String(await agent.invoke('Again.'))).toBe('Still 42')
-    expect(create.mock.calls[1]![0].prompt).not.toContain('<|think|>')
-    expect(create.mock.calls[1]![0].prompt).not.toContain('Check.')
+    expect(create).toHaveBeenCalledOnce()
+    expect(chat.mock.calls[0]![0].extra_body).not.toHaveProperty('enable_thinking')
+    expect(JSON.stringify(chat.mock.calls[0]![0].messages)).not.toContain('Check.')
+    expect(agent.messages[1]!.content).toContainEqual(new ReasoningBlock({ text: 'Check.' }))
+  })
+
+  it('keeps explicit thinking-off on native JSON and preserves other native options', async () => {
+    const { model, create, chat } = setup()
+    chat.mockResolvedValueOnce(
+      (async function* () {
+        yield chunk({ content: '{"value":42}' }, 'stop')
+      })(),
+    )
+    const request = {
+      response_format: { type: 'json_object' as const },
+      extra_body: { enable_thinking: false, enable_latency_breakdown: true },
+    }
+    model.updateConfig({ request })
+    const result = await new Agent({ model, printer: false }).invoke('Return JSON.')
+    expect(result.lastMessage.content).toEqual([new TextBlock('{"value":42}')])
+    expect(create).not.toHaveBeenCalled()
+    expect(chat.mock.calls[0]![0]).toMatchObject({
+      response_format: { type: 'json_object' },
+      extra_body: { enable_latency_breakdown: true },
+    })
+    expect(chat.mock.calls[0]![0].extra_body).not.toHaveProperty('enable_thinking')
+    expect(model.getConfig().request).toEqual(request)
+  })
+
+  it('keeps tool history in Gemma format after tools and thinking are disabled', async () => {
+    const { model, create, chat } = setup()
+    create
+      .mockResolvedValueOnce(parts(part(call, 'stop')))
+      .mockResolvedValueOnce(parts(part('secret-42', 'stop')))
+      .mockResolvedValueOnce(parts(part('Still secret-42', 'stop')))
+    const lookup = new FunctionTool({
+      name: 'lookup',
+      description: 'Look up a value.',
+      callback: () => 'secret-42',
+    })
+    const agent = new Agent({ model, tools: [lookup], printer: false })
+    await agent.invoke('Find x.')
+    model.updateConfig({
+      request: { tool_choice: 'none', extra_body: { enable_thinking: false } },
+    })
+    expect(String(await agent.invoke('What was the value?'))).toBe('Still secret-42')
+    expect(chat).not.toHaveBeenCalled()
+    const prompt = create.mock.calls[2]![0].prompt
+    expect(prompt).toContain(call)
+    expect(prompt).toContain('<|tool_response>response:lookup{value:<|"|>secret-42<|"|>}')
+    expect(prompt).not.toContain('declaration:')
+    expect(prompt).not.toContain('<|think|>')
   })
 
   it('can cancel a reasoning delta, then reuse the engine without leaking parser state', async () => {

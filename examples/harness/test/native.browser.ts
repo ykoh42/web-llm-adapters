@@ -17,6 +17,7 @@ test('Gemma returns constrained JSON, native logprobs and PCM results through Br
       temperature: 0,
       onChunk: (chunk) => chunks.push(chunk),
       request: {
+        extra_body: { enable_thinking: false },
         logprobs: true,
         top_logprobs: 2,
         response_format: {
@@ -53,7 +54,7 @@ test('Gemma returns constrained JSON, native logprobs and PCM results through Br
     ).toBe(true)
     expect(chunks.at(-1)?.usage?.total_tokens).toBeGreaterThan(0)
 
-    model.updateConfig({ request: {} })
+    model.updateConfig({ request: { extra_body: { enable_thinking: false } } })
     chunks.length = 0
     const audio = pcmAudio(new Float32Array(16000), 16000)
     const heard = await new Agent({ model, printer: false }).invoke([

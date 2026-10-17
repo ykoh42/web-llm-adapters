@@ -35,14 +35,15 @@ test('Gemma thinks, calls Harness read, answers, and strips old thoughts on the 
     await page.waitForFunction(() => Boolean(window.harness))
     await page.evaluate((id) => window.harness.open(id), modelId)
     const chunks: WebLLMChunk[] = []
+    const model = new BrowserModel(page, {
+      modelId,
+      maxTokens: 1024,
+      temperature: 0,
+      onChunk: (chunk) => chunks.push(chunk),
+      request: { extra_body: { enable_thinking: true } },
+    })
     const agent = await createHarness({
-      model: new BrowserModel(page, {
-        modelId,
-        maxTokens: 1024,
-        temperature: 0,
-        onChunk: (chunk) => chunks.push(chunk),
-        request: { extra_body: { enable_thinking: true } },
-      }),
+      model,
       builtinTools: ['read'],
       builtinPlugins: [],
       session: false,
@@ -136,6 +137,21 @@ test('Gemma thinks, calls Harness read, answers, and strips old thoughts on the 
         text: expect.stringContaining(code),
       }),
     )
+    model.updateConfig({
+      request: { tool_choice: 'none', extra_body: { enable_thinking: false } },
+    })
+    chunks.length = 0
+    const disabled = await agent.invoke('Repeat the verification code without using tools.', {
+      limits: { turns: 3 },
+    })
+    expect(disabled.lastMessage.content).toContainEqual(
+      expect.objectContaining({ type: 'textBlock', text: expect.stringContaining(code) }),
+    )
+    expect(chunks.every((chunk) => chunk.object === 'text_completion')).toBe(true)
+    const history = await page.evaluate(() => window.gemmaPrompts.at(-1))
+    expect(history).toContain('<|tool_response>response:read')
+    expect(history).not.toContain('declaration:')
+    expect(history).not.toContain('<|think|>')
     console.log('Gemma thinking loop verified; final answer:', answer)
   } finally {
     try {
