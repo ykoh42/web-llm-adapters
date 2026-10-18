@@ -53,7 +53,7 @@ it('matches the Qwen3.5 system, thinking, tool-call, and tool-result formats', (
     role: 'system',
     content:
       '# Tools\n\nYou have access to the following functions:\n\n<tools>\n' +
-      '{"type":"function","function":{"name":"lookup","description":"Return the code for a city.","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}' +
+      '{"type": "function", "function": {"name": "lookup", "description": "Return the code for a city.", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}}}' +
       '\n</tools>\n\nIf you choose to call a function ONLY reply in the following format with NO suffix:\n\n' +
       '<tool_call>\n<function=example_function_name>\n<parameter=example_parameter_1>\nvalue_1\n</parameter>\n' +
       '<parameter=example_parameter_2>\nThis is the value for the second parameter\nthat can span\nmultiple lines\n</parameter>\n</function>\n</tool_call>\n\n' +
@@ -67,6 +67,53 @@ it('matches the Qwen3.5 system, thinking, tool-call, and tool-result formats', (
   )
   expect(request.messages.at(-1)?.content).toBe(
     '<tool_response>\noak-42\n</tool_response>\n<tool_response>\npine-17\n</tool_response>',
+  )
+})
+
+it('keeps punctuation, escapes, and Unicode inside tool schema strings', () => {
+  const request = qwen35Request(
+    { modelId: 'Qwen3.5-0.8B-q4f16_1-MLC' },
+    [new Message({ role: 'user', content: [new TextBlock('Find the code.')] })],
+    {
+      toolSpecs: [
+        {
+          name: 'lookup',
+          description: 'Read "x:y,z" from C:\\data\\codes.json.\n서울',
+          inputSchema: {
+            type: 'object',
+            properties: { city: { type: 'string', enum: ['Seoul, KR', '서울:강남'] } },
+            required: ['city'],
+          },
+        },
+      ],
+    },
+  )
+  const system = request.messages[0]?.content
+  expect(typeof system).toBe('string')
+  expect(system).toContain(
+    String.raw`{"type": "function", "function": {"name": "lookup", "description": "Read \"x:y,z\" from C:\\data\\codes.json.\n서울", "parameters": {"type": "object", "properties": {"city": {"type": "string", "enum": ["Seoul, KR", "서울:강남"]}}, "required": ["city"]}}}`,
+  )
+})
+
+it('matches the template JSON for nested tool arguments in history', () => {
+  const request = qwen35Request(
+    { modelId: 'Qwen3.5-4B-q4f16_1-MLC' },
+    [
+      new Message({
+        role: 'assistant',
+        content: [
+          new ToolUseBlock({
+            toolUseId: 'lookup-1',
+            name: 'lookup',
+            input: { filters: { tags: ['one', 'two'], city: 'Seoul, KR' } },
+          }),
+        ],
+      }),
+    ],
+    {},
+  )
+  expect(request.messages.at(-1)?.content).toContain(
+    '<parameter=filters>\n{"tags": ["one", "two"], "city": "Seoul, KR"}\n</parameter>',
   )
 })
 

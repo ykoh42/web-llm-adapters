@@ -5,6 +5,7 @@ import { createHarness } from '@strands-agents/harness'
 import { BeforeModelCallEvent, FunctionTool } from '@strands-agents/sdk'
 import { expect, test } from '../../../fixtures/browser.js'
 import { BrowserModel } from 'strands-web-llm'
+import { sampling } from '../../../shared/sampling.js'
 
 for (const modelId of ['Qwen3-0.6B-q4f16_1-MLC', 'Qwen3-4B-q4f16_1-MLC', 'Qwen3-8B-q4f16_1-MLC']) {
   test(`${modelId} thinking calls a Harness tool, uses its result, and answers`, async ({
@@ -13,6 +14,7 @@ for (const modelId of ['Qwen3-0.6B-q4f16_1-MLC', 'Qwen3-4B-q4f16_1-MLC', 'Qwen3-
     const directory = process.platform === 'win32' ? tmpdir() : '/tmp'
     const path = join(directory, `q3-${process.pid}.txt`)
     const code = 'code-' + crypto.randomUUID().slice(0, 8)
+    const settings = sampling(modelId, true)
     let agent: Awaited<ReturnType<typeof createHarness>> | undefined
 
     try {
@@ -24,9 +26,9 @@ for (const modelId of ['Qwen3-0.6B-q4f16_1-MLC', 'Qwen3-4B-q4f16_1-MLC', 'Qwen3-
       agent = await createHarness({
         model: new BrowserModel(page, {
           modelId,
-          maxTokens: 1024,
-          temperature: 0,
-          request: { extra_body: { enable_thinking: true } },
+          maxTokens: 4096,
+          ...settings,
+          request: { ...settings.request, seed: 7 },
         }),
         builtinTools: ['read'],
         builtinPlugins: [],
@@ -77,6 +79,7 @@ test('Qwen3 can call a second distinct Harness tool after its first result', asy
   const modelId = 'Qwen3-4B-q4f16_1-MLC'
   const code = 'code-' + crypto.randomUUID().slice(0, 8)
   const receipt = 'receipt-' + crypto.randomUUID().slice(0, 8)
+  const settings = sampling(modelId, true)
   const inputs: unknown[] = []
   const lookup = new FunctionTool({
     name: 'lookup',
@@ -114,9 +117,9 @@ test('Qwen3 can call a second distinct Harness tool after its first result', asy
     agent = await createHarness({
       model: new BrowserModel(page, {
         modelId,
-        maxTokens: 1024,
-        temperature: 0,
-        request: { extra_body: { enable_thinking: true } },
+        maxTokens: 4096,
+        ...settings,
+        request: { ...settings.request, seed: 7 },
       }),
       tools: [lookup, confirm],
       builtinTools: [],

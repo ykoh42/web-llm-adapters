@@ -6,24 +6,23 @@ import { BeforeModelCallEvent } from '@strands-agents/sdk'
 import { expect, test } from '../../../fixtures/browser.js'
 import { BrowserModel } from 'strands-web-llm'
 
-for (const modelId of [
-  'Qwen3.5-0.8B-q4f16_1-MLC',
-  'Qwen3.5-2B-q4f16_1-MLC',
-  'Qwen3.5-4B-q4f16_1-MLC',
-  'Qwen3.5-9B-q4f16_1-MLC',
-]) {
-  test(`${modelId} thinking calls Harness read and answers from its result`, async ({ page }) => {
-    test.fail(
-      modelId === 'Qwen3.5-0.8B-q4f16_1-MLC',
-      'Qwen3.5-0.8B emits malformed tool XML with thinking enabled.',
-    )
+// Keep the filenames from both native API regressions.
+for (const [modelId, fileName] of [
+  ['Qwen3.5-0.8B-q4f16_1-MLC', 'q35-diagnosis.txt'],
+  ['Qwen3.5-0.8B-q4f16_1-MLC', 'q35-40625.txt'],
+  ['Qwen3.5-2B-q4f16_1-MLC', `q35-${process.pid}.txt`],
+  ['Qwen3.5-4B-q4f16_1-MLC', `q35-${process.pid}.txt`],
+  ['Qwen3.5-9B-q4f16_1-MLC', `q35-${process.pid}.txt`],
+] as const) {
+  const note = modelId === 'Qwen3.5-0.8B-q4f16_1-MLC' ? ` (${fileName})` : ''
+  test(`${modelId} thinking calls Harness read and answers${note}`, async ({ page }) => {
     const directory = process.platform === 'win32' ? tmpdir() : '/tmp'
-    const path = join(directory, `q35-${process.pid}.txt`)
+    const path = join(directory, fileName)
     const code = 'code-' + crypto.randomUUID().slice(0, 8)
     let agent: Awaited<ReturnType<typeof createHarness>> | undefined
 
+    await writeFile(path, `The secret code is ${code}.`, { flag: 'wx' })
     try {
-      await writeFile(path, `The secret code is ${code}.`)
       await page.goto('http://127.0.0.1:4173/harness.html')
       await page.waitForFunction(() => Boolean(window.harness))
       await page.evaluate((id) => window.harness.open(id), modelId)
@@ -64,6 +63,11 @@ for (const modelId of [
           .flatMap((message) => message.content)
           .some((block) => block.type === 'reasoningBlock' && block.text),
       ).toBe(true)
+      const toolCalls = agent.messages
+        .flatMap((message) => message.content)
+        .filter((block) => block.type === 'toolUseBlock')
+      expect(toolCalls).toHaveLength(1)
+      expect(toolCalls[0]).toMatchObject({ name: 'read', input: { path } })
       const toolResults = agent.messages
         .flatMap((message) => message.content)
         .filter((block) => block.type === 'toolResultBlock')

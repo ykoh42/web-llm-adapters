@@ -48,7 +48,7 @@ it('runs a Qwen3.5 XML tool through Strands and continues from its result', asyn
   const firstRequest = create.mock.calls[0]![0]
   expect(firstRequest).not.toHaveProperty('tools')
   expect(firstRequest.messages[0]).toMatchObject({ role: 'system' })
-  expect(firstRequest.messages[0]?.content).toContain('"name":"lookup"')
+  expect(firstRequest.messages[0]?.content).toContain('"name": "lookup"')
   const nextMessages = create.mock.calls[1]![0].messages
   expect(create.mock.calls[1]![0].messages[0]?.content).not.toContain('Do not repeat')
   expect(nextMessages).toContainEqual(

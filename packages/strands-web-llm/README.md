@@ -9,7 +9,7 @@ or [Node.js Harness example](https://github.com/ykoh42/web-llm-adapters/blob/mai
 ## Models
 
 Verified [WebLLM **0.2.86** IDs](https://github.com/mlc-ai/web-llm/blob/v0.2.86/src/config.ts)
-in Strands Harness. `O` = verified; `X` = unverified. Tools covers call → result → final answer;
+in Strands Harness. `O` = verified; `△` = unreliable; `X` = unverified. Tools covers call → result → final answer;
 Think means separate reasoning blocks.
 
 Sorted by published upstream MMLU-Pro (thinking on; Qwen2.5 has no thinking mode).
@@ -21,19 +21,22 @@ Speed is local WebLLM throughput on M4 Pro (24 GB), Chrome 155: median of 3 runs
 | `Qwen3.5-9B-q4f16_1-MLC`            |                                           [82.5](https://huggingface.co/Qwen/Qwen3.5-9B) |         19.7 | O     | O     | X     | X     | X     |
 | `Qwen3.5-4B-q4f16_1-MLC`            |                                           [79.1](https://huggingface.co/Qwen/Qwen3.5-4B) |         33.0 | O     | O     | X     | X     | X     |
 | `Qwen3-8B-q4f16_1-MLC`              |                 [74.2](https://huggingface.co/nvidia/Qwen3-8B-DMS-8x#evaluation-dataset) |         32.0 | O     | O     | X     | X     | X     |
-| `Qwen3-4B-q4f16_1-MLC`              |                   [70.4](https://huggingface.co/Qwen/Qwen3-4B-Thinking-2507#performance) |         51.5 | O     | O     | X     | X     | X     |
+| `Qwen3-4B-q4f16_1-MLC`              |                   [70.4](https://huggingface.co/Qwen/Qwen3-4B-Thinking-2507#performance) |         51.5 | △     | O     | X     | X     | X     |
 | `Qwen3.5-2B-q4f16_1-MLC`            |                                           [66.5](https://huggingface.co/Qwen/Qwen3.5-2B) |         59.7 | O     | O     | X     | X     | X     |
 | `gemma-4-E2B-it-q4f16_1-MLC`        |                                     [60.0](https://huggingface.co/google/gemma-4-E2B-it) |         38.5 | O     | O     | X     | X     | X     |
 | `Qwen2.5-7B-Instruct-q4f16_1-MLC`   |                                       [56.3](https://qwenlm.github.io/blog/qwen2.5-llm/) |         38.0 | O     | X     | X     | X     | X     |
 | `Qwen2.5-3B-Instruct-q4f16_1-MLC`   |                                       [43.7](https://qwenlm.github.io/blog/qwen2.5-llm/) |         59.5 | O     | X     | X     | X     | X     |
 | `Qwen3.5-0.8B-q4f16_1-MLC`          |                                         [42.3](https://huggingface.co/Qwen/Qwen3.5-0.8B) |         71.2 | O     | O     | X     | X     | X     |
-| `Qwen3-0.6B-q4f16_1-MLC`            | [38.27](https://huggingface.co/MultiverseComputingCAI/LittleLamb#evaluation--benchmarks) |         90.4 | O     | O     | X     | X     | X     |
+| `Qwen3-0.6B-q4f16_1-MLC`            | [38.27](https://huggingface.co/MultiverseComputingCAI/LittleLamb#evaluation--benchmarks) |         90.4 | △     | O     | X     | X     | X     |
 | `Qwen2.5-1.5B-Instruct-q4f16_1-MLC` |                                       [32.4](https://qwenlm.github.io/blog/qwen2.5-llm/) |         87.6 | O     | X     | X     | X     | X     |
 | `Qwen2.5-0.5B-Instruct-q4f16_1-MLC` |                                       [15.0](https://qwenlm.github.io/blog/qwen2.5-llm/) |        136.8 | O     | X     | X     | X     | X     |
 
-Tools and Think were tested separately. Together, Qwen3.5 2B/4B/9B passed; 0.8B failed.
-Qwen tools use model-specific prompt formats; tool choice depends on model compliance.
-Qwen2.5 3B needs the unreleased source fix; npm 0.1.0 can fail after a tool result.
+Tool formats follow [Hermes](https://github.com/QwenLM/Qwen3/blob/main/docs/source/framework/function_call.md)
+(Qwen2.5/Qwen3), [Qwen3 Coder](https://github.com/vllm-project/vllm/blob/5c1c903501927ea7c6c699aabd4c271015e66e71/vllm/parser/qwen3.py)
+(Qwen3.5), and [Gemma](https://ai.google.dev/gemma/docs/capabilities/text/function-calling-gemma4).
+With thinking on, Qwen3 0.6B can miscopy arguments or omit answers;
+Qwen3 4B can call dependent tools together.
+The npm 0.1.0 release predates the Qwen parser fixes.
 
 ### Other verified model types
 
@@ -147,6 +150,7 @@ Stop callers before replacing their loaded models. Direct engine calls bypass th
 Both models accept native generation settings in `request` and original output
 chunks through `onChunk`. SDK `maxTokens`, `temperature`, and `topP` take precedence.
 `updateConfig()` merges settings; `modelId` selects an already loaded model.
+Use model-card sampling settings. WebLLM does not expose `top_k` or `min_p`.
 
 Use `agent.stream()` for events and `agent.cancel()` to stop generation. Gemma,
 Qwen3, and Qwen3.5 return separate Strands reasoning blocks when thinking is on.
@@ -186,9 +190,9 @@ Targets: WebLLM **0.2.86**, Strands SDK **1.21.0**, Harness **0.3.0**.
 ## Limits
 
 Features depend on the loaded model and WebLLM. Invalid model output and token-limit
-errors reach the caller. Qwen accepts complete JSON calls with a missing closing
-tag or one extra closing brace; other malformed calls fail. The adapter never
-changes parsed tool names or arguments or supplies answers.
+errors reach the caller. Qwen parsers accept known delimiter variants; incomplete
+or ambiguous arguments raise errors. The adapter never changes parsed tool names
+or arguments or supplies answers.
 Qwen prompt-based tool calls cannot share a request with a structured `response_format`.
 Structured output is passed through unchanged, including text that looks like protocol tags.
 For Gemma 4 E2B on WebLLM 0.2.86, see the [required cache fix and protocol limits](runtime/README.md).

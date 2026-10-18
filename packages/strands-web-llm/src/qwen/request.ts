@@ -123,6 +123,7 @@ function qwenMessages(
   return output
 }
 
+// Keep Hermes JSON compact: spacing changes Qwen3 tool-loop behavior in WebLLM.
 function formatCall(name: string, input: unknown) {
   return `<tool_call>\n{"name": ${JSON.stringify(name)}, "arguments": ${JSON.stringify(input)}}\n</tool_call>`
 }

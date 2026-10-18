@@ -31,6 +31,97 @@ const narrowedStringSchemas: JSONSchema[] = [
   { $ref: '#/definitions/city', type: 'string' },
 ]
 
+it('reads a parameter closed by the next parameter, as the recommended parser does', async () => {
+  const output = await collect(
+    qwen35Chunks(
+      chunks(
+        chunk(
+          {
+            content:
+              '<tool_call><function=read>' +
+              '<parameter=path>\n/tmp/note.txt\n' +
+              '<parameter=limit>\n100\n</parameter>' +
+              '</function></tool_call>',
+          },
+          'stop',
+        ),
+      ),
+      [
+        {
+          name: 'read',
+          description: 'Read a file.',
+          inputSchema: {
+            type: 'object',
+            properties: { path: { type: 'string' }, limit: { type: 'number' } },
+          },
+        },
+      ],
+    ),
+  )
+  expect(output.flatMap((item) => item.calls)).toMatchObject([
+    { name: 'read', input: '{"path":"/tmp/note.txt","limit":100}' },
+  ])
+})
+
+it.each(['</parameter>', '</parameter>\n</parameter>'])(
+  'reads complete parameters with redundant closing tags: %s',
+  async (closing) => {
+    const tools: ToolSpec[] = [
+      {
+        name: 'read',
+        description: 'Read a file.',
+        inputSchema: {
+          type: 'object',
+          properties: { path: { type: 'string' }, limit: { type: 'number' } },
+          required: ['path'],
+        },
+      },
+    ]
+    const output = await collect(
+      qwen35Chunks(
+        chunks(
+          chunk(
+            {
+              content:
+                '<tool_call>\n<function=read>\n' +
+                '<parameter=path>\n/tmp/q35-40625.txt\n</parameter>\n' +
+                '<parameter=limit>\n100\n</parameter>\n' +
+                `${closing}\n</function>\n</tool_call>`,
+            },
+            'stop',
+          ),
+        ),
+        tools,
+      ),
+    )
+
+    expect(output.flatMap((item) => item.calls)).toMatchObject([
+      { name: 'read', input: '{"path":"/tmp/q35-40625.txt","limit":100}' },
+    ])
+  },
+)
+
+it.each(['stray text', '<parameter=limit>100', '</parameter>stray text'])(
+  'rejects incomplete or unknown parameter content: %s',
+  async (extra) => {
+    const output = qwen35Chunks(
+      chunks(
+        chunk(
+          {
+            content:
+              '<tool_call><function=lookup><parameter=city>Seoul</parameter>' +
+              `${extra}</function></tool_call>`,
+          },
+          'stop',
+        ),
+      ),
+      [{ name: 'lookup', description: 'Look up a city.' }],
+    )
+
+    await expect(collect(output)).rejects.toThrow('malformed tool parameter')
+  },
+)
+
 it.each(nullableStringSchemas)('keeps a nullable string argument as text', async (city) => {
   const inputSchema: JSONSchema = {
     type: 'object',

@@ -113,7 +113,7 @@ function toolPrompt(tools: ToolSpec[], choice?: ToolChoice) {
     'You have access to the following functions:',
     '',
     '<tools>',
-    ...formatTools(tools).map((tool) => JSON.stringify(tool)),
+    ...formatTools(tools).map(templateJson),
     '</tools>',
     '',
     'If you choose to call a function ONLY reply in the following format with NO suffix:',
@@ -144,10 +144,17 @@ function toolPrompt(tools: ToolSpec[], choice?: ToolChoice) {
   return rules.join('\n')
 }
 
+/** Match the template's JSON separators without changing strings. */
+function templateJson(value: unknown) {
+  return JSON.stringify(value).replace(/"(?:\\.|[^"\\])*"|[:,]/g, (token) =>
+    token === ',' || token === ':' ? `${token} ` : token,
+  )
+}
+
 function formatCall(name: string, input: unknown) {
   if (!isRecord(input)) throw new ModelError('Qwen3.5 tool arguments must be an object.')
   const parameters = Object.entries(input).map(([key, value]) => {
-    const text = typeof value === 'string' ? value : JSON.stringify(value)
+    const text = typeof value === 'string' ? value : templateJson(value)
     return `<parameter=${key}>\n${text}\n</parameter>`
   })
   return `<tool_call>\n<function=${name}>\n${parameters.join('\n')}${parameters.length ? '\n' : ''}</function>\n</tool_call>`

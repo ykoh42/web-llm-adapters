@@ -6,6 +6,7 @@ import { BrowserModel } from 'strands-web-llm'
 import { useTool } from './tool-choice.ts'
 import { createEmbeddingMemory, createMemory, embeddingModelId } from './memory.ts'
 import { createRead } from './tools/read.ts'
+import { sampling } from '../../shared/sampling.ts'
 
 const { values, positionals } = parseArgs({
   options: {
@@ -48,15 +49,13 @@ try {
   const auxModel = new BrowserModel(page, {
     ...config,
     maxTokens: 512,
-    temperature: 0,
+    ...sampling(modelId, false),
   })
   const agent = await createHarness({
     model: new BrowserModel(page, {
       ...config,
       maxTokens: 4096,
-      temperature: 1,
-      topP: 0.95,
-      request: { repetition_penalty: 1.05, extra_body: { enable_thinking: thinking } },
+      ...sampling(modelId, thinking),
     }),
     auxModel,
     memory: {

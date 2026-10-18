@@ -9,6 +9,24 @@ import { expect, it } from 'vitest'
 import { qwenRequest } from '../../src/qwen/request.js'
 
 it.each(['Qwen2.5-3B-Instruct-q4f16_1-MLC', 'Qwen3-4B-q4f16_1-MLC'])(
+  '%s keeps compact Hermes JSON for the WebLLM artifact without changing strings',
+  (modelId) => {
+    const request = qwenRequest({ modelId }, [], {
+      toolSpecs: [
+        {
+          name: 'lookup',
+          description: 'Read "x:y,z".\n서울',
+          inputSchema: { type: 'object', properties: { city: { type: 'string' } } },
+        },
+      ],
+    })
+    expect(request.messages[0]?.content).toContain(
+      String.raw`{"type":"function","function":{"name":"lookup","description":"Read \"x:y,z\".\n서울","parameters":{"type":"object","properties":{"city":{"type":"string"}}}}}`,
+    )
+  },
+)
+
+it.each(['Qwen2.5-3B-Instruct-q4f16_1-MLC', 'Qwen3-4B-q4f16_1-MLC'])(
   '%s uses the official tool-call format',
   (modelId) => {
     const input = { path: '/tmp/note.txt', offset: 1, limit: 1 }
@@ -36,7 +54,9 @@ it.each(['Qwen2.5-3B-Instruct-q4f16_1-MLC', 'Qwen3-4B-q4f16_1-MLC'])(
       .content as string
     const call = assistant.match(/<tool_call>\n([\s\S]*?)\n<\/tool_call>/)
     expect(call).not.toBeNull()
-    expect(JSON.parse(call![1]!)).toEqual({ name: 'read', arguments: input })
+    expect(call![1]).toBe(
+      '{"name": "read", "arguments": {"path":"/tmp/note.txt","offset":1,"limit":1}}',
+    )
     expect(request.messages.at(-1)).toEqual({
       role: 'user',
       content: '<tool_response>\nThe code is oak-42.\n</tool_response>',

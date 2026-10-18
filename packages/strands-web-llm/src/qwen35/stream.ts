@@ -111,9 +111,10 @@ function parseCalls(source: string, tools: ToolSpec[], index: number): ToolDelta
     if (!tool) throw new ModelError(`Qwen3.5 returned unknown tool "${name}".`)
     const input = Object.create(null) as Record<string, unknown>
     const body = match[2]!
-    const parameters = /<parameter=([^>\s]+)>([\s\S]*?)<\/parameter>/g
+    const parameters = /<parameter=([^>\s]+)>([\s\S]*?)(?:<\/parameter>|(?=<parameter=))/g
     const values = [...body.matchAll(parameters)]
-    if (body.replace(parameters, '').trim())
+    // Like vLLM's Qwen parser, ignore redundant closers outside complete parameters.
+    if (body.replace(parameters, '').replaceAll('</parameter>', '').trim())
       throw new ModelError('Qwen3.5 returned a malformed tool parameter.')
     for (const parameter of values) {
       const key = parameter[1]!

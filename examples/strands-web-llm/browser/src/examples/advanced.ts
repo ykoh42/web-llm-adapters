@@ -1,6 +1,7 @@
 import { Agent } from '@strands-agents/sdk'
 import { WebLLMModel } from 'strands-web-llm'
 import { runAgent, type ExampleInput } from './output.js'
+import { sampling as modelSampling } from '../../../shared/sampling.js'
 
 export async function tags(input: ExampleInput) {
   const model = new WebLLMModel({
@@ -50,8 +51,7 @@ export async function thinking(input: ExampleInput) {
       modelId: input.modelId,
       contextWindowLimit: 2048,
       maxTokens: 512,
-      temperature: 0,
-      request: { extra_body: { enable_thinking: enabled } },
+      ...modelSampling(input.modelId, enabled),
     })
     const agent = new Agent({ model, printer: false })
     const text = await runAgent(agent, input.prompt, input)
