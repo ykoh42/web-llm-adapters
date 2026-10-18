@@ -14,10 +14,10 @@ Apple M4 Pro with Chrome. “Pass” means tool call, result, and final answer. 
 
 | Exact WebLLM `model_id`             | Tool calls | Separate thinking                |
 | ----------------------------------- | ---------- | -------------------------------- |
-| `Qwen2.5-0.5B-Instruct-q4f16_1-MLC` | Pass       | Not tested                       |
-| `Qwen2.5-1.5B-Instruct-q4f16_1-MLC` | Pass       | Not tested                       |
-| `Qwen2.5-3B-Instruct-q4f16_1-MLC`   | Pass       | Not tested                       |
-| `Qwen2.5-7B-Instruct-q4f16_1-MLC`   | Pass       | Not tested                       |
+| `Qwen2.5-0.5B-Instruct-q4f16_1-MLC` | Pass       | No thinking mode                 |
+| `Qwen2.5-1.5B-Instruct-q4f16_1-MLC` | Pass       | No thinking mode                 |
+| `Qwen2.5-3B-Instruct-q4f16_1-MLC`   | Pass       | No thinking mode                 |
+| `Qwen2.5-7B-Instruct-q4f16_1-MLC`   | Pass       | No thinking mode                 |
 | `Qwen3-0.6B-q4f16_1-MLC`            | Pass       | Separate Strands reasoning block |
 | `Qwen3-4B-q4f16_1-MLC`              | Pass       | Separate Strands reasoning block |
 | `Qwen3-8B-q4f16_1-MLC`              | Pass       | Separate Strands reasoning block |
