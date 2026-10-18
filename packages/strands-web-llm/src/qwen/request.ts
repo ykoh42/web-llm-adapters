@@ -85,7 +85,7 @@ function qwenMessages(
           .filter((block) => block.type === 'toolUseBlock')
           .map(
             (block) =>
-              `<tool_call>${JSON.stringify({ name: block.name, arguments: block.input })}</tool_call>`,
+              `<tool_call>\n${JSON.stringify({ name: block.name, arguments: block.input })}\n</tool_call>`,
           ),
       ].filter(Boolean)
       output.push({ role: 'assistant', content: parts.join('\n') || null })
@@ -94,7 +94,7 @@ function qwenMessages(
 
     for (const turn of formatUser(message.content)) {
       if (turn.role === 'tool') {
-        output.push({ role: 'user', content: `<tool_response>${turn.content}</tool_response>` })
+        output.push({ role: 'user', content: `<tool_response>\n${turn.content}\n</tool_response>` })
       } else {
         output.push(turn)
       }

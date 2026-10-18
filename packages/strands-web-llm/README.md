@@ -40,7 +40,7 @@ Qwen tool calls use model-generated text, so the adapter cannot force a
 model to follow the format or a requested tool choice. “Pass” means that exact
 Harness run completed; it is not a guarantee for every prompt. Calls are passed
 through as generated, including repeated calls.
-A prior Qwen2.5 3B run returned an invalid tool name; subsequent runs passed.
+Qwen2.5 3B can fail after a tool result in npm 0.1.0. The source fix is not yet released.
 
 ### Other verified model types
 

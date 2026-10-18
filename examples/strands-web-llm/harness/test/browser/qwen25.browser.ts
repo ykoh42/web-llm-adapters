@@ -6,21 +6,34 @@ import { BeforeModelCallEvent } from '@strands-agents/sdk'
 import { expect, test } from '../../../fixtures/browser.js'
 import { BrowserModel, type WebLLMChunk } from 'strands-web-llm'
 
-for (const modelId of [
+const modelIds = [
   'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
   'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
   'Qwen2.5-3B-Instruct-q4f16_1-MLC',
   'Qwen2.5-7B-Instruct-q4f16_1-MLC',
-]) {
-  test(`${modelId} calls Harness read and answers from its result`, async ({ page }, info) => {
+]
+const cases = [
+  ...modelIds.map((modelId) => ({ modelId, sample: undefined })),
+  {
+    modelId: 'Qwen2.5-3B-Instruct-q4f16_1-MLC',
+    // These values reproduce the observed second-turn failure.
+    sample: { file: 'q25-70021.txt', code: 'code-77b175b5' },
+  },
+]
+
+for (const { modelId, sample } of cases) {
+  const title = `${modelId} calls Harness read and answers from its result`
+  test(title + (sample ? ' with recorded tool history' : ''), async ({ page }, info) => {
     const directory = process.platform === 'win32' ? tmpdir() : '/tmp'
-    const path = join(directory, `q25-${process.pid}.txt`)
-    const code = 'code-' + crypto.randomUUID().slice(0, 8)
+    const path = join(directory, sample?.file ?? `q25-${process.pid}.txt`)
+    const code = sample?.code ?? 'code-' + crypto.randomUUID().slice(0, 8)
     const chunks: WebLLMChunk[] = []
     let agent: Awaited<ReturnType<typeof createHarness>> | undefined
+    let created = false
 
     try {
-      await writeFile(path, `The secret code is ${code}.`)
+      await writeFile(path, `The secret code is ${code}.`, { flag: 'wx' })
+      created = true
       await page.goto('http://127.0.0.1:4173/harness.html')
       await page.waitForFunction(() => Boolean(window.harness))
       await page.evaluate((id) => window.harness.open(id), modelId)
@@ -67,7 +80,7 @@ for (const modelId of [
         await agent?.shutdown()
         await page.evaluate(() => window.harness?.close())
       } finally {
-        await rm(path, { force: true })
+        if (created) await rm(path, { force: true })
         await info.attach('native-chunks', {
           body: JSON.stringify(chunks),
           contentType: 'application/json',

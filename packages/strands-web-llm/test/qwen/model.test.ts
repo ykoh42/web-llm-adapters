@@ -63,7 +63,7 @@ it('runs a Qwen3 tool through a Strands Agent and continues from its result', as
     expect.objectContaining({
       role: 'assistant',
       content: expect.stringContaining(
-        '<tool_call>{"name":"lookup","arguments":{"city":"Seoul"}}</tool_call>',
+        '<tool_call>\n{"name":"lookup","arguments":{"city":"Seoul"}}\n</tool_call>',
       ),
     }),
   )

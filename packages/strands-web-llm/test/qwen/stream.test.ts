@@ -1,7 +1,23 @@
 import type { ToolSpec } from '@strands-agents/sdk'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { chunk, chunks, collect } from '../../fixtures/engine.js'
 import { qwenChunks } from '../../src/qwen/stream.js'
+
+it('rejects an unregistered function wrapper without changing the model output', async () => {
+  const raw = chunk(
+    {
+      content:
+        '<tool_call>\n{"name":"function","function":{"name":"read"},"arguments":{"path":"/tmp/note.txt"}}\n</tool_call>',
+    },
+    'stop',
+  )
+  const onChunk = vi.fn()
+
+  await expect(
+    collect(qwenChunks(chunks(raw), [{ name: 'read', description: 'Read a file.' }], onChunk)),
+  ).rejects.toThrow('Qwen returned unknown tool "function".')
+  expect(onChunk).toHaveBeenCalledExactlyOnceWith(raw)
+})
 
 it('splits thinking and parses a tool call across partial tags', async () => {
   const tools: ToolSpec[] = [{ name: 'lookup', description: 'Look up a city.' }]
