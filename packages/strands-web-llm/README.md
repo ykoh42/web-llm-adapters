@@ -12,23 +12,24 @@ Verified [WebLLM **0.2.86** IDs](https://github.com/mlc-ai/web-llm/blob/v0.2.86/
 in Strands Harness. `O` = verified; `X` = unverified. Tools covers call → result → final answer;
 Think means separate reasoning blocks.
 
-Order is approximate: upstream MMLU-Pro scores, with unscored (`—`) models placed by generation and size.
+Sorted by published upstream MMLU-Pro (thinking on; Qwen2.5 has no thinking mode).
+Sources and evaluation settings vary.
 Speed is local WebLLM throughput on M4 Pro (24 GB), Chrome 155: median of 3 runs, thinking off, max 128 tokens.
 
-| Exact WebLLM `model_id`             |                                             MMLU-Pro | Decode tok/s | Tools | Think | Image | Audio | Video |
-| ----------------------------------- | ---------------------------------------------------: | -----------: | ----- | ----- | ----- | ----- | ----- |
-| `Qwen3.5-9B-q4f16_1-MLC`            |       [82.5](https://huggingface.co/Qwen/Qwen3.5-9B) |         19.7 | O     | O     | X     | X     | X     |
-| `Qwen3.5-4B-q4f16_1-MLC`            |       [79.1](https://huggingface.co/Qwen/Qwen3.5-4B) |         33.0 | O     | O     | X     | X     | X     |
-| `Qwen3-8B-q4f16_1-MLC`              |                                                    — |         32.0 | O     | O     | X     | X     | X     |
-| `Qwen3.5-2B-q4f16_1-MLC`            |       [66.5](https://huggingface.co/Qwen/Qwen3.5-2B) |         59.7 | O     | O     | X     | X     | X     |
-| `Qwen3-4B-q4f16_1-MLC`              |                                                    — |         51.5 | O     | O     | X     | X     | X     |
-| `gemma-4-E2B-it-q4f16_1-MLC`        | [60.0](https://huggingface.co/google/gemma-4-E2B-it) |         38.5 | O     | O     | X     | X     | X     |
-| `Qwen2.5-7B-Instruct-q4f16_1-MLC`   |   [56.3](https://qwenlm.github.io/blog/qwen2.5-llm/) |         38.0 | O     | X     | X     | X     | X     |
-| `Qwen2.5-3B-Instruct-q4f16_1-MLC`   |   [43.7](https://qwenlm.github.io/blog/qwen2.5-llm/) |         59.5 | O     | X     | X     | X     | X     |
-| `Qwen3.5-0.8B-q4f16_1-MLC`          |     [42.3](https://huggingface.co/Qwen/Qwen3.5-0.8B) |         71.2 | O     | O     | X     | X     | X     |
-| `Qwen2.5-1.5B-Instruct-q4f16_1-MLC` |   [32.4](https://qwenlm.github.io/blog/qwen2.5-llm/) |         87.6 | O     | X     | X     | X     | X     |
-| `Qwen3-0.6B-q4f16_1-MLC`            |                                                    — |         90.4 | O     | O     | X     | X     | X     |
-| `Qwen2.5-0.5B-Instruct-q4f16_1-MLC` |   [15.0](https://qwenlm.github.io/blog/qwen2.5-llm/) |        136.8 | O     | X     | X     | X     | X     |
+| Exact WebLLM `model_id`             |                                                                                 MMLU-Pro | Decode tok/s | Tools | Think | Image | Audio | Video |
+| ----------------------------------- | ---------------------------------------------------------------------------------------: | -----------: | ----- | ----- | ----- | ----- | ----- |
+| `Qwen3.5-9B-q4f16_1-MLC`            |                                           [82.5](https://huggingface.co/Qwen/Qwen3.5-9B) |         19.7 | O     | O     | X     | X     | X     |
+| `Qwen3.5-4B-q4f16_1-MLC`            |                                           [79.1](https://huggingface.co/Qwen/Qwen3.5-4B) |         33.0 | O     | O     | X     | X     | X     |
+| `Qwen3-8B-q4f16_1-MLC`              |                 [74.2](https://huggingface.co/nvidia/Qwen3-8B-DMS-8x#evaluation-dataset) |         32.0 | O     | O     | X     | X     | X     |
+| `Qwen3-4B-q4f16_1-MLC`              |                   [70.4](https://huggingface.co/Qwen/Qwen3-4B-Thinking-2507#performance) |         51.5 | O     | O     | X     | X     | X     |
+| `Qwen3.5-2B-q4f16_1-MLC`            |                                           [66.5](https://huggingface.co/Qwen/Qwen3.5-2B) |         59.7 | O     | O     | X     | X     | X     |
+| `gemma-4-E2B-it-q4f16_1-MLC`        |                                     [60.0](https://huggingface.co/google/gemma-4-E2B-it) |         38.5 | O     | O     | X     | X     | X     |
+| `Qwen2.5-7B-Instruct-q4f16_1-MLC`   |                                       [56.3](https://qwenlm.github.io/blog/qwen2.5-llm/) |         38.0 | O     | X     | X     | X     | X     |
+| `Qwen2.5-3B-Instruct-q4f16_1-MLC`   |                                       [43.7](https://qwenlm.github.io/blog/qwen2.5-llm/) |         59.5 | O     | X     | X     | X     | X     |
+| `Qwen3.5-0.8B-q4f16_1-MLC`          |                                         [42.3](https://huggingface.co/Qwen/Qwen3.5-0.8B) |         71.2 | O     | O     | X     | X     | X     |
+| `Qwen3-0.6B-q4f16_1-MLC`            | [38.27](https://huggingface.co/MultiverseComputingCAI/LittleLamb#evaluation--benchmarks) |         90.4 | O     | O     | X     | X     | X     |
+| `Qwen2.5-1.5B-Instruct-q4f16_1-MLC` |                                       [32.4](https://qwenlm.github.io/blog/qwen2.5-llm/) |         87.6 | O     | X     | X     | X     | X     |
+| `Qwen2.5-0.5B-Instruct-q4f16_1-MLC` |                                       [15.0](https://qwenlm.github.io/blog/qwen2.5-llm/) |        136.8 | O     | X     | X     | X     | X     |
 
 Tools and Think were tested separately. Together, Qwen3.5 2B/4B/9B passed; 0.8B failed.
 Qwen tools use model-specific prompt formats; tool choice depends on model compliance.
