@@ -1,9 +1,15 @@
-import { Message, TextBlock, ToolResultBlock, ToolUseBlock } from '@strands-agents/sdk'
+import {
+  Message,
+  ReasoningBlock,
+  TextBlock,
+  ToolResultBlock,
+  ToolUseBlock,
+} from '@strands-agents/sdk'
 import { expect, it } from 'vitest'
 import { qwenRequest } from '../../src/qwen/request.js'
 
 it.each(['Qwen2.5-3B-Instruct-q4f16_1-MLC', 'Qwen3-4B-q4f16_1-MLC'])(
-  '%s keeps the official line breaks around tool history',
+  '%s uses the official tool-call format',
   (modelId) => {
     const input = { path: '/tmp/note.txt', offset: 1, limit: 1 }
     const request = qwenRequest(
@@ -26,14 +32,124 @@ it.each(['Qwen2.5-3B-Instruct-q4f16_1-MLC', 'Qwen3-4B-q4f16_1-MLC'])(
       ],
       {},
     )
-    const assistant = request.messages[0]!.content as string
-    const lines = assistant.split('\n')
-    expect(lines[0]).toBe('<tool_call>')
-    expect(lines.at(-1)).toBe('</tool_call>')
-    expect(JSON.parse(lines.slice(1, -1).join('\n'))).toEqual({ name: 'read', arguments: input })
-    expect(request.messages[1]).toEqual({
+    const assistant = request.messages.find((message) => message.role === 'assistant')!
+      .content as string
+    const call = assistant.match(/<tool_call>\n([\s\S]*?)\n<\/tool_call>/)
+    expect(call).not.toBeNull()
+    expect(JSON.parse(call![1]!)).toEqual({ name: 'read', arguments: input })
+    expect(request.messages.at(-1)).toEqual({
       role: 'user',
       content: '<tool_response>\nThe code is oak-42.\n</tool_response>',
     })
   },
 )
+
+it('groups consecutive Qwen tool results in one user turn', () => {
+  const request = qwenRequest(
+    { modelId: 'Qwen3-4B-q4f16_1-MLC' },
+    [
+      new Message({ role: 'user', content: [new TextBlock('Read both notes.')] }),
+      new Message({
+        role: 'assistant',
+        content: [
+          new ToolUseBlock({ toolUseId: 'read-1', name: 'read', input: { path: 'one.txt' } }),
+          new ToolUseBlock({ toolUseId: 'read-2', name: 'read', input: { path: 'two.txt' } }),
+        ],
+      }),
+      new Message({
+        role: 'user',
+        content: [
+          new ToolResultBlock({
+            toolUseId: 'read-1',
+            status: 'success',
+            content: [new TextBlock('First result.')],
+          }),
+          new ToolResultBlock({
+            toolUseId: 'read-2',
+            status: 'success',
+            content: [new TextBlock('Second result.')],
+          }),
+        ],
+      }),
+    ],
+    {},
+  )
+
+  expect(request.messages.at(-1)).toEqual({
+    role: 'user',
+    content:
+      '<tool_response>\nFirst result.\n</tool_response>\n<tool_response>\nSecond result.\n</tool_response>',
+  })
+})
+
+it('keeps Qwen3 thoughts only in the current tool loop', () => {
+  const tool = new ToolUseBlock({ toolUseId: 'lookup-1', name: 'lookup', input: { city: 'Seoul' } })
+  const messages = [
+    new Message({ role: 'user', content: [new TextBlock('Look up Seoul.')] }),
+    new Message({
+      role: 'assistant',
+      content: [new ReasoningBlock({ text: 'Find the code.' }), tool],
+    }),
+    new Message({
+      role: 'user',
+      content: [
+        new ToolResultBlock({
+          toolUseId: 'lookup-1',
+          status: 'success',
+          content: [new TextBlock('The code is oak-42.')],
+        }),
+      ],
+    }),
+  ]
+
+  const request = qwenRequest({ modelId: 'Qwen3-4B-q4f16_1-MLC' }, messages, {})
+  expect(request.messages[1]?.content).toBe(
+    '<think>\nFind the code.\n</think>\n\n<tool_call>\n{"name": "lookup", "arguments": {"city":"Seoul"}}\n</tool_call>',
+  )
+
+  const nextTurn = qwenRequest(
+    { modelId: 'Qwen3-4B-q4f16_1-MLC' },
+    [
+      new Message({ role: 'user', content: [new TextBlock('Old question.')] }),
+      new Message({
+        role: 'assistant',
+        content: [new ReasoningBlock({ text: 'Old thought.' }), new TextBlock('Old answer.')],
+      }),
+      new Message({ role: 'user', content: [new TextBlock('New question.')] }),
+    ],
+    {},
+  )
+  expect(nextTurn.messages[1]?.content).toBe('Old answer.')
+})
+
+it('does not add an empty thinking block to a Qwen3 answer', () => {
+  const request = qwenRequest(
+    { modelId: 'Qwen3-4B-q4f16_1-MLC' },
+    [
+      new Message({ role: 'user', content: [new TextBlock('Answer plainly.')] }),
+      new Message({ role: 'assistant', content: [new TextBlock('Plain answer.')] }),
+    ],
+    {},
+  )
+
+  expect(request.messages.at(-1)?.content).toBe('Plain answer.')
+})
+
+it('does not put Qwen2.5 reasoning blocks in the user-facing transcript', () => {
+  const request = qwenRequest(
+    { modelId: 'Qwen2.5-3B-Instruct-q4f16_1-MLC' },
+    [
+      new Message({ role: 'user', content: [new TextBlock('Old question.')] }),
+      new Message({
+        role: 'assistant',
+        content: [new ReasoningBlock({ text: 'Private thought.' }), new TextBlock('Old answer.')],
+      }),
+      new Message({ role: 'user', content: [new TextBlock('New question.')] }),
+    ],
+    {},
+  )
+
+  expect(request.messages.find((message) => message.role === 'assistant')?.content).toBe(
+    'Old answer.',
+  )
+})

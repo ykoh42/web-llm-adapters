@@ -1,0 +1,101 @@
+import {
+  Message,
+  ReasoningBlock,
+  TextBlock,
+  ToolResultBlock,
+  ToolUseBlock,
+} from '@strands-agents/sdk'
+import { expect, it } from 'vitest'
+import { qwen35Request } from '../../src/qwen35/request.js'
+
+const tool = {
+  name: 'lookup',
+  description: 'Return the code for a city.',
+  inputSchema: {
+    type: 'object' as const,
+    properties: { city: { type: 'string' as const } },
+    required: ['city'],
+  },
+}
+
+it('matches the Qwen3.5 system, thinking, tool-call, and tool-result formats', () => {
+  const request = qwen35Request(
+    { modelId: 'Qwen3.5-4B-q4f16_1-MLC' },
+    [
+      new Message({ role: 'user', content: [new TextBlock('Find the code for Seoul.')] }),
+      new Message({
+        role: 'assistant',
+        content: [
+          new ReasoningBlock({ text: 'Check the city.' }),
+          new ToolUseBlock({ toolUseId: 'lookup-1', name: 'lookup', input: { city: 'Seoul' } }),
+        ],
+      }),
+      new Message({
+        role: 'user',
+        content: [
+          new ToolResultBlock({
+            toolUseId: 'lookup-1',
+            status: 'success',
+            content: [new TextBlock('oak-42')],
+          }),
+          new ToolResultBlock({
+            toolUseId: 'lookup-2',
+            status: 'success',
+            content: [new TextBlock('pine-17')],
+          }),
+        ],
+      }),
+    ],
+    { systemPrompt: 'Be concise.', toolSpecs: [tool] },
+  )
+
+  expect(request.messages[0]).toEqual({
+    role: 'system',
+    content:
+      '# Tools\n\nYou have access to the following functions:\n\n<tools>\n' +
+      '{"type":"function","function":{"name":"lookup","description":"Return the code for a city.","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}' +
+      '\n</tools>\n\nIf you choose to call a function ONLY reply in the following format with NO suffix:\n\n' +
+      '<tool_call>\n<function=example_function_name>\n<parameter=example_parameter_1>\nvalue_1\n</parameter>\n' +
+      '<parameter=example_parameter_2>\nThis is the value for the second parameter\nthat can span\nmultiple lines\n</parameter>\n</function>\n</tool_call>\n\n' +
+      '<IMPORTANT>\nReminder:\n- Function calls MUST follow the specified format: an inner <function=...></function> block must be nested within <tool_call></tool_call> XML tags\n' +
+      '- Required parameters MUST be specified\n- You may provide optional reasoning for your function call in natural language BEFORE the function call, but NOT after\n' +
+      '- If there is no function call available, answer the question like normal with your current knowledge and do not tell the user about function calls\n</IMPORTANT>\n\nBe concise.',
+  })
+  expect(request.messages.find((message) => message.role === 'assistant')?.content).toBe(
+    '<think>\nCheck the city.\n</think>\n\n<tool_call>\n<function=lookup>\n' +
+      '<parameter=city>\nSeoul\n</parameter>\n</function>\n</tool_call>',
+  )
+  expect(request.messages.at(-1)?.content).toBe(
+    '<tool_response>\noak-42\n</tool_response>\n<tool_response>\npine-17\n</tool_response>',
+  )
+})
+
+it('drops thoughts from an older Qwen3.5 turn', () => {
+  const request = qwen35Request(
+    { modelId: 'Qwen3.5-4B-q4f16_1-MLC' },
+    [
+      new Message({ role: 'user', content: [new TextBlock('Old question.')] }),
+      new Message({
+        role: 'assistant',
+        content: [new ReasoningBlock({ text: 'Old thought.' }), new TextBlock('Old answer.')],
+      }),
+      new Message({ role: 'user', content: [new TextBlock('New question.')] }),
+    ],
+    {},
+  )
+
+  expect(request.messages[1]?.content).toBe('Old answer.')
+})
+
+it('does not add an empty thinking block to a Qwen3.5 answer', () => {
+  const request = qwen35Request(
+    { modelId: 'Qwen3.5-4B-q4f16_1-MLC' },
+    [
+      new Message({ role: 'user', content: [new TextBlock('Answer plainly.')] }),
+      new Message({ role: 'assistant', content: [new TextBlock('Plain answer.')] }),
+    ],
+    {},
+  )
+
+  expect(request.messages.at(-1)?.content).toBe('Plain answer.')
+})

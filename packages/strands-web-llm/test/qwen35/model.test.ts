@@ -54,7 +54,7 @@ it('runs a Qwen3.5 XML tool through Strands and continues from its result', asyn
   expect(nextMessages).toContainEqual(
     expect.objectContaining({
       role: 'assistant',
-      content: expect.stringContaining('<parameter=city>Seoul</parameter>'),
+      content: expect.stringContaining('<parameter=city>\nSeoul\n</parameter>'),
     }),
   )
   expect(nextMessages).toContainEqual(

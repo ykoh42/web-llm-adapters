@@ -256,7 +256,7 @@ describe('WebLLM model catalog', () => {
       expect(typeof system, modelId).toBe('string')
       if (typeof system !== 'string') continue
       if (modelId.startsWith('Qwen3.5-'))
-        expect(system, modelId).toContain('<function=function_name>')
+        expect(system, modelId).toContain('<function=example_function_name>')
       else if (modelId.startsWith('Qwen')) expect(system, modelId).toContain('<tool_call>')
       else expect(system, modelId).toContain('<|tool|>')
     }

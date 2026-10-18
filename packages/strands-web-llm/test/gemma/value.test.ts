@@ -24,6 +24,10 @@ describe('Gemma values', () => {
     expect(readArguments('{"path":"a\\nb","ok":true}').input).toEqual({ path: 'a\nb', ok: true })
   })
 
+  it('sorts object keys like the official Gemma template', () => {
+    expect(writeValue({ z: 1, a: { y: 2, b: 3 } })).toBe('{a:{b:3,y:2},z:1}')
+  })
+
   it('preserves special keys as own data rather than changing the prototype', () => {
     const { input } = readArguments('{__proto__:{polluted:true},constructor:null}')
     expect(Object.hasOwn(input, '__proto__')).toBe(true)

@@ -20,6 +20,7 @@ export function writeValue(value: unknown): string {
   if (typeof value === 'object' && value !== null) {
     const fields = Object.entries(value)
       .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
       .map(([key, item]) => writeKey(key) + ':' + writeValue(item))
     return '{' + fields.join(',') + '}'
   }

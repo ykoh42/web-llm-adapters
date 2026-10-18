@@ -9,23 +9,37 @@ or [Node.js Harness example](https://github.com/ykoh42/web-llm-adapters/blob/mai
 ## Models
 
 These exact WebLLM **0.2.86** IDs were tested in a real browser Harness run on
-Apple M4 Pro with Chrome. “Pass” means tool call, result, and final answer. IDs match WebLLM's official
+Apple M4 Pro with Chrome. `Tools: O` means one Harness tool call, result, and final answer worked.
+`Think: O` means reasoning came through a separate Strands block. IDs match WebLLM's official
 [`model_list`](https://github.com/mlc-ai/web-llm/blob/v0.2.86/src/config.ts).
+Order follows upstream MMLU-Pro scores as a rough quality guide. Evaluation settings
+vary, and those scores are for upstream models, not WebLLM's quantized builds.
+Decode speed is the median of three WebLLM native-API runs on a MacBook Pro
+M4 Pro (24 GB), Chrome 155, with thinking off and a 128-token maximum. It is
+machine-specific and does not measure adapter overhead.
+Qwen3 is listed separately because its official report gives base-model scores,
+not scores for the post-trained models served here. `O` means verified for this
+exact ID; `X` means no working path has been verified.
 
-| Exact WebLLM `model_id`             | Tool calls | Separate thinking                |
-| ----------------------------------- | ---------- | -------------------------------- |
-| `Qwen2.5-0.5B-Instruct-q4f16_1-MLC` | Pass       | No thinking mode                 |
-| `Qwen2.5-1.5B-Instruct-q4f16_1-MLC` | Pass       | No thinking mode                 |
-| `Qwen2.5-3B-Instruct-q4f16_1-MLC`   | Pass       | No thinking mode                 |
-| `Qwen2.5-7B-Instruct-q4f16_1-MLC`   | Pass       | No thinking mode                 |
-| `Qwen3-0.6B-q4f16_1-MLC`            | Pass       | Separate Strands reasoning block |
-| `Qwen3-4B-q4f16_1-MLC`              | Pass       | Separate Strands reasoning block |
-| `Qwen3-8B-q4f16_1-MLC`              | Pass       | Separate Strands reasoning block |
-| `Qwen3.5-0.8B-q4f16_1-MLC`          | Pass       | Separate Strands reasoning block |
-| `Qwen3.5-2B-q4f16_1-MLC`            | Pass       | Separate Strands reasoning block |
-| `Qwen3.5-4B-q4f16_1-MLC`            | Pass       | Separate Strands reasoning block |
-| `Qwen3.5-9B-q4f16_1-MLC`            | Pass       | Separate Strands reasoning block |
-| `gemma-4-E2B-it-q4f16_1-MLC`        | Pass       | Separate block, on or off        |
+| Exact WebLLM `model_id`             |                                             MMLU-Pro | Decode tok/s | Tools | Think | Image | Audio | Video |
+| ----------------------------------- | ---------------------------------------------------: | -----------: | ----- | ----- | ----- | ----- | ----- |
+| `Qwen3.5-9B-q4f16_1-MLC`            |       [82.5](https://huggingface.co/Qwen/Qwen3.5-9B) |         19.7 | O     | O     | X     | X     | X     |
+| `Qwen3.5-4B-q4f16_1-MLC`            |       [79.1](https://huggingface.co/Qwen/Qwen3.5-4B) |         33.0 | O     | O     | X     | X     | X     |
+| `Qwen3.5-2B-q4f16_1-MLC`            |       [66.5](https://huggingface.co/Qwen/Qwen3.5-2B) |         59.7 | O     | O     | X     | X     | X     |
+| `gemma-4-E2B-it-q4f16_1-MLC`        | [60.0](https://huggingface.co/google/gemma-4-E2B-it) |         38.5 | O     | O     | X     | X     | X     |
+| `Qwen2.5-7B-Instruct-q4f16_1-MLC`   |   [56.3](https://qwenlm.github.io/blog/qwen2.5-llm/) |         38.0 | O     | X     | X     | X     | X     |
+| `Qwen2.5-3B-Instruct-q4f16_1-MLC`   |   [43.7](https://qwenlm.github.io/blog/qwen2.5-llm/) |         59.5 | O     | X     | X     | X     | X     |
+| `Qwen3.5-0.8B-q4f16_1-MLC`          |     [42.3](https://huggingface.co/Qwen/Qwen3.5-0.8B) |         71.2 | O     | O     | X     | X     | X     |
+| `Qwen2.5-1.5B-Instruct-q4f16_1-MLC` |   [32.4](https://qwenlm.github.io/blog/qwen2.5-llm/) |         87.6 | O     | X     | X     | X     | X     |
+| `Qwen2.5-0.5B-Instruct-q4f16_1-MLC` |   [15.0](https://qwenlm.github.io/blog/qwen2.5-llm/) |        136.8 | O     | X     | X     | X     | X     |
+
+Qwen3 models with no comparable published score, ordered by local decode speed:
+
+| Exact WebLLM `model_id`  | Decode tok/s | Tools | Think | Image | Audio | Video |
+| ------------------------ | -----------: | ----- | ----- | ----- | ----- | ----- |
+| `Qwen3-0.6B-q4f16_1-MLC` |         90.4 | O     | O     | X     | X     | X     |
+| `Qwen3-4B-q4f16_1-MLC`   |         51.5 | O     | O     | X     | X     | X     |
+| `Qwen3-8B-q4f16_1-MLC`   |         32.0 | O     | O     | X     | X     | X     |
 
 Qwen3 1.7B and Phi-4 mini are excluded because they did not complete reliable
 tool runs. Other catalog IDs are unverified for a complete tool turn. The
@@ -37,17 +51,17 @@ message, then parses the generated calls for Harness. WebLLM's five native-tool
 Hermes IDs made tool calls but did not finish the tested turn with a final answer.
 
 Qwen tool calls use model-generated text, so the adapter cannot force a
-model to follow the format or a requested tool choice. “Pass” means that exact
+model to follow the format or a requested tool choice. `O` means that exact
 Harness run completed; it is not a guarantee for every prompt. Calls are passed
 through as generated, including repeated calls.
 Qwen2.5 3B can fail after a tool result in npm 0.1.0. The source fix is not yet released.
 
 ### Other verified model types
 
-| Exact WebLLM `model_id`                 | Strands API   | Verified result                       | Limit                |
-| --------------------------------------- | ------------- | ------------------------------------- | -------------------- |
-| `Phi-3.5-vision-instruct-q4f16_1-MLC`   | `ImageBlock`  | Harness reads a generated image       | See model list       |
-| `snowflake-arctic-embed-s-q0f32-MLC-b4` | `MemoryStore` | Semantic search and Harness injection | 384 dims; 512 tokens |
+| Exact WebLLM `model_id`                 | Strands API   | Image | Audio | Video | Verified result                       | Limit                |
+| --------------------------------------- | ------------- | ----- | ----- | ----- | ------------------------------------- | -------------------- |
+| `Phi-3.5-vision-instruct-q4f16_1-MLC`   | `ImageBlock`  | O     | X     | X     | Harness reads a generated image       | See model list       |
+| `snowflake-arctic-embed-s-q0f32-MLC-b4` | `MemoryStore` | —     | —     | —     | Semantic search and Harness injection | 384 dims; 512 tokens |
 
 WebLLM embeddings are not a Strands chat `Model` or content block.
 `WebLLMEmbeddingSearchStrategy` implements Strands [`SearchStrategy`](https://strandsagents.com/docs/user-guide/sdk/storage/search-strategies/)
@@ -56,7 +70,8 @@ uses `engine.embeddings` through `withEngine()`. For Snowflake Arctic Embed S, p
 queries with `Represent this sentence for searching relevant passages: `; stored text stays unprefixed.
 The strategy does not split long text. Its vector cache rebuilds from saved text after restart,
 and each search reads every stored entry. Use it for small memory stores, not large knowledge bases.
-Other vision and embedding IDs are unverified.
+Other vision and embedding IDs are unverified. The Gemma audio test only confirms that a silent
+WAV request completes; it does not verify audio understanding. Video input is unsupported.
 
 The Qwen parser accepts complete calls when a model omits the closing tag or adds
 one extra closing brace. It rejects other malformed calls and never changes

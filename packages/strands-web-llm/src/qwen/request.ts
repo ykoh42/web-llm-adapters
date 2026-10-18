@@ -15,6 +15,9 @@ import {
   formatUser,
 } from '../chat/messages.js'
 import { generationOptions, hasStructuredResponse } from '../request.js'
+import { appendQwenTurns, lastQwenQuery } from './history.js'
+
+const qwen25SystemPrompt = 'You are Qwen, created by Alibaba Cloud. You are a helpful assistant.'
 
 const modelIds = new Set([
   'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
@@ -52,11 +55,18 @@ export function qwenRequest(
 
   const request = generationOptions(config)
   delete request.tool_choice
-  const history = qwenMessages(messages, options.systemPrompt, tools, options.toolChoice)
+  const history = qwenMessages(
+    config.modelId.startsWith('Qwen3-'),
+    messages,
+    options.systemPrompt,
+    tools,
+    options.toolChoice,
+  )
   return { ...request, messages: history }
 }
 
 function qwenMessages(
+  isQwen3: boolean,
   messages: Message[],
   systemPrompt?: StreamOptions['systemPrompt'],
   tools: ToolSpec[] = [],
@@ -64,10 +74,15 @@ function qwenMessages(
 ) {
   const output = formatMessages([], undefined)
   const system = formatSystemPrompt(systemPrompt)
-  const prompt = [system, toolPrompt(tools, choice)].filter(Boolean).join('\n\n')
-  if (prompt) output.push({ role: 'system', content: prompt })
+  const systemParts = []
+  if (system !== undefined) systemParts.push(system)
+  else if (!isQwen3) systemParts.push(qwen25SystemPrompt)
+  if (tools.length) systemParts.push(toolPrompt(tools, choice))
+  if (systemParts.length) output.push({ role: 'system', content: systemParts.join('\n\n') })
 
-  for (const message of messages) {
+  const lastQuery = lastQwenQuery(messages)
+  let previousWasToolResult = false
+  for (const [index, message] of messages.entries()) {
     if (message.role === 'assistant') {
       const thoughts = message.content.filter((block) => block.type === 'reasoningBlock')
       if (
@@ -78,29 +93,38 @@ function qwenMessages(
         throw new ModelError('Qwen cannot use signed or redacted reasoning.')
       const content = message.content.filter((block) => block.type !== 'reasoningBlock')
       const text = formatAssistant(content.filter((block) => block.type !== 'toolUseBlock')).content
-      const parts = [
-        ...thoughts.map((block) => `<think>${block.text ?? ''}</think>`),
-        typeof text === 'string' ? text : '',
-        ...content
-          .filter((block) => block.type === 'toolUseBlock')
-          .map(
-            (block) =>
-              `<tool_call>\n${JSON.stringify({ name: block.name, arguments: block.input })}\n</tool_call>`,
-          ),
-      ].filter(Boolean)
-      output.push({ role: 'assistant', content: parts.join('\n') || null })
+      const thought = isQwen3
+        ? thoughts
+            .map((block) => block.text ?? '')
+            .join('\n')
+            .trim()
+        : ''
+      const reasoning =
+        isQwen3 && index > lastQuery && thought ? `<think>\n${thought}\n</think>\n\n` : ''
+      const answer = typeof text === 'string' ? text : ''
+      const calls = content.filter((block) => block.type === 'toolUseBlock')
+      const callText = calls
+        .map(
+          (call, callIndex) =>
+            `${callIndex === 0 && answer ? '\n' : callIndex ? '\n' : ''}${formatCall(call.name, call.input)}`,
+        )
+        .join('')
+      output.push({ role: 'assistant', content: `${reasoning}${answer}${callText}` || null })
+      previousWasToolResult = false
       continue
     }
 
-    for (const turn of formatUser(message.content)) {
-      if (turn.role === 'tool') {
-        output.push({ role: 'user', content: `<tool_response>\n${turn.content}\n</tool_response>` })
-      } else {
-        output.push(turn)
-      }
-    }
+    previousWasToolResult = appendQwenTurns(
+      output,
+      formatUser(message.content),
+      previousWasToolResult,
+    )
   }
   return output
+}
+
+function formatCall(name: string, input: unknown) {
+  return `<tool_call>\n{"name": ${JSON.stringify(name)}, "arguments": ${JSON.stringify(input)}}\n</tool_call>`
 }
 
 function toolPrompt(tools: ToolSpec[], choice?: ToolChoice) {
