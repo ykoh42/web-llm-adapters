@@ -11,6 +11,10 @@ import { isGemma, usesGemmaProtocol } from './gemma/request.js'
 import { gemmaStream } from './gemma/model.js'
 import { promptTokens } from './gemma/prompt.js'
 import { trimThoughts } from './gemma/history.js'
+import { usesQwenProtocol } from './qwen/request.js'
+import { qwenStream } from './qwen/model.js'
+import { usesQwen35Protocol } from './qwen35/request.js'
+import { qwen35Stream } from './qwen35/model.js'
 import type { WebLLMModelConfig, WebLLMModelOptions } from './types.js'
 
 /** Connects a loaded WebLLM engine to Strands. The caller owns the engine. */
@@ -60,7 +64,10 @@ export class WebLLMModel extends Model<WebLLMModelConfig> {
     }
     if (config.request?.tool_choice === 'none' && !options.toolChoice)
       options = { ...options, toolSpecs: [] }
-    const stream = usesGemmaProtocol(config, messages, options) ? gemmaStream : chatStream
+    let stream = chatStream
+    if (usesGemmaProtocol(config, messages, options)) stream = gemmaStream
+    else if (usesQwen35Protocol(config)) stream = qwen35Stream
+    else if (usesQwenProtocol(config)) stream = qwenStream
     yield* stream(this.engine, config, messages, options, this.onChunk)
   }
 }

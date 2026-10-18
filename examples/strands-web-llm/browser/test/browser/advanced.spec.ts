@@ -13,18 +13,19 @@ test('structural tags constrain the JSON inside an answer', async ({ page }) => 
 test('Qwen enables and disables thinking through Strands', async ({ page }) => {
   await load(page, 'thinking')
   await run(page)
-  const reports: { thinking?: { enabled: boolean; text: string }[] }[] = JSON.parse(
-    (await page.getByLabel('Details', { exact: true }).textContent())!,
-  )
+  const reports: { thinking?: { enabled: boolean; text: string; reasoning: string }[] }[] =
+    JSON.parse((await page.getByLabel('Details', { exact: true }).textContent())!)
   const modes = reports.find((report) => report.thinking)?.thinking
   expect(modes).toHaveLength(2)
-  const disabled = modes?.find((mode) => !mode.enabled)?.text
-  const enabled = modes?.find((mode) => mode.enabled)?.text
-  // WebLLM 0.2.86 exposes the empty, closed prefix even with thinking disabled.
-  expect(disabled?.match(/<think>(.*?)<\/think>/s)?.[1]?.trim()).toBe('')
-  expect(enabled?.match(/<think>(.*?)<\/think>/s)?.[1]?.trim()).toBeTruthy()
-  expect(disabled).toContain('4')
-  expect(enabled).toContain('4')
+  const disabled = modes!.find((mode) => !mode.enabled)!
+  const enabled = modes!.find((mode) => mode.enabled)!
+  expect(disabled.reasoning.trim()).toBe('')
+  expect(enabled.reasoning.trim()).not.toBe('')
+  for (const mode of modes!) {
+    expect(mode.text).toContain('4')
+    expect(mode.text).not.toContain('<think>')
+    expect(mode.text).not.toContain('</think>')
+  }
   await unload(page)
 })
 

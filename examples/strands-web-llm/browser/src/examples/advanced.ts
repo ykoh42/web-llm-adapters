@@ -53,8 +53,14 @@ export async function thinking(input: ExampleInput) {
       temperature: 0,
       request: { extra_body: { enable_thinking: enabled } },
     })
-    const result = await runAgent(new Agent({ model, printer: false }), input.prompt, input)
-    modes.push({ enabled, text: result })
+    const agent = new Agent({ model, printer: false })
+    const text = await runAgent(agent, input.prompt, input)
+    const reasoning = agent.messages
+      .flatMap((message) => message.content)
+      .filter((block) => block.type === 'reasoningBlock')
+      .map((block) => block.text ?? '')
+      .join('')
+    modes.push({ enabled, text, reasoning })
     input.write('\n\n')
   }
   input.info({ thinking: modes })

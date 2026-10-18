@@ -4,16 +4,21 @@ import { createHarness } from '@strands-agents/harness'
 import { chromium } from '@playwright/test'
 import { BrowserModel } from 'strands-web-llm'
 import { useTool } from './tool-choice.ts'
-import { createMemory } from './memory.ts'
-import { SummaryModel } from './summary-model.ts'
+import { createEmbeddingMemory, createMemory, embeddingModelId } from './memory.ts'
 import { createRead } from './tools/read.ts'
 
 const { values, positionals } = parseArgs({
-  options: { think: { type: 'boolean' }, tool: { type: 'string' } },
+  options: {
+    model: { type: 'string' },
+    think: { type: 'boolean' },
+    tool: { type: 'string' },
+    'semantic-memory': { type: 'boolean' },
+  },
   allowPositionals: true,
 })
 const thinking = values.think ?? false
-const modelId = 'gemma-4-E2B-it-q4f16_1-MLC'
+const semanticMemory = values['semantic-memory'] ?? false
+const modelId = values.model ?? 'gemma-4-E2B-it-q4f16_1-MLC'
 const contextWindow = 16384
 const browser = await chromium.launchPersistentContext(
   fileURLToPath(new URL('../../../../.cache/chrome', import.meta.url)),
@@ -30,8 +35,17 @@ try {
     modelId,
     contextWindow,
   })
+  if (semanticMemory) {
+    await page.evaluate(
+      ({ modelId, embeddingModelId, contextWindow }) =>
+        window.webllmBridge.withEngine((engine) =>
+          engine.reload([modelId, embeddingModelId], [{ context_window_size: contextWindow }, {}]),
+        ),
+      { modelId, embeddingModelId, contextWindow },
+    )
+  }
   const config = { modelId, contextWindowLimit: contextWindow }
-  const auxModel = new SummaryModel(page, {
+  const auxModel = new BrowserModel(page, {
     ...config,
     maxTokens: 512,
     temperature: 0,
@@ -45,7 +59,13 @@ try {
       request: { repetition_penalty: 1.05, extra_body: { enable_thinking: thinking } },
     }),
     auxModel,
-    memory: { stores: [createMemory(page, modelId, contextWindow)] },
+    memory: {
+      stores: [
+        semanticMemory
+          ? createEmbeddingMemory(page, modelId, contextWindow, '.agent/semantic-memory')
+          : createMemory(page, modelId, contextWindow),
+      ],
+    },
     instructions: 'Answer briefly.',
     builtinTools: { read: false, web_fetch: { model: auxModel }, web_search: 'exa' },
     tools: [createRead()],

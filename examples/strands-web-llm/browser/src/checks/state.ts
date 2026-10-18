@@ -5,6 +5,7 @@ import { qwen, record } from './catalog.js'
 
 export async function state() {
   const progress: number[] = []
+  let rawText = ''
   const callback = (report: { progress: number }) => {
     progress.push(report.progress)
   }
@@ -23,6 +24,10 @@ export async function state() {
       maxTokens: 64,
       temperature: 0,
       request: { extra_body: { enable_thinking: false } },
+      onChunk: (chunk) => {
+        const choice = chunk.choices[0]
+        if (choice && 'delta' in choice) rawText += choice.delta.content ?? ''
+      },
     })
     const agent = new Agent({
       model,
@@ -30,6 +35,7 @@ export async function state() {
       systemPrompt: 'Remember the code word the user gives you.',
     })
     await agent.invoke('The code word is pineapple. Reply OK.')
+    rawText = ''
     const result = await agent.invoke('What is the code word?')
     const text = result.lastMessage.content
       .filter((block) => block.type === 'textBlock')
@@ -45,6 +51,7 @@ export async function state() {
         progress,
         callbackMatches: engine.getInitProgressCallback() === callback,
         text,
+        rawText,
         message,
         afterReset: await engine.getMessage(qwen),
         gpu,

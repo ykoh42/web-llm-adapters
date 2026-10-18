@@ -1,5 +1,10 @@
 import type { WebLLMModelConfig } from './types.js'
 
+export function hasStructuredResponse(config: WebLLMModelConfig) {
+  const type = config.request?.response_format?.type
+  return type !== undefined && type !== 'text'
+}
+
 /** SDK settings take precedence over their native WebLLM equivalents. */
 export function generationOptions(config: WebLLMModelConfig) {
   const options = {

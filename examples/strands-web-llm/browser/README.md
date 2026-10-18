@@ -11,8 +11,9 @@ npm run dev:strands
 
 Open <http://127.0.0.1:4173>. Choose an **Example** and **Engine**, click **Load model**,
 then **Send**. **Unload** before changing either. Each run starts a new conversation.
-The model list comes from the installed WebLLM catalog; choosing an incompatible
-model reports WebLLM's error. FP16 models need `shader-f16`. FP32 variants use more memory.
+The model list comes from WebLLM's catalog. For tool, image, and embedding examples, choose the exact
+ID listed for that feature in the package's [support table](../../../packages/strands-web-llm/README.md#models);
+other IDs are unverified and may be rejected. FP16 models need `shader-f16`. FP32 variants use more memory.
 Gemma 4 E2B uses the package's [cache-fixed runtime](../../../packages/strands-web-llm/runtime/README.md)
 with the installed WebLLM 0.2.86 and original model weights.
 

@@ -6,7 +6,6 @@ import { expect, type Page } from '@playwright/test'
 import type { AgentResult } from '@strands-agents/sdk'
 import { BrowserModel } from 'strands-web-llm'
 import { createMemory } from '../src/memory.js'
-import { SummaryModel } from '../src/summary-model.js'
 import { createRead } from '../src/tools/read.js'
 export { useTool } from '../src/tool-choice.js'
 
@@ -52,7 +51,7 @@ export async function openHarness(page: Page, contextWindow = 16384) {
     topP: 0.95,
     request: { seed: 7, repetition_penalty: 1.05, extra_body: { enable_thinking: true } },
   })
-  const auxModel = new SummaryModel(page, {
+  const auxModel = new BrowserModel(page, {
     ...config,
     maxTokens: 512,
   })
