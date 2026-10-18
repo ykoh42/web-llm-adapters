@@ -1,6 +1,6 @@
 {
   "name": "strands-web-llm",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "WebLLM model provider for Strands Agents.",
   "repository": {
     "type": "git",
@@ -9,6 +9,7 @@
   },
   "type": "module",
   "files": [
+    "CHANGELOG.md",
     "dist",
     "runtime/gemma-4-e2b.wasm",
     "runtime/manifest.json",
