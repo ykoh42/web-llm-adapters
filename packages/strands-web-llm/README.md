@@ -36,7 +36,7 @@ Tool formats follow [Hermes](https://github.com/QwenLM/Qwen3/blob/main/docs/sour
 (Qwen3.5), and [Gemma](https://ai.google.dev/gemma/docs/capabilities/text/function-calling-gemma4).
 With thinking on, Qwen3 0.6B can miscopy arguments or omit answers;
 Qwen3 4B can call dependent tools together.
-The Qwen parser fixes are included in [0.1.1](CHANGELOG.md).
+The Qwen parser fixes are included in [0.1.1](CHANGELOG.md), which is not yet published.
 
 ### Other verified model types
 

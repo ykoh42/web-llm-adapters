@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.1
+## 0.1.1 (unreleased)
 
 - Match Qwen tool history, reasoning, and Qwen3.5 tool declarations to their templates.
 - Accept Qwen3.5 parameter boundaries and extra closing tags handled by its recommended parser.
