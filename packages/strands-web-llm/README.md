@@ -12,14 +12,16 @@ These exact WebLLM **0.2.86** IDs were tested in a real browser Harness run on
 Apple M4 Pro with Chrome. `Tools: O` means one Harness tool call, result, and final answer worked.
 `Think: O` means reasoning came through a separate Strands block. IDs match WebLLM's official
 [`model_list`](https://github.com/mlc-ai/web-llm/blob/v0.2.86/src/config.ts).
-Order follows upstream MMLU-Pro scores as a rough quality guide. Evaluation settings
-vary, and those scores are for upstream models, not WebLLM's quantized builds.
+Rows with published MMLU-Pro scores are ordered by score as a rough quality guide.
+Evaluation settings vary, and those scores are for upstream models, not WebLLM's
+quantized builds. Models without a comparable score use `—` and follow scored
+models, ordered by local decode speed; that placement is not a quality ranking.
 Decode speed is the median of three WebLLM native-API runs on a MacBook Pro
 M4 Pro (24 GB), Chrome 155, with thinking off and a 128-token maximum. It is
 machine-specific and does not measure adapter overhead.
-Qwen3 is listed separately because its official report gives base-model scores,
-not scores for the post-trained models served here. `O` means verified for this
-exact ID; `X` means no working path has been verified.
+Qwen3 uses `—` because its published scores are for base models, not the
+post-trained models served here. `O` means verified for this exact ID; `X` means
+no working path has been verified.
 
 | Exact WebLLM `model_id`             |                                             MMLU-Pro | Decode tok/s | Tools | Think | Image | Audio | Video |
 | ----------------------------------- | ---------------------------------------------------: | -----------: | ----- | ----- | ----- | ----- | ----- |
@@ -32,14 +34,9 @@ exact ID; `X` means no working path has been verified.
 | `Qwen3.5-0.8B-q4f16_1-MLC`          |     [42.3](https://huggingface.co/Qwen/Qwen3.5-0.8B) |         71.2 | O     | O     | X     | X     | X     |
 | `Qwen2.5-1.5B-Instruct-q4f16_1-MLC` |   [32.4](https://qwenlm.github.io/blog/qwen2.5-llm/) |         87.6 | O     | X     | X     | X     | X     |
 | `Qwen2.5-0.5B-Instruct-q4f16_1-MLC` |   [15.0](https://qwenlm.github.io/blog/qwen2.5-llm/) |        136.8 | O     | X     | X     | X     | X     |
-
-Qwen3 models with no comparable published score, ordered by local decode speed:
-
-| Exact WebLLM `model_id`  | Decode tok/s | Tools | Think | Image | Audio | Video |
-| ------------------------ | -----------: | ----- | ----- | ----- | ----- | ----- |
-| `Qwen3-0.6B-q4f16_1-MLC` |         90.4 | O     | O     | X     | X     | X     |
-| `Qwen3-4B-q4f16_1-MLC`   |         51.5 | O     | O     | X     | X     | X     |
-| `Qwen3-8B-q4f16_1-MLC`   |         32.0 | O     | O     | X     | X     | X     |
+| `Qwen3-0.6B-q4f16_1-MLC`            |                                                — |         90.4 | O     | O     | X     | X     | X     |
+| `Qwen3-4B-q4f16_1-MLC`              |                                                — |         51.5 | O     | O     | X     | X     | X     |
+| `Qwen3-8B-q4f16_1-MLC`              |                                                — |         32.0 | O     | O     | X     | X     | X     |
 
 Qwen3 1.7B and Phi-4 mini are excluded because they did not complete reliable
 tool runs. Other catalog IDs are unverified for a complete tool turn. The
@@ -54,6 +51,8 @@ Qwen tool calls use model-generated text, so the adapter cannot force a
 model to follow the format or a requested tool choice. `O` means that exact
 Harness run completed; it is not a guarantee for every prompt. Calls are passed
 through as generated, including repeated calls.
+Tools and Think are checked separately. With both enabled, Qwen3.5 2B, 4B, and 9B
+completed a Harness tool turn; 0.8B emitted an invalid call and failed.
 Qwen2.5 3B can fail after a tool result in npm 0.1.0. The source fix is not yet released.
 
 ### Other verified model types

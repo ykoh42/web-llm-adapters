@@ -13,6 +13,10 @@ for (const modelId of [
   'Qwen3.5-9B-q4f16_1-MLC',
 ]) {
   test(`${modelId} thinking calls Harness read and answers from its result`, async ({ page }) => {
+    test.fail(
+      modelId === 'Qwen3.5-0.8B-q4f16_1-MLC',
+      'Qwen3.5-0.8B emits malformed tool XML with thinking enabled.',
+    )
     const directory = process.platform === 'win32' ? tmpdir() : '/tmp'
     const path = join(directory, `q35-${process.pid}.txt`)
     const code = 'code-' + crypto.randomUUID().slice(0, 8)
@@ -27,7 +31,6 @@ for (const modelId of [
       agent = await createHarness({
         model: new BrowserModel(page, {
           modelId,
-          maxTokens: 1024,
           temperature: 0,
           request: { extra_body: { enable_thinking: true } },
         }),
