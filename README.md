@@ -12,4 +12,4 @@ Model support is specific to WebLLM's exact `model_id` and quantization. See the
 
 ## Release
 
-MIT · [0.1.0 on npm](https://www.npmjs.com/package/strands-web-llm/v/0.1.0).
+MIT · [0.1.1 on npm](https://www.npmjs.com/package/strands-web-llm/v/0.1.1).
