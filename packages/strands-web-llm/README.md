@@ -13,28 +13,54 @@ npm install strands-web-llm @mlc-ai/web-llm @strands-agents/sdk
 
 ## Browser
 
-Load a model with WebLLM, then pass its engine to Strands:
+Create a worker that runs WebLLM:
 
 ```ts
-import { CreateMLCEngine } from '@mlc-ai/web-llm'
+// worker.ts
+import { WebWorkerMLCEngineHandler } from '@mlc-ai/web-llm'
+
+const handler = new WebWorkerMLCEngineHandler()
+self.onmessage = (message: MessageEvent) => handler.onmessage(message)
+```
+
+Load a model in the browser, then pass its engine to Strands:
+
+```ts
+import { CreateWebWorkerMLCEngine } from '@mlc-ai/web-llm'
 import { Agent } from '@strands-agents/sdk'
 import { WebLLMModel } from 'strands-web-llm'
 
 const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
-const engine = await CreateMLCEngine(modelId)
-const agent = new Agent({ model: new WebLLMModel({ engine, modelId }) })
-
+const contextWindowSize = 4096
+const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
 try {
-  console.log((await agent.invoke('Say hello.')).lastMessage.content)
+  const engine = await CreateWebWorkerMLCEngine(worker, modelId, undefined, {
+    context_window_size: contextWindowSize,
+  })
+  try {
+    const model = new WebLLMModel({ engine, modelId, contextWindowLimit: contextWindowSize })
+    const agent = new Agent({ model })
+    console.log((await agent.invoke('Say hello.')).lastMessage.content)
+  } finally {
+    await engine.unload()
+  }
 } finally {
-  await engine.unload()
+  worker.terminate()
 }
 ```
 
-You own model loading and unloading. WebLLM's Worker factories work too.
+You own model loading and unloading. The examples use Worker and Main thread engines; the adapter accepts any WebLLM `MLCEngineInterface`.
+The first load fetches WebLLM's runtime and model files; the browser caches them for later use.
+Inference runs locally.
 See the [runnable examples](https://github.com/ykoh42/web-llm-adapters/blob/main/examples/strands-web-llm/README.md).
 
 ## Node.js Harness
+
+Install Harness for this example:
+
+```sh
+npm install @strands-agents/harness@0.3.0
+```
 
 On a browser page controlled by your application, load the model with
 `context_window_size: 16384` and expose its engine:
@@ -55,7 +81,8 @@ const model = new BrowserModel(page, {
   contextWindowLimit: 16384, // Match the loaded engine.
   maxTokens: 4096,
 })
-const agent = await createHarness({ model })
+// Qwen3.5 is text-only, so keep media out of Harness's read tool.
+const agent = await createHarness({ model, builtinTools: { read: { media: false } } })
 try {
   console.log((await agent.invoke('Say hello.')).lastMessage.content)
 } finally {
@@ -116,7 +143,10 @@ Tool formats follow [Hermes](https://github.com/QwenLM/Qwen3/blob/main/docs/sour
 [memory example](https://github.com/ykoh42/web-llm-adapters/blob/main/examples/strands-web-llm/harness/src/memory.ts).
 Arctic Embed S has 384 dimensions and a 512-token input limit. Prefix queries with
 `Represent this sentence for searching relevant passages: `; leave stored text unprefixed.
-Searches scan all entries, and vectors rebuild after restart; use small stores and split long entries.
+Search returns positive cosine matches by default; set `minScore` to include lower scores.
+For FileMemoryStore, set `includeData: false` to avoid retaining bytes it reads back itself.
+Searches scan all entries, and vectors rebuild after restart. Keep each stored record within 512 tokens;
+FileMemoryStore appends facts that share a heading.
 
 Other vision and embedding IDs and speech understanding are unverified. Video is unsupported.
 
@@ -140,8 +170,9 @@ Features depend on the exact model above.
 | Context recovery                      | `countTokens()` and Strands overflow error        | Counts are estimates; set the loaded context window size |
 | Other native APIs                     | `withEngine()`                                    | Caller owns setup and lifecycle                          |
 
-Signed/redacted reasoning, S3 media, video, documents, guardrails, and media in tool results
-are unsupported. Invalid or incomplete tool output reaches the caller; the adapter does not
+Signed/redacted reasoning, S3 media, video, documents, guardrails, and non-image tool-result media
+are unsupported. Tool-result images follow the adjacent tool replies; no listed model is verified
+for both tools and vision. Invalid or incomplete tool output reaches the caller; the adapter does not
 change tool names or arguments or supply answers. Model-selected tools and arguments still need validation.
 
 <details>

@@ -6,6 +6,7 @@ import {
   ContextWindowOverflowError,
   GuardContentBlock,
   Message,
+  ModelError,
   TextBlock,
 } from '@strands-agents/sdk'
 import {
@@ -36,6 +37,109 @@ function open() {
   const request = { messages: messages.map((message) => message.toJSON()), config, options: {} }
   return { ...native, model, bridge, request, page }
 }
+
+it('keeps overlapping bridge reads in event order without duplicating events', async () => {
+  const { bridge, request } = open()
+  const id = await bridge.start(request)
+  try {
+    await bridge.next(id)
+    const results = await Promise.all([bridge.next(id), bridge.next(id), bridge.next(id)])
+    expect(
+      results.map((result) => {
+        if ('error' in result) throw new Error(result.error.message)
+        return result.done ? 'done' : result.value.type
+      }),
+    ).toEqual([
+      'modelContentBlockStartEvent',
+      'modelContentBlockDeltaEvent',
+      'modelContentBlockStopEvent',
+    ])
+  } finally {
+    await bridge.stop(id)
+  }
+})
+
+it('prepares one stream event while the browser consumer handles the previous one', async () => {
+  const { bridge, request, create } = open()
+  const produced = vi.fn()
+  create.mockResolvedValueOnce(
+    (async function* () {
+      produced('first')
+      yield chunk({ content: 'First' })
+      produced('second')
+      yield chunk({ content: 'Second' }, 'stop')
+    })(),
+  )
+  const id = await bridge.start(request)
+  try {
+    expect(await bridge.next(id)).toMatchObject({
+      value: { type: 'modelMessageStartEvent' },
+    })
+    await vi.waitFor(() => expect(produced).toHaveBeenCalledExactlyOnceWith('first'))
+    await Promise.resolve()
+    expect(produced).toHaveBeenCalledTimes(1)
+  } finally {
+    await bridge.stop(id)
+  }
+})
+
+it('preserves Strands model errors across the browser boundary', async () => {
+  const { model, create } = open()
+  const invalid = chunk({ content: 'Invalid' }, 'stop')
+  invalid.choices[0]!.index = 1
+  create.mockResolvedValueOnce(chunks(invalid))
+  await expect(collect(model.stream(messages))).rejects.toBeInstanceOf(ModelError)
+  await expect(collect(model.stream(messages))).resolves.toContainEqual({
+    type: 'modelMessageStopEvent',
+    stopReason: 'endTurn',
+  })
+})
+
+it('preserves model error causes across the browser boundary', async () => {
+  const { model, create } = open()
+  model.updateConfig({ modelId: 'Qwen3-4B-q4f16_1-MLC' })
+  create.mockResolvedValueOnce(
+    chunks(chunk({ content: '<tool_call>{"name":"lookup","arguments": }</tool_call>' }, 'stop')),
+  )
+  await expect(
+    collect(
+      model.stream(messages, {
+        toolSpecs: [{ name: 'lookup', description: 'Look up a value.' }],
+      }),
+    ),
+  ).rejects.toMatchObject({
+    name: 'ModelError',
+    cause: {
+      name: 'WebLLMError',
+      cause: { name: 'SyntaxError' },
+    },
+  })
+})
+
+it('keeps the stream error when browser cleanup also fails', async () => {
+  const failure = new ModelError('Generation failed')
+  let call = 0
+  const page: BrowserPage = {
+    async evaluate<T>(): Promise<T> {
+      call++
+      if (call === 1) return 'stream-id' as T
+      if (call === 2) throw failure
+      throw new Error('Page closed during cleanup')
+    },
+  }
+  const model = new BrowserModel(page, { modelId: 'test-model' })
+
+  await expect(collect(model.stream(messages))).rejects.toBe(failure)
+})
+
+it('does not send a redundant stop after the browser stream ends', async () => {
+  const { model, bridge } = open()
+  const stop = vi.spyOn(bridge, 'stop')
+
+  await collect(model.stream(messages))
+
+  expect(stop).not.toHaveBeenCalled()
+})
 
 it('delivers native chunks with logprobs through a Strands Agent in order', async () => {
   const { page, create, model } = open()
@@ -122,7 +226,7 @@ it('runs a Strands Agent through the public browser bridge and keeps config snap
 })
 
 it('counts the browser prompt, joins system text and ignores cache hints', async () => {
-  const { model, engine, create } = open()
+  const { model, engine, create, page } = open()
   const prompt = [
     new TextBlock('One'),
     new CachePointBlock({ cacheType: 'default' }),
@@ -132,6 +236,7 @@ it('counts the browser prompt, joins system text and ignores cache hints', async
     systemPrompt: prompt,
     toolSpecs: [{ name: 'read', description: 'Read a file' }],
   }
+  const evaluate = vi.spyOn(page, 'evaluate')
   const native = new WebLLMModel({
     engine,
     modelId: 'test-model',
@@ -139,22 +244,45 @@ it('counts the browser prompt, joins system text and ignores cache hints', async
   expect(await model.countTokens(messages, options)).toBe(
     await native.countTokens(messages, { ...options, systemPrompt: 'One\n\nTwo' }),
   )
+  expect(evaluate).not.toHaveBeenCalled()
   await collect(model.stream(messages, { systemPrompt: prompt }))
   expect(create.mock.calls[0]?.[0].messages[0]).toEqual({ role: 'system', content: 'One\n\nTwo' })
 })
 
-it('rejects unsupported system blocks instead of dropping them at the boundary', async () => {
-  const { model, create } = open()
+it('counts Gemma prompts locally without crossing the browser bridge', async () => {
+  const { model, engine, page } = open()
+  const modelId = 'gemma-4-E2B-it-q4f16_1-MLC'
+  const request = { extra_body: { enable_thinking: true } }
+  model.updateConfig({ modelId, request })
+  const native = new WebLLMModel({ engine, modelId, request })
+  const evaluate = vi.spyOn(page, 'evaluate')
+  const options = {
+    systemPrompt: 'Think carefully.',
+    toolSpecs: [{ name: 'read', description: 'Read a file' }],
+  }
+
+  await expect(model.countTokens(messages, options)).resolves.toBe(
+    await native.countTokens(messages, options),
+  )
+  expect(evaluate).not.toHaveBeenCalled()
+})
+
+it('counts system guards and rejects them from WebLLM requests', async () => {
+  const { model, create, engine } = open()
   const systemPrompt = [new GuardContentBlock({ text: { text: 'Protected text', qualifiers: [] } })]
+  const native = new WebLLMModel({ engine, modelId: 'test-model' })
+  await expect(model.countTokens(messages, { systemPrompt })).resolves.toBe(
+    await native.countTokens(messages, { systemPrompt }),
+  )
   await expect(collect(model.stream(messages, { systemPrompt }))).rejects.toThrow(
     'guardContentBlock',
   )
-  await expect(model.countTokens(messages, { systemPrompt })).rejects.toThrow('guardContentBlock')
   expect(create).not.toHaveBeenCalled()
 })
 
-it('preserves audio bytes across JSON without changing the native request', async () => {
-  const { model, create } = open()
+it('preserves audio bytes across the browser boundary without changing the native request', async () => {
+  const { model, create, page } = open()
+  const evaluate = vi.spyOn(page, 'evaluate')
   const audio = [
     new Message({
       role: 'user',
@@ -164,6 +292,9 @@ it('preserves audio bytes across JSON without changing the native request', asyn
     }),
   ]
   await collect(model.stream(audio))
+  expect(evaluate.mock.calls[0]?.[1]).toMatchObject({
+    messages: [{ content: [{ audio: { source: { bytes: 'AH+A/w==' } } }] }],
+  })
   expect(create.mock.calls[0]?.[0].messages[0]).toMatchObject({
     content: [
       { type: 'text', text: '' },
@@ -199,10 +330,14 @@ it.each(['overflow', 'native', 'string'] as const)(
 it('stops an abandoned browser iterator on abort and releases the shared engine', async () => {
   const { model, create, stop } = open()
   const closed = pause()
+  const running = pause()
+  // Keep inference active until interrupted, even when the bridge reads one event ahead.
+  stop.mockImplementationOnce(async () => running.resume())
   create.mockResolvedValueOnce(
     (async function* () {
       try {
         yield chunk({ content: 'Partial' })
+        await running.wait
       } finally {
         closed.resume()
       }
@@ -230,6 +365,14 @@ it('does not start a pre-cancelled request', async () => {
     collect(model.stream(messages, { cancelSignal: AbortSignal.abort(new Error('Stopped')) })),
   ).rejects.toThrow('Stopped')
   expect(start).not.toHaveBeenCalled()
+})
+
+it('explains how to set up the browser bridge when it is missing', async () => {
+  const { model } = open()
+  vi.stubGlobal('window', {})
+  await expect(collect(model.stream(messages))).rejects.toThrow(
+    'Expose createBrowserBridge(engine) as window.webllmBridge before using BrowserModel.',
+  )
 })
 
 it('cleans up after early consumer return', async () => {
@@ -261,7 +404,6 @@ it('waits for every stream to close and leaves engine unloading to the caller', 
   const queued = await bridge.start(request)
   const closing = bridge.close()
   await expect(bridge.start(request)).rejects.toThrow('closed')
-  await expect(bridge.count(request)).rejects.toThrow('closed')
   cleaning.resume()
   await closing
   await bridge.stop(queued)

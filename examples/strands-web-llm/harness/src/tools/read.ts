@@ -1,8 +1,11 @@
+import { basename, dirname, isAbsolute } from 'node:path'
 import { read } from '@strands-agents/harness'
 import { tool } from '@strands-agents/sdk'
 import { extractText } from 'unpdf'
 import { z } from 'zod'
 import { imageText } from './ocr.ts'
+
+const maxMediaBytes = 20 * 1024 * 1024
 
 /** Extend Harness read with local PDF text extraction and image OCR. */
 export function createRead() {
@@ -16,7 +19,7 @@ export function createRead() {
         .string()
         .describe('Absolute path to the file.')
         .refine(
-          (path) => path.startsWith('/') && !path.split(/[/\\]/).includes('..'),
+          (path) => isAbsolute(path) && !path.split(/[/\\]/).includes('..'),
           'Use an absolute path without .. segments.',
         ),
       offset: z.number().optional().describe('First text line, starting at 1.'),
@@ -34,8 +37,13 @@ export function createRead() {
           throw new Error('This Gemma build cannot view this media format.')
         return result
       }
+      const files = await context.agent.sandbox.listFiles(dirname(input.path)).catch(() => [])
+      context.cancelSignal.throwIfAborted()
+      const file = files.find((entry) => entry.name === basename(input.path))
+      if (file?.size !== undefined && file.size > maxMediaBytes)
+        throw new Error('Media files must be at most 20 MiB.')
       const bytes = await context.agent.sandbox.readFile(input.path)
-      if (bytes.length > 20 * 1024 * 1024) throw new Error('Media files must be at most 20 MiB.')
+      if (bytes.length > maxMediaBytes) throw new Error('Media files must be at most 20 MiB.')
       context.cancelSignal.throwIfAborted()
       if (image) return imageText(bytes, context.cancelSignal)
       const { text } = await extractText(new Uint8Array(bytes), { mergePages: true })

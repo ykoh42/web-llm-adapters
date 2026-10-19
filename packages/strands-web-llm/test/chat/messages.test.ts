@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   AudioBlock,
   ImageBlock,
   JsonBlock,
   Message,
+  ReasoningBlock,
   TextBlock,
   ToolResultBlock,
   ToolUseBlock,
@@ -72,6 +73,99 @@ describe('messages', () => {
     expect(output).toEqual([{ role: 'tool', tool_call_id: 'a', content: 'Tool error: Not found' }])
   })
 
+  it('preserves whitespace in tool results', () => {
+    const output = formatMessages([
+      new Message({
+        role: 'user',
+        content: [
+          new ToolResultBlock({
+            toolUseId: 'a',
+            status: 'success',
+            content: [new TextBlock('    return 1\n')],
+          }),
+        ],
+      }),
+    ])
+
+    expect(output).toEqual([{ role: 'tool', tool_call_id: 'a', content: '    return 1\n' }])
+  })
+
+  it('keeps tool-result images separate and after adjacent tool replies', () => {
+    const output = formatMessages([
+      new Message({
+        role: 'assistant',
+        content: [
+          new ToolUseBlock({ toolUseId: 'a', name: 'read', input: {} }),
+          new ToolUseBlock({ toolUseId: 'b', name: 'read', input: {} }),
+        ],
+      }),
+      new Message({
+        role: 'user',
+        content: [
+          new ToolResultBlock({
+            toolUseId: 'a',
+            status: 'success',
+            content: [
+              new TextBlock('Found the page.'),
+              new ImageBlock({ format: 'png', source: { url: 'https://example.com/page.png' } }),
+            ],
+          }),
+          new ToolResultBlock({
+            toolUseId: 'b',
+            status: 'success',
+            content: [
+              new TextBlock('Done.'),
+              new ImageBlock({ format: 'jpeg', source: { url: 'https://example.com/other.jpg' } }),
+            ],
+          }),
+          new TextBlock('What is in the image?'),
+        ],
+      }),
+    ])
+
+    expect(output.slice(-5)).toEqual([
+      { role: 'tool', tool_call_id: 'a', content: 'Found the page.' },
+      { role: 'tool', tool_call_id: 'b', content: 'Done.' },
+      {
+        role: 'user',
+        content: [{ type: 'image_url', image_url: { url: 'https://example.com/page.png' } }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'image_url', image_url: { url: 'https://example.com/other.jpg' } }],
+      },
+      { role: 'user', content: 'What is in the image?' },
+    ])
+    expect(() =>
+      postInitAndCheckFieldsChatCompletion({ messages: output }, 'test-model', ModelType.VLM),
+    ).not.toThrow()
+  })
+
+  it('adds a non-empty tool reply when the result contains only an image', () => {
+    const output = formatMessages([
+      new Message({
+        role: 'user',
+        content: [
+          new ToolResultBlock({
+            toolUseId: 'a',
+            status: 'success',
+            content: [
+              new ImageBlock({ format: 'png', source: { bytes: new Uint8Array([1, 2, 3]) } }),
+            ],
+          }),
+        ],
+      }),
+    ])
+
+    expect(output).toEqual([
+      { role: 'tool', tool_call_id: 'a', content: 'Tool successfully returned an image.' },
+      {
+        role: 'user',
+        content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,AQID' } }],
+      },
+    ])
+  })
+
   it('keeps empty assistant tool-call content as a string WebLLM accepts', () => {
     const output = formatMessages([
       new Message({ role: 'user', content: [new TextBlock('Get the time.')] }),
@@ -106,6 +200,31 @@ describe('messages', () => {
         ModelType.LLM,
       ),
     ).not.toThrow()
+  })
+
+  it('rejects tool signatures that WebLLM cannot preserve', () => {
+    const message = new Message({
+      role: 'assistant',
+      content: [
+        new ToolUseBlock({
+          toolUseId: 'call-1',
+          name: 'lookup',
+          input: { city: 'Seoul' },
+          reasoningSignature: 'opaque-signature',
+        }),
+      ],
+    })
+
+    expect(() => formatMessages([message])).toThrow('tool calls with reasoning signatures')
+  })
+
+  it('omits an empty assistant turn with no tool calls', () => {
+    const output = formatMessages([
+      new Message({ role: 'assistant', content: [new ReasoningBlock({ text: '' })] }),
+      new Message({ role: 'user', content: [new TextBlock('Continue.')] }),
+    ])
+
+    expect(output).toEqual([{ role: 'user', content: 'Continue.' }])
   })
 
   it('passes image URLs and bytes in WebLLM format', () => {
@@ -143,6 +262,36 @@ describe('messages', () => {
         { type: 'input_audio', input_audio: { format: 'wav', data: 'AQID' } },
       ],
     })
+  })
+
+  it.each([
+    { size: 0, browser: false },
+    { size: 257, browser: false },
+    { size: 131075, browser: false },
+    { size: 131075, browser: true },
+  ])('preserves media bytes and view offsets: %j', ({ size, browser }) => {
+    const buffer = Uint8Array.from({ length: size + 14 }, (_, index) => index % 256)
+    const bytes = buffer.subarray(7, size + 7)
+    const expected = Buffer.from(bytes).toString('base64')
+    if (browser) vi.stubGlobal('Buffer', undefined)
+    try {
+      const output = formatMessages([
+        new Message({
+          role: 'user',
+          content: [
+            new ImageBlock({ format: 'jpg', source: { bytes } }),
+            new AudioBlock({ format: 'wav', source: { bytes } }),
+          ],
+        }),
+      ])
+      expect(output[0]?.content).toEqual([
+        { type: 'text', text: '' },
+        { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${expected}` } },
+        { type: 'input_audio', input_audio: { format: 'wav', data: expected } },
+      ])
+    } finally {
+      if (browser) vi.unstubAllGlobals()
+    }
   })
 
   it('rejects unsupported audio instead of silently dropping it', () => {

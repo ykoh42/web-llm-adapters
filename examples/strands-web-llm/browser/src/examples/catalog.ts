@@ -1,9 +1,4 @@
-import { chat, grammar, json } from './chat.js'
-import { tools } from './tools.js'
-import { media, rawAudio } from './media.js'
-import { completions, embeddings, resume } from './native.js'
 import type { ExampleInput } from './output.js'
-import { tags, thinking, sampling } from './advanced.js'
 
 interface Example {
   id: string
@@ -19,48 +14,54 @@ interface Example {
 const gemma = 'gemma-4-E2B-it-q4f16_1-MLC'
 
 export const examples: Example[] = [
-  { id: 'chat', name: 'Chat', model: gemma, prompt: 'Reply with a short greeting.', run: chat },
+  {
+    id: 'chat',
+    name: 'Chat',
+    model: gemma,
+    prompt: 'Reply with a short greeting.',
+    run: async (input) => (await import('./chat.js')).chat(input),
+  },
   {
     id: 'tags',
     name: 'Structural tags',
     model: gemma,
     prompt: 'Return exactly <answer>{"count":3}</answer>. Do not explain.',
-    run: tags,
+    run: async (input) => (await import('./advanced.js')).tags(input),
   },
   {
     id: 'thinking',
     name: 'Qwen thinking on and off',
     model: 'Qwen3-0.6B-q4f16_1-MLC',
     prompt: 'What is 2 + 2? Answer briefly.',
-    run: thinking,
+    run: async (input) => (await import('./advanced.js')).thinking(input),
   },
   {
     id: 'sampling',
     name: 'Sampling + latency',
     model: gemma,
     prompt: 'Give one short name for a friendly robot. Reply with only the name.',
-    run: sampling,
+    run: async (input) => (await import('./advanced.js')).sampling(input),
   },
   {
     id: 'json',
     name: 'JSON schema + logprobs',
     model: gemma,
     prompt: 'Use name "apple" and count 3.',
-    run: json,
+    run: async (input) => (await import('./chat.js')).json(input),
   },
   {
     id: 'grammar',
     name: 'Grammar',
     model: gemma,
     prompt: 'Pick the color of grass: red, green, or blue.',
-    run: grammar,
+    run: async (input) => (await import('./chat.js')).grammar(input),
   },
   {
     id: 'tools',
     name: 'Gemma tool call + answer',
     model: gemma,
     prompt: 'Use the clock tool to get the current UTC time, then tell me the time.',
-    run: tools,
+    run: async (input) => (await import('./tools.js')).tools(input),
   },
   {
     id: 'gemma-thinking',
@@ -68,7 +69,7 @@ export const examples: Example[] = [
     model: gemma,
     prompt: 'What is 2 + 2? Answer briefly.',
     contextWindow: 4096,
-    run: thinking,
+    run: async (input) => (await import('./advanced.js')).thinking(input),
   },
   {
     id: 'thinking-tools',
@@ -76,14 +77,14 @@ export const examples: Example[] = [
     model: gemma,
     prompt: 'Use the clock tool to get the current UTC time, then tell me the time.',
     contextWindow: 4096,
-    run: (input) => tools(input, true),
+    run: async (input) => (await import('./tools.js')).tools(input, true),
   },
   {
     id: 'hermes-tools',
     name: 'Hermes tool batch',
     model: 'Hermes-3-Llama-3.1-8B-q4f16_1-MLC',
     prompt: 'Use the clock tool to get the current UTC time.',
-    run: tools,
+    run: async (input) => (await import('./tools.js')).tools(input),
   },
   {
     id: 'image',
@@ -92,7 +93,7 @@ export const examples: Example[] = [
     prompt: 'Describe this image in one sentence.',
     accept: 'image/png,image/jpeg',
     contextWindow: 8192,
-    run: media,
+    run: async (input) => (await import('./media.js')).media(input),
   },
   {
     id: 'audio',
@@ -101,7 +102,7 @@ export const examples: Example[] = [
     prompt: 'Transcribe this audio.',
     accept: '.wav',
     contextWindow: 8192,
-    run: media,
+    run: async (input) => (await import('./media.js')).media(input),
   },
   {
     id: 'raw-audio',
@@ -110,7 +111,7 @@ export const examples: Example[] = [
     prompt: 'Transcribe this audio.',
     accept: 'audio/*',
     contextWindow: 8192,
-    run: rawAudio,
+    run: async (input) => (await import('./media.js')).rawAudio(input),
   },
   {
     id: 'embeddings',
@@ -119,7 +120,7 @@ export const examples: Example[] = [
     contextWindow: 512,
     prompt: 'A small browser agent.',
     native: true,
-    run: embeddings,
+    run: async (input) => (await import('./native.js')).embeddings(input),
   },
   {
     id: 'completions',
@@ -127,7 +128,7 @@ export const examples: Example[] = [
     model: gemma,
     prompt: 'The sky is',
     native: true,
-    run: completions,
+    run: async (input) => (await import('./native.js')).completions(input),
   },
   {
     id: 'resume',
@@ -135,6 +136,6 @@ export const examples: Example[] = [
     model: gemma,
     prompt: 'Count from 1 to 30, with spaces between numbers. Do not explain.',
     native: true,
-    run: resume,
+    run: async (input) => (await import('./native.js')).resume(input),
   },
 ]

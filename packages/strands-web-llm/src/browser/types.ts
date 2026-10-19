@@ -1,9 +1,4 @@
-import type {
-  CountTokensOptions,
-  MessageData,
-  ModelStreamEvent,
-  StreamOptions,
-} from '@strands-agents/sdk'
+import type { MessageData, ModelStreamEvent, StreamOptions } from '@strands-agents/sdk'
 import type { WebLLMChunk, WebLLMModelConfig, WebLLMModelOptions } from '../types.js'
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
 
@@ -17,12 +12,18 @@ export interface BrowserRequest {
     systemPrompt?: string
   }
 }
-export interface BrowserCountRequest extends Omit<BrowserRequest, 'options'> {
-  options: Omit<CountTokensOptions, 'systemPrompt'> & { systemPrompt?: string }
+interface BrowserErrorCause {
+  name: string
+  message: string
 }
-export type BrowserResult = (
-  IteratorResult<ModelStreamEvent, void> | { error: { name: string; message: string } }
-) & { chunks?: WebLLMChunk[] }
+export interface BrowserError {
+  name: string
+  message: string
+  causes?: BrowserErrorCause[]
+}
+export type BrowserResult = (IteratorResult<ModelStreamEvent, void> | { error: BrowserError }) & {
+  chunks?: WebLLMChunk[]
+}
 
 /** A private page controlled by the caller, such as a Playwright Page. */
 export interface BrowserPage {
@@ -33,7 +34,6 @@ export interface BrowserPage {
 export interface BrowserBridge {
   /** Run on the browser page. Finish native work inside the callback before returning. */
   withEngine<T>(run: (engine: MLCEngineInterface) => T | Promise<T>): Promise<T>
-  count(request: BrowserCountRequest): Promise<number>
   start(request: BrowserRequest): Promise<string>
   next(id: string): Promise<BrowserResult>
   stop(id: string): Promise<void>

@@ -10,24 +10,49 @@ npm install langchain-web-llm @langchain/core @mlc-ai/web-llm
 
 ## Use
 
-Load a model with WebLLM, then pass its engine to the provider:
+Create a worker that runs WebLLM:
 
 ```ts
-import { CreateMLCEngine } from '@mlc-ai/web-llm'
+// worker.ts
+import { WebWorkerMLCEngineHandler } from '@mlc-ai/web-llm'
+
+const handler = new WebWorkerMLCEngineHandler()
+self.onmessage = (message: MessageEvent) => handler.onmessage(message)
+```
+
+Load a model in the browser, then pass its engine to the provider:
+
+```ts
+import { CreateWebWorkerMLCEngine } from '@mlc-ai/web-llm'
 import { ChatWebLLM } from 'langchain-web-llm'
 
 const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
-const engine = await CreateMLCEngine(modelId)
-const model = new ChatWebLLM({ engine, modelId })
-
-console.log((await model.invoke('Hello')).text)
+const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
+try {
+  const engine = await CreateWebWorkerMLCEngine(worker, modelId)
+  try {
+    const model = new ChatWebLLM({ engine, modelId })
+    console.log((await model.invoke('Hello')).text)
+  } finally {
+    await engine.unload()
+  }
+} finally {
+  worker.terminate()
+}
 ```
 
-Use LangChain's usual `bindTools`, `stream`, `batch`, and `withStructuredOutput` APIs. Thinking is returned as standard `reasoning` content blocks; `.text` contains the answer. Enable it with `request.extra_body.enable_thinking` on a model that supports it.
+The first load fetches WebLLM's runtime and model files; the browser caches them for later use.
+Inference runs locally.
+
+Use LangChain's usual `bindTools`, `stream`, `batch`, and `withStructuredOutput` APIs. Call `streamEvents(input)` without a version for typed text, reasoning, tool-call, and usage streams. Thinking is returned as standard `reasoning` content blocks; `.text` contains the answer. Enable it with `request.extra_body.enable_thinking` on a model that supports it.
 
 ## Deep Agents
 
 Keep the agent and its tools in Node.js, and WebLLM in a private browser page:
+
+```sh
+npm install deepagents
+```
 
 ```ts
 // Browser: after loading the engine
@@ -51,19 +76,21 @@ const result = await agent.invoke({
 })
 ```
 
+Deep Agents writes the text to its virtual filesystem in `result.files`, not to your computer.
+
 Load the browser engine with `context_window_size: 32768` for this example. The page must already contain the loaded model and bridge. [Runnable examples](https://github.com/ykoh42/web-llm-adapters/tree/main/examples/langchain-web-llm) show the full setup.
 
 ## Support
 
-| Feature                              | Support                                                               |
-| ------------------------------------ | --------------------------------------------------------------------- |
-| Chat, streaming, tools, reasoning    | Model-dependent                                                       |
-| Cancellation and shared-engine calls | Yes                                                                   |
-| Structured output                    | `withStructuredOutput()` through tools or native JSON                 |
-| Images and WAV audio                 | Passed through to models that accept them                             |
-| Video and generic files              | No native WebLLM input                                                |
-| Embeddings                           | `WebLLMEmbeddings` and `BrowserWebLLMEmbeddings` for LangGraph memory |
-| Strict tool schemas                  | No                                                                    |
+| Feature                              | Support                                                                                  |
+| ------------------------------------ | ---------------------------------------------------------------------------------------- |
+| Chat, streaming, tools, reasoning    | Model-dependent                                                                          |
+| Cancellation and shared-engine calls | Yes                                                                                      |
+| Structured output                    | `withStructuredOutput()` through tools or native JSON                                    |
+| Images and WAV audio                 | Model-dependent; URLs/base64 strings or bytes; no image detail or interleaved text/media |
+| Video and generic files              | No native WebLLM input                                                                   |
+| Embeddings                           | `WebLLMEmbeddings` and `BrowserWebLLMEmbeddings` for LangGraph memory                    |
+| Strict tool schemas                  | No                                                                                       |
 
 ## Models
 
@@ -95,10 +122,11 @@ const vector = await embeddings.embedQuery('a flower')
 ```
 
 Snowflake's query prefix is applied automatically; documents stay unprefixed. Use `BrowserWebLLMEmbeddings(page, options)` for Node.js and LangGraph semantic memory.
+Document inputs are sent in batches of 32 by default; lower `batchSize` to reduce temporary memory use for large embedding jobs.
 
 ## Native options
 
-Pass WebLLM generation settings through `request`, either at construction or per call. `onChunk` receives unchanged native chunks, including log probabilities and timing. Use `model.engine` and `withEngine(engine, callback)` for other native APIs. Consume native streams inside the callback.
+Retries default to 0. Set `maxRetries` for failures while WebLLM opens a stream; errors during generation are not retried. Pass WebLLM generation settings through `request`, either at construction or per call. `onChunk` receives unchanged native chunks, including log probabilities and timing. For custom vision models used with Deep Agents, set `profile.imageInputs` and `profile.imageToolMessage` to `true` so Deep Agents keeps tool images; this adapter sends them in the next user turn. Use `model.engine` and `withEngine(engine, callback)` for other native APIs. Consume native streams inside the callback.
 
 You own the engine, model loading, workers, and browser page. Calls sharing one engine run in order. Cancellation interrupts the active generation; it does not unload the engine.
 

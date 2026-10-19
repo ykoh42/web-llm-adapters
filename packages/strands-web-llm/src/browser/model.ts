@@ -1,41 +1,19 @@
-import {
-  Model,
-  ContextWindowOverflowError,
-  type CountTokensOptions,
-  type Message,
-  type ModelStreamEvent,
-  type StreamOptions,
-} from '@strands-agents/sdk'
+import type { Message, ModelStreamEvent, StreamOptions } from '@strands-agents/sdk'
+import { fromBrowserError } from './errors.js'
+import { WebLLMModelBase } from '../model-base.js'
 import type { WebLLMModelConfig } from '../types.js'
 import { formatSystemPrompt } from '../chat/messages.js'
 import type { BrowserModelOptions, BrowserPage, BrowserRequest } from './types.js'
 
 /** Runs the adapter in a controlled browser; Harness and its tools stay in Node.js. */
-export class BrowserModel extends Model<WebLLMModelConfig> {
+export class BrowserModel extends WebLLMModelBase {
   private readonly page: BrowserPage
-  private config: WebLLMModelConfig
   private readonly onChunk: BrowserModelOptions['onChunk']
 
   constructor(page: BrowserPage, { onChunk, ...config }: BrowserModelOptions) {
-    super()
+    super(config)
     this.page = page
-    this.config = structuredClone(config)
     this.onChunk = onChunk
-  }
-
-  override getConfig() {
-    return structuredClone(this.config)
-  }
-
-  override updateConfig(config: Partial<WebLLMModelConfig>) {
-    this.config = structuredClone({ ...this.config, ...config })
-  }
-
-  override async countTokens(messages: Message[], options: CountTokensOptions = {}) {
-    return this.page.evaluate(
-      (json) => window.webllmBridge.count(JSON.parse(json)),
-      encodeRequest(messages, this.getConfig(), options),
-    )
   }
 
   override async *stream(
@@ -45,7 +23,14 @@ export class BrowserModel extends Model<WebLLMModelConfig> {
     const { cancelSignal } = options
     cancelSignal?.throwIfAborted()
     const id = await this.page.evaluate(
-      (json) => window.webllmBridge.start(JSON.parse(json)),
+      (request) => {
+        const bridge = window.webllmBridge
+        if (!bridge)
+          throw new Error(
+            'Expose createBrowserBridge(engine) as window.webllmBridge before using BrowserModel.',
+          )
+        return bridge.start(request)
+      },
       encodeRequest(messages, this.getConfig(), options, Boolean(this.onChunk)),
     )
     // Strands may leave its iterator suspended on cancel, so stop the browser directly.
@@ -55,6 +40,8 @@ export class BrowserModel extends Model<WebLLMModelConfig> {
       void close().catch(() => {})
     }
     cancelSignal?.addEventListener('abort', stop, { once: true })
+    let failed = false
+    let complete = false
     try {
       cancelSignal?.throwIfAborted()
       while (true) {
@@ -62,16 +49,24 @@ export class BrowserModel extends Model<WebLLMModelConfig> {
         cancelSignal?.throwIfAborted()
         for (const chunk of result.chunks ?? []) this.onChunk?.(chunk)
         if ('error' in result) {
-          const { name, message } = result.error
-          if (name === 'ContextWindowOverflowError') throw new ContextWindowOverflowError(message)
-          throw Object.assign(new Error(message), { name })
+          complete = true
+          throw fromBrowserError(result.error)
         }
-        if (result.done) return
+        if (result.done) {
+          complete = true
+          return
+        }
         yield result.value
       }
+    } catch (error) {
+      failed = true
+      throw error
     } finally {
       cancelSignal?.removeEventListener('abort', stop)
-      await close()
+      if (!complete) {
+        if (failed) await close().catch(() => {})
+        else await close()
+      }
     }
   }
 }
@@ -96,5 +91,5 @@ function encodeRequest(
       ...(dynamicTrailingBlocks !== undefined && { dynamicTrailingBlocks }),
     },
   }
-  return JSON.stringify(request)
+  return request
 }

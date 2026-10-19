@@ -1,4 +1,5 @@
-import { ModelError, type JSONValue } from '../types.js'
+import { ModelError } from '../types.js'
+import { parseJSON } from '../json.js'
 
 const quote = '<|"|>'
 
@@ -59,10 +60,7 @@ export function readArguments(source: string) {
 
 function argumentObject(source: string) {
   try {
-    const input: JSONValue = JSON.parse(source, (_key, item: JSONValue) => {
-      if (typeof item === 'number' && !Number.isFinite(item)) throw new Error('Non-finite number')
-      return item
-    })
+    const input = parseJSON(source)
     if (input === null || Array.isArray(input) || typeof input !== 'object')
       throw new Error('Expected an object')
     return input

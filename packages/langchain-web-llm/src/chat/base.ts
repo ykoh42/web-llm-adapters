@@ -21,14 +21,18 @@ import {
   type LangSmithParams,
 } from '@langchain/core/language_models/chat_models'
 import type { CallbackManagerForLLMRun } from '@langchain/core/callbacks/manager'
+import type { ChatModelStreamEvent } from '@langchain/core/language_models/event'
 import { ChatGenerationChunk, type ChatResult } from '@langchain/core/outputs'
+import { AsyncCaller, type AsyncCallerParams } from '@langchain/core/utils/async_caller'
 import { formatTools } from './tools.js'
 import type { WebLLMModelOptions, WebLLMCallOptions, WebLLMRequest } from '../types.js'
+import { readEvents } from './stream.js'
 
 export abstract class WebLLMChatModel extends BaseChatModel<WebLLMCallOptions> {
   readonly modelId: string
   private readonly modelProfile: ModelProfile
   protected readonly retries: number
+  private readonly callerParams: AsyncCallerParams
   protected readonly request: WebLLMRequest
 
   constructor({
@@ -41,10 +45,15 @@ export abstract class WebLLMChatModel extends BaseChatModel<WebLLMCallOptions> {
     profile,
     ...params
   }: WebLLMModelOptions) {
-    super({ maxRetries: 0, ...params })
+    super({ ...params, maxRetries: params.maxRetries ?? 0 })
     if (!modelId) throw new Error('modelId must name a loaded WebLLM model.')
     this.modelId = modelId
     this.retries = params.maxRetries ?? 0
+    this.callerParams = {
+      maxRetries: this.retries,
+      ...(params.maxConcurrency !== undefined && { maxConcurrency: params.maxConcurrency }),
+      ...(params.onFailedAttempt !== undefined && { onFailedAttempt: params.onFailedAttempt }),
+    }
     this.modelProfile = modelProfile(modelId, profile)
     this.request = structuredClone({
       ...request,
@@ -59,6 +68,10 @@ export abstract class WebLLMChatModel extends BaseChatModel<WebLLMCallOptions> {
     return structuredClone(this.modelProfile)
   }
 
+  protected createCaller(): AsyncCaller {
+    return new AsyncCaller(this.callerParams)
+  }
+
   static override lc_name() {
     return 'ChatWebLLM'
   }
@@ -66,18 +79,35 @@ export abstract class WebLLMChatModel extends BaseChatModel<WebLLMCallOptions> {
     return 'webllm'
   }
   override get callKeys() {
-    return [...super.callKeys, 'tools', 'request', 'tool_choice', 'ls_structured_output_format']
+    return [
+      ...super.callKeys,
+      'tools',
+      'request',
+      'response_format',
+      'tool_choice',
+      'ls_structured_output_format',
+    ]
   }
   override _identifyingParams() {
     return { model: this.modelId, ...this.request }
   }
 
   override invocationParams(options?: this['ParsedCallOptions']) {
+    return { model: this.modelId, ...this.formatRequest(options) }
+  }
+
+  protected formatRequest(options?: this['ParsedCallOptions']): WebLLMRequest {
+    const format = options?.response_format
     return {
-      model: this.modelId,
       ...this.request,
-      ...options?.request,
+      ...structuredClone(options?.request),
       ...(options?.stop && { stop: options.stop }),
+      ...(format && {
+        response_format:
+          format.type === 'json_schema'
+            ? { type: 'json_object' as const, schema: JSON.stringify(format.json_schema.schema) }
+            : structuredClone(format),
+      }),
     }
   }
 
@@ -176,5 +206,13 @@ export abstract class WebLLMChatModel extends BaseChatModel<WebLLMCallOptions> {
       result = result ? result.concat(chunk) : chunk
     if (!result) throw new Error('WebLLM returned no response.')
     return { generations: [result] }
+  }
+
+  override async *_streamChatModelEvents(
+    messages: BaseMessage[],
+    options: this['ParsedCallOptions'],
+    runManager?: CallbackManagerForLLMRun,
+  ): AsyncGenerator<ChatModelStreamEvent> {
+    yield* readEvents(this._streamResponseChunks(messages, options, runManager), options.signal)
   }
 }

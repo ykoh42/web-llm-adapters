@@ -14,6 +14,11 @@ try {
   const [pack] = JSON.parse(
     run('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', temporary], root),
   )
+  const wasm = pack.files.find(
+    ({ path }: { path: string }) => path === 'dist/runtime/gemma-4-e2b.wasm',
+  )
+  if (!wasm || (wasm.mode & 0o111) !== 0)
+    throw new Error('Wasm package file must not be executable.')
   const allowed = new Set([
     'README.md',
     'LICENSE',
@@ -23,16 +28,12 @@ try {
     'dist/index.d.ts',
     ...runtimeFiles.map((name) => 'dist/runtime/' + name),
   ])
+  const packed = new Set<string>(pack.files.map(({ path }: { path: string }) => path))
+  for (const path of allowed) {
+    if (!packed.has(path)) throw new Error(`Missing npm file: ${path}`)
+  }
   for (const { path } of pack.files) {
     if (!allowed.has(path)) throw new Error(`Unexpected npm file: ${path}`)
-    const bytes = await readFile(new URL('../' + path, import.meta.url))
-    for (const prefix of [
-      '/Users/',
-      '/home/',
-      'npm_' + 'token=',
-      '-----BEGIN ' + 'PRIVATE KEY-----',
-    ])
-      if (bytes.includes(Buffer.from(prefix))) throw new Error(`Private data in npm file: ${path}`)
   }
   await writeFile(
     join(temporary, 'package.json'),
@@ -52,13 +53,21 @@ try {
   const audit = JSON.parse(run('npm', ['audit', '--omit=dev', '--json']))
   if (audit.metadata.vulnerabilities.total)
     throw new Error('Published dependencies failed npm audit.')
-  const source = await readFile(
-    join(temporary, 'node_modules/langchain-web-llm/dist/index.js'),
-    'utf8',
-  )
+  const packageRoot = join(temporary, 'node_modules/langchain-web-llm')
+  for (const { path } of pack.files) {
+    const bytes = await readFile(join(packageRoot, path))
+    for (const prefix of [
+      '/Users/',
+      '/home/',
+      'npm_' + 'token=',
+      '-----BEGIN ' + 'PRIVATE KEY-----',
+    ])
+      if (bytes.includes(Buffer.from(prefix))) throw new Error(`Private data in npm file: ${path}`)
+  }
+  const source = await readFile(join(packageRoot, 'dist/index.js'), 'utf8')
   if (source.includes('@strands-agents/'))
     throw new Error('The LangChain package depends on Strands.')
-  const runtime = join(temporary, 'node_modules/langchain-web-llm/dist/runtime')
+  const runtime = join(packageRoot, 'dist/runtime')
   const manifest = JSON.parse(await readFile(join(runtime, 'manifest.json'), 'utf8'))
   for (const [name, hash] of Object.entries(manifest.files)) {
     const bytes = await readFile(join(runtime, name))

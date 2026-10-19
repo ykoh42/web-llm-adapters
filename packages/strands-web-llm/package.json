@@ -28,6 +28,7 @@
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
     "check:package": "publint --strict && attw --pack --profile esm-only --exclude-entrypoints ./runtime/gemma-4-e2b.wasm",
+    "test:install": "node test/install.ts",
     "prepack": "tsdown --logLevel error"
   },
   "peerDependencies": {

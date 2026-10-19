@@ -2,6 +2,7 @@
 
 [WebLLM](https://github.com/mlc-ai/web-llm) runs AI models locally in your browser using WebGPU.
 These community adapters connect WebLLM to agent frameworks.
+The first load fetches WebLLM's runtime and model files; the browser caches them for later loads.
 
 | Package             | Guide                                                     | Examples                                                          | npm                                                            |
 | ------------------- | --------------------------------------------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------- |

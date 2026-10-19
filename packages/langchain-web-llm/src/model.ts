@@ -26,15 +26,12 @@ export class ChatWebLLM extends WebLLMChatModel {
     runManager?: CallbackManagerForLLMRun,
   ): AsyncGenerator<ChatGenerationChunk> {
     options.signal?.throwIfAborted()
-    const request = {
-      ...this.request,
-      ...structuredClone(options.request),
-      ...(options.stop && { stop: options.stop }),
-    }
+    const request = this.formatRequest(options)
     const choice = formatChoice(options.tool_choice)
+    const retries = options.maxRetries ?? this.retries
     const chunks = protocolStream({
       engine: this.engine,
-      caller: this.caller,
+      caller: options.signal && retries > 0 ? this.createCaller() : this.caller,
       modelId: this.modelId,
       history: formatMessages(messages),
       tools: formatTools(options.tools),
@@ -42,18 +39,14 @@ export class ChatWebLLM extends WebLLMChatModel {
       request,
       onChunk: this.onChunk,
       signal: options.signal,
+      maxRetries: options.maxRetries,
     })
     for await (const chunk of readChunks(chunks, this.modelId, options.signal, choice)) {
+      if (runManager)
+        await runManager.handleLLMNewToken(chunk.text, undefined, undefined, undefined, undefined, {
+          chunk,
+        })
       yield chunk
-      if (chunk.text)
-        await runManager?.handleLLMNewToken(
-          chunk.text,
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          { chunk },
-        )
     }
   }
 }

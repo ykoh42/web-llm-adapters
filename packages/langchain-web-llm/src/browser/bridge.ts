@@ -76,13 +76,12 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
       const call = calls.get(id)
       try {
         if (!call) throw new Error('Unknown browser call.')
-        const result = await (call.pending ?? call.stream.next())
+        const pending = call.pending ?? call.stream.next()
+        // Reserve the next chunk before waiting, so overlapping reads cannot share it.
+        call.pending = pending.then((result) => (result.done ? result : call.stream.next()))
+        void call.pending.catch(() => {})
+        const result = await pending
         if (result.done) calls.delete(id)
-        else {
-          // Keep one chunk ready while the caller handles the previous one.
-          call.pending = call.stream.next()
-          void call.pending.catch(() => {})
-        }
         return { ...result, ...(call.chunks.length && { chunks: call.chunks.splice(0) }) }
       } catch (error) {
         calls.delete(id)

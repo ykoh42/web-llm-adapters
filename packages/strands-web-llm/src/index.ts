@@ -15,6 +15,5 @@ export type {
   BrowserModelOptions,
   BrowserBridge,
   BrowserRequest,
-  BrowserCountRequest,
   BrowserResult,
 } from './browser/types.js'

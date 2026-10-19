@@ -5,9 +5,20 @@ import type { GemmaMessage } from '../../../../shared/web-llm/gemma/prompt.js'
 
 export function formatMessages(messages: BaseMessage[]): GemmaMessage[] {
   const output: GemmaMessage[] = []
+  const toolNames = new Map<string, string>()
+  let toolImages: ChatCompletionContentPart[] = []
+  function flushImages() {
+    if (!toolImages.length) return
+    output.push({ role: 'user', content: toolImages })
+    toolImages = []
+  }
   for (const message of messages) {
     const role = message.getType()
+    // Keep all tool results together before adding their images as a user turn.
+    if (role !== 'tool') flushImages()
     if (role === 'system') {
+      if (message.name !== undefined)
+        throw new Error('WebLLM system messages cannot preserve names.')
       const content = textContent(message.content)
       const first = output[0]
       if (first?.role === 'system' && output.length === 1) first.content += '\n\n' + content
@@ -18,48 +29,63 @@ export function formatMessages(messages: BaseMessage[]): GemmaMessage[] {
       continue
     }
     if (role === 'human') {
-      const parts =
-        typeof message.content === 'string' ? message.content : message.content.map(formatPart)
       const content =
-        Array.isArray(parts) && parts.every((part) => part.type === 'text')
-          ? parts.map((part) => part.text).join('')
-          : parts
-      output.push({ role: 'user', content })
+        typeof message.content === 'string'
+          ? message.content
+          : formatUserContent(message.content.map(formatPart))
+      output.push({
+        role: 'user',
+        content,
+        ...(message.name !== undefined && { name: message.name }),
+      })
       continue
     }
     if (role === 'tool') {
       if (!('tool_call_id' in message) || typeof message.tool_call_id !== 'string')
         throw new Error('A tool result needs its tool_call_id.')
+      if (message.name !== undefined && toolNames.get(message.tool_call_id) !== message.name)
+        throw new Error('A named tool result needs a matching assistant tool call.')
+      let content = ''
+      const imageStart = toolImages.length
+      if (typeof message.content === 'string') content = message.content
+      else
+        for (const block of message.content) {
+          if (block.type === 'image' || block.type === 'image_url')
+            toolImages.push(formatPart(block))
+          else content += textContent([block])
+        }
       output.push({
         role: 'tool',
         tool_call_id: message.tool_call_id,
-        content: textContent(message.content),
+        content: content || (toolImages.length > imageStart ? '[Image attached]' : ''),
       })
       continue
     }
     if (role !== 'ai') throw new Error(`WebLLM cannot use a ${role} message.`)
     if (!AIMessage.isInstance(message)) throw new Error('WebLLM needs an AI message.')
-    const ai = message
-    const calls = assistantCalls(ai)
-    if (ai.invalid_tool_calls?.length) throw new Error('WebLLM cannot replay invalid tool calls.')
+    const calls = assistantCalls(message)
+    if (message.invalid_tool_calls?.length)
+      throw new Error('WebLLM cannot replay invalid tool calls.')
+    const toolCalls = calls.map((call) => {
+      if (!call.id) throw new Error('A tool call needs an ID before it can be replayed.')
+      toolNames.set(call.id, call.name)
+      return {
+        id: call.id,
+        type: 'function' as const,
+        function: { name: call.name, arguments: JSON.stringify(call.args) },
+      }
+    })
     const reasoning = reasoningContent(message)
     const content = textContent(message.content, true)
     output.push({
       role: 'assistant',
-      content: content || null,
+      content: content || (calls.length ? '' : null),
+      ...(message.name !== undefined && { name: message.name }),
       ...(reasoning && { reasoning }),
-      ...(calls.length && {
-        tool_calls: calls.map((call) => {
-          if (!call.id) throw new Error('A tool call needs an ID before it can be replayed.')
-          return {
-            id: call.id,
-            type: 'function' as const,
-            function: { name: call.name, arguments: JSON.stringify(call.args) },
-          }
-        }),
-      }),
+      ...(toolCalls.length && { tool_calls: toolCalls }),
     })
   }
+  flushImages()
   return output
 }
 
@@ -72,6 +98,38 @@ function textContent(content: BaseMessage['content'], allowReasoning = false): s
       throw new Error(`WebLLM cannot use ${block.type} in this message.`)
     })
     .join('')
+}
+
+function formatUserContent(parts: ChatCompletionContentPart[]) {
+  if (parts.every((part) => part.type === 'text')) return parts.map((part) => part.text).join('')
+
+  const output: ChatCompletionContentPart[] = []
+  const textParts: string[] = []
+  let textRuns = 0
+  let inText = false
+  let firstTextIndex = -1
+  for (const part of parts) {
+    if (part.type !== 'text') {
+      inText = false
+      output.push(part)
+      continue
+    }
+
+    if (!inText) textRuns++
+    inText = true
+    if (firstTextIndex === -1) firstTextIndex = output.length
+    textParts.push(part.text)
+    output.push(part)
+  }
+
+  if (textRuns > 1)
+    throw new Error(
+      'WebLLM accepts one text part per user message and cannot preserve text around media blocks.',
+    )
+  if (textParts.length < 2) return parts
+
+  output.splice(firstTextIndex, textParts.length, { type: 'text', text: textParts.join('') })
+  return output
 }
 
 function reasoningContent(message: BaseMessage): string {
@@ -98,15 +156,26 @@ function formatPart(value: unknown): ChatCompletionContentPart {
   if (value.type === 'image_url') {
     const image = value.image_url
     const url = typeof image === 'string' ? image : isRecord(image) ? image.url : undefined
+    const detail = isRecord(image) ? image.detail : undefined
+    if (
+      detail !== undefined &&
+      detail !== null &&
+      detail !== 'auto' &&
+      detail !== 'low' &&
+      detail !== 'high'
+    )
+      throw new Error('WebLLM needs image_url.detail to be auto, low, or high.')
+    if (detail != null) throw new Error('WebLLM does not support image_url.detail.')
     if (typeof url === 'string') return { type: 'image_url', image_url: { url } }
   }
   const mime = value.mimeType ?? value.mime_type
   if (value.type === 'image') {
     if (typeof value.url === 'string') return { type: 'image_url', image_url: { url: value.url } }
-    if (typeof value.data === 'string' && typeof mime === 'string')
+    const data = base64Data(value.data)
+    if (data !== undefined && typeof mime === 'string')
       return {
         type: 'image_url',
-        image_url: { url: `data:${mime};base64,${value.data}` },
+        image_url: { url: `data:${mime};base64,${data}` },
       }
     if (typeof value.base64 === 'string' && typeof value.mime_type === 'string')
       return {
@@ -118,11 +187,23 @@ function formatPart(value: unknown): ChatCompletionContentPart {
     if (value.input_audio.format === 'wav' && typeof value.input_audio.data === 'string')
       return { type: 'input_audio', input_audio: { format: 'wav', data: value.input_audio.data } }
   }
-  if (value.type === 'audio' && mime === 'audio/wav' && typeof value.data === 'string')
-    return { type: 'input_audio', input_audio: { format: 'wav', data: value.data } }
+  if (value.type === 'audio' && mime === 'audio/wav') {
+    const data = base64Data(value.data)
+    if (data !== undefined) return { type: 'input_audio', input_audio: { format: 'wav', data } }
+  }
   throw new Error(
     `WebLLM cannot use this ${String(value.type)} block. Use image URLs/base64 or WAV audio.`,
   )
+}
+
+function base64Data(value: unknown): string | undefined {
+  if (typeof value === 'string') return value
+  if (!(value instanceof Uint8Array)) return undefined
+
+  const parts: string[] = []
+  for (let index = 0; index < value.length; index += 0x6000)
+    parts.push(btoa(String.fromCharCode(...value.subarray(index, index + 0x6000))))
+  return parts.join('')
 }
 
 export function nativeMessages(messages: GemmaMessage[]): ChatCompletionMessageParam[] {

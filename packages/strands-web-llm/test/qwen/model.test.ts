@@ -2,6 +2,20 @@ import { Agent, FunctionTool, Message, TextBlock } from '@strands-agents/sdk'
 import { expect, it, vi } from 'vitest'
 import { chunk, chunks, collect, setup } from '../../fixtures/engine.js'
 
+it('rejects a required tool choice before generating without registered tools', async () => {
+  const { model, create } = setup()
+  model.updateConfig({ modelId: 'Qwen3-4B-q4f16_1-MLC' })
+  const messages = [new Message({ role: 'user', content: [new TextBlock('Hi.')] })]
+
+  await expect(collect(model.stream(messages, { toolChoice: { any: {} } }))).rejects.toThrow(
+    'registered tool',
+  )
+  await expect(
+    collect(model.stream(messages, { toolChoice: { tool: { name: 'lookup' } } })),
+  ).rejects.toThrow('registered tool')
+  expect(create).not.toHaveBeenCalled()
+})
+
 it('runs a Qwen3 tool through a Strands Agent and continues from its result', async () => {
   const { model, create } = setup()
   const modelId = 'Qwen3-4B-q4f16_1-MLC'
@@ -157,6 +171,10 @@ it('preserves the token limit when a tool call is truncated', async () => {
   )
 
   expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'maxTokens' })
+  expect(events).toContainEqual({
+    type: 'modelContentBlockDeltaEvent',
+    delta: { type: 'textDelta', text: '<tool_call>{"name":"lookup","arguments":{"city":"Se' },
+  })
   expect(
     events.some(
       (event) =>
@@ -179,6 +197,10 @@ it('preserves cancellation when a tool call is interrupted', async () => {
   )
 
   expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'cancelled' })
+  expect(events).toContainEqual({
+    type: 'modelContentBlockDeltaEvent',
+    delta: { type: 'textDelta', text: '<tool_call>{"name":"lookup","arguments":{"city":"Se' },
+  })
   expect(
     events.some(
       (event) =>

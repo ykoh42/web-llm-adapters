@@ -1,8 +1,162 @@
 import { checkToolChoice } from '../../../../shared/web-llm/stream/choice.js'
+import { parseJSON } from '../../../../shared/web-llm/json.js'
 import type { ToolChoice } from '../../../../shared/web-llm/types.js'
 import { AIMessageChunk, type StandardMessageStructure } from '@langchain/core/messages'
 import { ChatGenerationChunk } from '@langchain/core/outputs'
+import type { ChatModelStreamEvent, FinishReason } from '@langchain/core/language_models/event'
+import type { UsageMetadata } from '@langchain/core/messages'
 import type { StreamChunk, ToolDelta } from '../../../../shared/web-llm/stream/chunks.js'
+
+type EventBlock =
+  | { type: 'text'; text: string }
+  | { type: 'reasoning'; reasoning: string }
+  | { type: 'tool_call'; id?: string; name: string; args: unknown }
+
+/** Keep legacy chunks intact while emitting complete native LangChain events. */
+export async function* readEvents(
+  chunks: AsyncIterable<ChatGenerationChunk>,
+  signal?: AbortSignal,
+): AsyncGenerator<ChatModelStreamEvent> {
+  const blocks = new Map<number, EventBlock>()
+  let lastTextIndex: number | undefined
+  let usage: UsageMetadata | undefined
+  let responseMetadata: Record<string, unknown> = {}
+  let finishReason: FinishReason | undefined
+  let messageStarted = false
+
+  for await (const chunk of chunks) {
+    signal?.throwIfAborted()
+    const message = chunk.message
+    if (!AIMessageChunk.isInstance(message))
+      throw new Error('WebLLM returned a non-AI message chunk.')
+    if (!messageStarted) {
+      messageStarted = true
+      yield { event: 'message-start', ...(message.id && { id: message.id }) }
+    }
+
+    const content = message.content
+    if (typeof content === 'string' && content) {
+      const index = lastTextIndex ?? nextBlockIndex(blocks)
+      yield* appendContent(blocks, index, 'text', content)
+      lastTextIndex = index
+    } else if (Array.isArray(content)) {
+      for (const part of content) {
+        if (!isRecord(part)) continue
+        const index = typeof part.index === 'number' ? part.index : nextBlockIndex(blocks)
+        if (part.type === 'text' && typeof part.text === 'string' && part.text) {
+          yield* appendContent(blocks, index, 'text', part.text)
+          lastTextIndex = index
+        } else if (
+          part.type === 'reasoning' &&
+          typeof part.reasoning === 'string' &&
+          part.reasoning
+        ) {
+          yield* appendContent(blocks, index, 'reasoning', part.reasoning)
+        }
+      }
+    }
+
+    for (const toolChunk of message.tool_call_chunks ?? []) {
+      const call = message.tool_calls?.find((item) => item.id === toolChunk.id)
+      if (!call) throw new Error('WebLLM returned an invalid tool call.')
+      const index = nextBlockIndex(blocks)
+      yield {
+        event: 'content-block-start',
+        index,
+        content: {
+          type: 'tool_call_chunk',
+          ...(toolChunk.id && { id: toolChunk.id }),
+          ...(toolChunk.name && { name: toolChunk.name }),
+          args: '',
+          index,
+        },
+      }
+      yield {
+        event: 'content-block-delta',
+        index,
+        delta: {
+          type: 'block-delta',
+          fields: {
+            type: 'tool_call_chunk',
+            ...(toolChunk.id && { id: toolChunk.id }),
+            ...(toolChunk.name && { name: toolChunk.name }),
+            args: toolChunk.args ?? '',
+          },
+        },
+      }
+      blocks.set(index, {
+        type: 'tool_call',
+        ...(call.id && { id: call.id }),
+        name: call.name,
+        args: call.args,
+      })
+    }
+
+    if (message.usage_metadata) usage = message.usage_metadata
+    if (message.response_metadata.finish_reason) {
+      finishReason = toFinishReason(message.response_metadata.finish_reason)
+      responseMetadata = { ...message.response_metadata }
+    }
+  }
+
+  signal?.throwIfAborted()
+  if (!messageStarted || !finishReason)
+    throw new Error('WebLLM ended the stream without a finish reason.')
+  for (const [index, content] of blocks)
+    yield { event: 'content-block-finish', index, content: { ...content } }
+  if (usage) yield { event: 'usage', usage }
+  yield {
+    event: 'message-finish',
+    reason: finishReason,
+    ...(usage && { usage }),
+    responseMetadata,
+  }
+}
+
+function appendContent(
+  blocks: Map<number, EventBlock>,
+  index: number,
+  type: 'text' | 'reasoning',
+  value: string,
+): ChatModelStreamEvent[] {
+  const events: ChatModelStreamEvent[] = []
+  let block = blocks.get(index)
+  if (block && block.type !== type)
+    throw new Error(`WebLLM reused content block ${index} for ${type}.`)
+  if (!block) {
+    block = type === 'text' ? { type, text: '' } : { type, reasoning: '' }
+    blocks.set(index, block)
+    events.push({ event: 'content-block-start', index, content: { ...block } })
+  }
+  if (block.type === 'text') {
+    block.text += value
+    events.push({ event: 'content-block-delta', index, delta: { type: 'text-delta', text: value } })
+  } else {
+    block.reasoning += value
+    events.push({
+      event: 'content-block-delta',
+      index,
+      delta: { type: 'reasoning-delta', reasoning: value },
+    })
+  }
+  return events
+}
+
+function nextBlockIndex(blocks: Map<number, EventBlock>): number {
+  let index = 0
+  while (blocks.has(index)) index++
+  return index
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function toFinishReason(reason: unknown): FinishReason {
+  if (reason === 'tool_calls') return 'tool_use'
+  if (reason === 'stop' || reason === 'length' || reason === 'content_filter') return reason
+  throw new Error(`WebLLM returned an unsupported finish reason: ${String(reason)}.`)
+}
 
 /** Publish complete tool calls only; a truncated call must never run. */
 export async function* readChunks(
@@ -59,7 +213,7 @@ export async function* readChunks(
   if (calls.size && stop !== 'maxTokens') {
     for (const call of calls.values()) {
       if (!call.name) throw new Error('WebLLM returned a tool call without a name.')
-      const input: unknown = JSON.parse(call.input ?? '')
+      const input = parseJSON(call.input ?? '')
       if (typeof input !== 'object' || input === null || Array.isArray(input))
         throw new Error('WebLLM tool arguments must be an object.')
       yield new ChatGenerationChunk({

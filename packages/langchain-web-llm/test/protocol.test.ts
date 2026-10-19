@@ -99,6 +99,23 @@ describe('model protocols', () => {
     expect(create.mock.calls[0]?.[0].extra_body).not.toHaveProperty('enable_thinking')
   })
 
+  it('sends named user and assistant messages through the native WebLLM protocol', async () => {
+    const { engine, create } = setup(chunk({ content: 'Done' }, 'stop'))
+    const model = new ChatWebLLM({ engine, modelId: 'test-model' })
+
+    await model.invoke([
+      new HumanMessage({ content: 'Hi', name: 'Ada' }),
+      new AIMessage({ content: 'Hello', name: 'Assistant' }),
+      new HumanMessage('Continue'),
+    ])
+
+    expect(create.mock.calls[0]?.[0].messages).toEqual([
+      { role: 'user', content: 'Hi', name: 'Ada' },
+      { role: 'assistant', content: 'Hello', name: 'Assistant' },
+      { role: 'user', content: 'Continue' },
+    ])
+  })
+
   it('keeps Qwen tool replies together and preserves current-turn reasoning', async () => {
     const { engine, create } = setup(chunk({ content: '42' }, 'stop'))
     const model = new ChatWebLLM({ engine, modelId: qwen })
@@ -121,6 +138,48 @@ describe('model protocols', () => {
     expect(messages?.at(-1)?.content).toBe(
       '<tool_response>\n42\n</tool_response>\n<tool_response>\n43\n</tool_response>',
     )
+  })
+
+  it('preserves user and assistant names in Qwen history', async () => {
+    const { engine, create } = setup(chunk({ content: 'Done' }, 'stop'))
+    const model = new ChatWebLLM({ engine, modelId: qwen })
+
+    await model.invoke([
+      new HumanMessage({ content: 'Hi', name: 'Ada' }),
+      new AIMessage({ content: 'Hello', name: 'Assistant' }),
+      new HumanMessage('Continue'),
+    ])
+
+    expect(create.mock.calls[0]?.[0].messages).toContainEqual({
+      role: 'user',
+      content: 'Hi',
+      name: 'Ada',
+    })
+    expect(create.mock.calls[0]?.[0].messages).toContainEqual({
+      role: 'assistant',
+      content: 'Hello',
+      name: 'Assistant',
+    })
+  })
+
+  it('rejects named messages when Gemma protocol mode cannot preserve them', async () => {
+    const { engine, create } = setup()
+    const complete = vi.spyOn(engine.completions, 'create')
+    const model = new ChatWebLLM({ engine, modelId: gemmaId })
+
+    await expect(
+      model.bindTools([definition]).invoke([new HumanMessage({ content: 'Hi', name: 'Ada' })]),
+    ).rejects.toThrow('cannot preserve message names')
+    await expect(
+      model
+        .bindTools([definition])
+        .invoke([
+          new AIMessage({ content: 'Hello', name: 'Assistant' }),
+          new HumanMessage('Continue'),
+        ]),
+    ).rejects.toThrow('cannot preserve message names')
+    expect(create).not.toHaveBeenCalled()
+    expect(complete).not.toHaveBeenCalled()
   })
 
   it('keeps literal tool tags in native constrained text instead of parsing them', async () => {
@@ -164,6 +223,22 @@ describe('model protocols', () => {
         .invoke('Hi'),
     ).rejects.toThrow('not registered')
   })
+
+  it.each([qwen, 'Qwen3.5-4B-q4f16_1-MLC'])(
+    'rejects a required Qwen tool choice before generating without registered tools: %s',
+    async (modelId) => {
+      const { engine, create } = setup()
+      const model = new ChatWebLLM({ engine, modelId })
+
+      await expect(model.bindTools([], { tool_choice: 'required' }).invoke('Hi')).rejects.toThrow(
+        'registered tool',
+      )
+      await expect(model.bindTools([], { tool_choice: 'missing' }).invoke('Hi')).rejects.toThrow(
+        'registered tool',
+      )
+      expect(create).not.toHaveBeenCalled()
+    },
+  )
 
   it('preserves native tool fragments and rejects invalid tool JSON', async () => {
     const { model, create } = setup(

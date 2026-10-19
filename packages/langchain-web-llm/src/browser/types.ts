@@ -14,7 +14,10 @@ export interface BrowserRequest {
   includeChunks?: boolean
   config: WebLLMModelOptions
   messages: StoredMessage[]
-  options: Pick<WebLLMCallOptions, 'tools' | 'tool_choice' | 'request' | 'stop'>
+  options: Pick<
+    WebLLMCallOptions,
+    'tools' | 'tool_choice' | 'request' | 'stop' | 'response_format' | 'maxRetries'
+  >
 }
 export interface BrowserChunk {
   text: string
@@ -40,6 +43,6 @@ export interface BrowserBridge {
 
 declare global {
   interface Window {
-    webllmLangChainBridge: BrowserBridge
+    webllmLangChainBridge?: BrowserBridge
   }
 }

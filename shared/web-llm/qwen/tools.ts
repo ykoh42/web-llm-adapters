@@ -18,10 +18,10 @@ export function formatCall(name: string, input: unknown) {
 }
 
 export function toolPrompt(tools: ToolSpec[], choice?: ToolChoice) {
+  if (choice && !('auto' in choice) && !tools.length)
+    throw new ModelError('A required Qwen tool choice needs at least one registered tool.')
   if (!tools.length) return ''
-  if (choice && 'any' in choice) {
-    // Qwen can choose any declared tool; its prompt format has no native choice field.
-  } else if (choice && 'tool' in choice && !tools.some((tool) => tool.name === choice.tool.name)) {
+  if (choice && 'tool' in choice && !tools.some((tool) => tool.name === choice.tool.name)) {
     throw new ModelError('The chosen Qwen tool is not registered.')
   }
   const rules = [

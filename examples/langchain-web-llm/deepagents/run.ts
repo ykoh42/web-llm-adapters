@@ -17,7 +17,7 @@ try {
   }, modelId)
   const model = new BrowserChatWebLLM(page, {
     modelId,
-    profile: { maxInputTokens: 32768 },
+    profile: await page.evaluate(() => window.checks.model().profile),
     request: { extra_body: { enable_thinking: true } },
   })
   const agent = createDeepAgent({ model })

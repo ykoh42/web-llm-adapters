@@ -1,4 +1,3 @@
-import { functionCallingModelIds } from '@mlc-ai/web-llm'
 import { AfterToolsEvent, Agent, FunctionTool, TextBlock } from '@strands-agents/sdk'
 import { WebLLMModel } from 'strands-web-llm'
 import { runAgent, type ExampleInput } from './output.js'
@@ -20,6 +19,7 @@ export async function tools(input: ExampleInput, thinking = false) {
   })
   const agent = new Agent({ model, tools: [clock], printer: false })
   // These models repeat tool calls instead of answering after a tool result.
+  const { functionCallingModelIds } = await import('@mlc-ai/web-llm')
   if (functionCallingModelIds.includes(input.modelId))
     agent.addHook(AfterToolsEvent, (event) => {
       event.endTurn = [new TextBlock('')]

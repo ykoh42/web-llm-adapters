@@ -133,6 +133,7 @@ def build(work, output, jobs):
         "--quantization", "q4f16_1", "--device", "webgpu",
         "--overrides", "prefill_chunk_size=512", "--output", output, env=env,
     )
+    output.chmod(0o644)
     record = {"output": str(output), "sha256": digest(output), "inputs": manifest}
     output.with_suffix(".build.json").write_text(json.dumps(record, indent=2) + "\n")
     print(f"Built {output}; run the browser checks before replacing the packaged file.")

@@ -2,6 +2,20 @@ import { Agent, FunctionTool, Message, TextBlock } from '@strands-agents/sdk'
 import { expect, it, vi } from 'vitest'
 import { chunk, chunks, collect, setup } from '../../fixtures/engine.js'
 
+it('rejects a required tool choice before generating without registered tools', async () => {
+  const { model, create } = setup()
+  model.updateConfig({ modelId: 'Qwen3.5-4B-q4f16_1-MLC' })
+  const messages = [new Message({ role: 'user', content: [new TextBlock('Hi.')] })]
+
+  await expect(collect(model.stream(messages, { toolChoice: { any: {} } }))).rejects.toThrow(
+    'registered tool',
+  )
+  await expect(
+    collect(model.stream(messages, { toolChoice: { tool: { name: 'lookup' } } })),
+  ).rejects.toThrow('registered tool')
+  expect(create).not.toHaveBeenCalled()
+})
+
 it('runs a Qwen3.5 XML tool through Strands and continues from its result', async () => {
   const { model, create } = setup()
   const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
@@ -151,6 +165,35 @@ it('preserves cancellation when a tool call is interrupted', async () => {
   )
 
   expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'cancelled' })
+  expect(events).toContainEqual({
+    type: 'modelContentBlockDeltaEvent',
+    delta: { type: 'textDelta', text: '<tool_call><function=lookup><parameter=city>Seoul' },
+  })
+  expect(
+    events.some(
+      (event) =>
+        event.type === 'modelContentBlockStartEvent' && event.start?.type === 'toolUseStart',
+    ),
+  ).toBe(false)
+})
+
+it('returns a truncated tool call as text without running it', async () => {
+  const { model, create } = setup()
+  const raw = '<tool_call><function=lookup><parameter=city>Seoul'
+  model.updateConfig({ modelId: 'Qwen3.5-4B-q4f16_1-MLC' })
+  create.mockResolvedValueOnce(chunks(chunk({ content: raw }, 'length')))
+
+  const events = await collect(
+    model.stream([new Message({ role: 'user', content: [new TextBlock('Look up a city.')] })], {
+      toolSpecs: [{ name: 'lookup', description: 'Look up a city.' }],
+    }),
+  )
+
+  expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'maxTokens' })
+  expect(events).toContainEqual({
+    type: 'modelContentBlockDeltaEvent',
+    delta: { type: 'textDelta', text: raw },
+  })
   expect(
     events.some(
       (event) =>

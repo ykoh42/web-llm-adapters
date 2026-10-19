@@ -172,6 +172,8 @@ test('performance: compare native, in-page provider, and Node.js bridge on ident
       return sorted.length % 2 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2
     }
     const nativeMs = median(samples.native.map((sample) => sample.ms))
+    const bridgeMs = median(samples.bridge.map((sample) => sample.ms))
+    expect(bridgeMs).toBeLessThanOrEqual(nativeMs * 1.1 + 50)
     const summary = Object.entries(samples).map(([mode, values]) => ({
       mode,
       ms: Math.round(median(values.map((sample) => sample.ms))),

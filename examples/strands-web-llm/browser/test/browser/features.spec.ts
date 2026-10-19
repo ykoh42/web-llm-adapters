@@ -1,5 +1,18 @@
 import { test, expect, load, run, unload, silentWav } from '../../fixtures/page.js'
 
+test('selects a Web Worker by default', async ({ page }) => {
+  await expect(page.getByLabel('Engine', { exact: true })).toHaveValue('worker')
+})
+
+test('selects Main thread for Cross-origin Storage', async ({ page }) => {
+  const engine = page.getByLabel('Engine', { exact: true })
+  await page.getByLabel('Cache', { exact: true }).selectOption('cross-origin')
+  await expect(engine).toHaveValue('main')
+  await expect(engine.locator('option[value="worker"]')).toBeDisabled()
+  await page.getByLabel('Cache', { exact: true }).selectOption('cache')
+  await expect(engine.locator('option[value="worker"]')).toBeEnabled()
+})
+
 for (const [engine, example] of [
   ['worker', 'chat'],
   ['service-worker', 'chat'],

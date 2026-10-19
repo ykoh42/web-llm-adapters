@@ -1,56 +1,27 @@
-import {
-  Model,
-  type CountTokensOptions,
-  type Message,
-  type StreamOptions,
-} from '@strands-agents/sdk'
+import { type Message, type StreamOptions } from '@strands-agents/sdk'
 import type { ModelStreamEvent } from '@strands-agents/sdk'
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
 import { chatStream } from './chat/model.js'
 import { modelError } from './engine/error.js'
 import { isGemma, usesGemmaProtocol } from './gemma/request.js'
 import { gemmaStream } from './gemma/model.js'
-import { promptTokens } from './gemma/prompt.js'
 import { trimThoughts } from './gemma/history.js'
 import { usesQwenProtocol } from './qwen/request.js'
 import { qwenStream } from './qwen/model.js'
 import { usesQwen35Protocol } from './qwen35/request.js'
 import { qwen35Stream } from './qwen35/model.js'
-import type { WebLLMModelConfig, WebLLMModelOptions } from './types.js'
+import type { WebLLMModelOptions } from './types.js'
+import { WebLLMModelBase } from './model-base.js'
 
 /** Connects a loaded WebLLM engine to Strands. The caller owns the engine. */
-export class WebLLMModel extends Model<WebLLMModelConfig> {
+export class WebLLMModel extends WebLLMModelBase {
   readonly engine: MLCEngineInterface
-  private config: WebLLMModelConfig
   private readonly onChunk: WebLLMModelOptions['onChunk']
 
   constructor({ engine, onChunk, ...config }: WebLLMModelOptions) {
-    super()
+    super(config)
     this.engine = engine
     this.onChunk = onChunk
-    this.config = structuredClone(config)
-  }
-
-  override getConfig(): WebLLMModelConfig {
-    return structuredClone(this.config)
-  }
-
-  /** Selects a loaded model. Load new models with engine.reload() first. */
-  override updateConfig(config: Partial<WebLLMModelConfig>): void {
-    this.config = structuredClone({ ...this.config, ...config })
-  }
-
-  override async countTokens(
-    messages: Message[],
-    options: CountTokensOptions = {},
-  ): Promise<number> {
-    if (!isGemma(this.config.modelId)) return super.countTokens(messages, options)
-    const thinking = this.config.request?.extra_body?.enable_thinking === true
-    try {
-      return (await super.countTokens(trimThoughts(messages))) + promptTokens(options, thinking)
-    } catch (error) {
-      throw modelError(error)
-    }
   }
 
   override async *stream(

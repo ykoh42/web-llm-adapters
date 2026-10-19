@@ -33,15 +33,18 @@
   </head>
   <body>
     <h1>Strands + WebLLM</h1>
-    <p>Choose an example, then load its model. The first load can download several GB.</p>
+    <p>
+      Choose an example, then load its model. The first load fetches WebLLM and can download several
+      GB of model files.
+    </p>
     <p><a href="/engine.html">Native engine examples</a></p>
     <p>Unload before changing settings. Each run starts a new conversation.</p>
     <label for="example">Example</label>
     <select id="example"></select>
     <label for="engine">Engine</label>
     <select id="engine">
+      <option value="worker" selected>Web Worker</option>
       <option value="main">Main thread</option>
-      <option value="worker">Web Worker</option>
       <option value="service-worker">Service Worker</option>
     </select>
     <label for="cache">Cache</label>

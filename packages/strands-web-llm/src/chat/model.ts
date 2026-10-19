@@ -19,6 +19,13 @@ export function chatStream(
   options: StreamOptions,
   onChunk?: WebLLMModelOptions['onChunk'],
 ) {
+  const choice = options.toolChoice
+  if (choice && 'tool' in choice) {
+    const name = choice.tool.name
+    if (!options.toolSpecs?.some((tool) => tool.name === name))
+      throw new ModelError('The chosen WebLLM tool is not registered.')
+  }
+
   const request: ChatCompletionRequestStreaming = {
     ...generationOptions(config),
     messages: formatMessages(messages, options.systemPrompt),
@@ -35,6 +42,8 @@ export function chatStream(
         options.cancelSignal,
         onChunk,
         options.toolChoice ?? config.request?.tool_choice,
+        options.toolSpecs?.map((tool) => tool.name),
+        true,
       ),
     options.cancelSignal,
   )
@@ -45,12 +54,14 @@ function chatChunk(chunk: ChatCompletionChunk, hasTools: boolean): StreamChunk {
   if (choice && (chunk.choices.length > 1 || choice.index !== 0))
     throw new ModelError('Strands needs one response per request.')
   const text = choice?.delta.content ?? ''
+  const deltas = choice?.delta.tool_calls ?? []
+  const protocolText = hasTools && (!deltas.length || isSerializedToolText(text, deltas))
   return {
-    text: hasTools ? '' : text,
+    text: protocolText ? '' : text,
     reasoning: '',
     // Hermes streams its JSON text before its parsed calls arrive.
-    toolText: hasTools ? text : '',
-    calls: (choice?.delta.tool_calls ?? []).map((call) => ({
+    toolText: protocolText ? text : '',
+    calls: deltas.map((call) => ({
       index: call.index,
       id: call.id,
       name: call.function?.name,
@@ -59,4 +70,30 @@ function chatChunk(chunk: ChatCompletionChunk, hasTools: boolean): StreamChunk {
     stop: stopReason(choice?.finish_reason),
     usage: chunk.usage,
   }
+}
+
+function isSerializedToolText(
+  text: string,
+  calls: NonNullable<ChatCompletionChunk.Choice['delta']['tool_calls']>,
+) {
+  try {
+    const output: unknown = JSON.parse(text)
+    if (!Array.isArray(output) || output.length !== calls.length) return false
+
+    const ordered = [...calls].sort((left, right) => left.index - right.index)
+    return output.every((item, index) => {
+      if (!isRecord(item)) return false
+      const call = ordered[index]!
+      const name = call.function?.name
+      const source = call.function?.arguments
+      if (typeof name !== 'string' || typeof source !== 'string' || item.name !== name) return false
+      return JSON.stringify(item.arguments) === JSON.stringify(JSON.parse(source))
+    })
+  } catch {
+    return false
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

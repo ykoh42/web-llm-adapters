@@ -1,10 +1,114 @@
 import { z } from 'zod'
 import { createDeepAgent } from 'deepagents'
+import { createAgent } from 'langchain'
+import { tool } from '@langchain/core/tools'
 import { InMemoryStore } from '@langchain/langgraph'
-import { HumanMessage } from '@langchain/core/messages'
+import { AIMessage, AIMessageChunk, HumanMessage } from '@langchain/core/messages'
 import { BrowserChatWebLLM, BrowserWebLLMEmbeddings } from 'langchain-web-llm'
+import { writeFile } from 'node:fs/promises'
+import type { WebLLMChunk } from 'langchain-web-llm'
 import { test, expect } from '../../../fixtures/browser.js'
 import { sampling } from '../../../../shared/sampling.js'
+
+test('uses a Web Worker by default', async ({ page }) => {
+  await expect(page.getByLabel('Web Worker')).toBeChecked()
+})
+
+for (const modelId of ['Qwen3.5-4B-q4f16_1-MLC', 'gemma-4-E2B-it-q4f16_1-MLC']) {
+  test(`${modelId}: callbacks and agent streams preserve reasoning, tools and the final answer`, async ({
+    page,
+  }) => {
+    await page.evaluate((id) => window.checks.load(id, true), modelId)
+    const observed = await page.evaluate(async () => {
+      const chunks: { reasoning: boolean; tools: unknown; finish: unknown }[] = []
+      await window.checks
+        .model(true)
+        .bindTools([
+          {
+            type: 'function',
+            function: {
+              name: 'lookup',
+              description: 'Look up the answer for a code.',
+              parameters: {
+                type: 'object',
+                properties: { code: { type: 'string' } },
+                required: ['code'],
+              },
+            },
+          },
+        ])
+        .invoke('Look up A7 and tell me the answer.', {
+          callbacks: [
+            {
+              handleLLMNewToken(...args) {
+                const chunk = args[5]?.chunk
+                if (!chunk || !('message' in chunk)) return
+                chunks.push({
+                  reasoning: chunk.message.contentBlocks.some(
+                    (block) => block.type === 'reasoning',
+                  ),
+                  tools: 'tool_calls' in chunk.message ? chunk.message.tool_calls : [],
+                  finish: chunk.message.response_metadata.finish_reason,
+                })
+              },
+            },
+          ],
+        })
+      return chunks
+    })
+    expect(observed.some((chunk) => chunk.reasoning)).toBe(true)
+    expect(observed.flatMap((chunk) => chunk.tools)).toContainEqual(
+      expect.objectContaining({ name: 'lookup', args: { code: 'A7' } }),
+    )
+    expect(observed.at(-1)?.finish).toBe('tool_calls')
+    let firstStopped = false
+    let liveReasoning = false
+    const model = new BrowserChatWebLLM(page, {
+      modelId,
+      profile: await page.evaluate(() => window.checks.model(true).profile),
+      request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
+      onChunk: (chunk) => {
+        if (chunk.choices[0]?.finish_reason) firstStopped = true
+      },
+    })
+    const codes: string[] = []
+    const lookup = tool(
+      ({ code }) => {
+        codes.push(code)
+        return `The answer for ${code} is 42.`
+      },
+      {
+        name: 'lookup',
+        description: 'Look up the answer for a code.',
+        schema: z.object({ code: z.string() }),
+      },
+    )
+    const agent = createAgent({ model, tools: [lookup] })
+    const chunks: AIMessageChunk[] = []
+    for await (const [message] of await agent.stream(
+      {
+        messages: [{ role: 'user', content: 'Look up A7 and tell me the answer.' }],
+      },
+      { streamMode: 'messages' },
+    )) {
+      if (AIMessageChunk.isInstance(message)) {
+        chunks.push(message)
+        if (!firstStopped && message.contentBlocks.some((block) => block.type === 'reasoning'))
+          liveReasoning = true
+      }
+    }
+    const reasoning = chunks
+      .flatMap((message) => message.contentBlocks)
+      .filter((block) => block.type === 'reasoning')
+    expect(reasoning.length).toBeGreaterThan(0)
+    expect(liveReasoning).toBe(true)
+    expect(chunks.flatMap((message) => message.tool_calls ?? [])).toContainEqual(
+      expect.objectContaining({ name: 'lookup', args: { code: 'A7' } }),
+    )
+    expect(codes).toEqual(['A7'])
+    expect(chunks.map((message) => message.text).join('')).toContain('42')
+  })
+}
 
 test('real WebLLM embeddings rank LangGraph semantic memory', async ({ page }) => {
   const modelId = 'snowflake-arctic-embed-s-q0f32-MLC-b4'
@@ -86,7 +190,7 @@ test('default Deep Agents subagents share the WebLLM engine and file state', asy
   await page.evaluate((id) => window.checks.load(id), modelId)
   const model = new BrowserChatWebLLM(page, {
     modelId,
-    profile: { maxInputTokens: 32768 },
+    profile: await page.evaluate(() => window.checks.model().profile),
     request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
   })
   const agent = createDeepAgent({ model })
@@ -130,7 +234,7 @@ test('the Deep Agents example writes and reads a file with native generation def
   await page.evaluate((id) => window.checks.load(id), modelId)
   const model = new BrowserChatWebLLM(page, {
     modelId,
-    profile: { maxInputTokens: 32768 },
+    profile: await page.evaluate(() => window.checks.model(true).profile),
     request: { extra_body: { enable_thinking: true } },
   })
   const agent = createDeepAgent({ model })
@@ -161,6 +265,62 @@ test('the Deep Agents example writes and reads a file with native generation def
   expect(result.messages.at(-1)?.text.length).toBeGreaterThan(0)
 })
 
+test('Deep Agents receives Qwen tool arguments unchanged', async ({ page }, info) => {
+  const modelId = 'Qwen2.5-3B-Instruct-q4f16_1-MLC'
+  await page.evaluate((id) => window.checks.load(id), modelId)
+  const raw: WebLLMChunk[] = []
+  const model = new BrowserChatWebLLM(page, {
+    modelId,
+    profile: await page.evaluate(() => window.checks.model(false).profile),
+    request: { ...sampling(modelId, false), max_tokens: 4096, seed: 7 },
+    onChunk: (chunk) => raw.push(chunk),
+  })
+  const agent = createDeepAgent({ model })
+  const tools: string[] = []
+  const result = await agent.invoke(
+    {
+      messages: [
+        {
+          role: 'user',
+          content: 'Write this exact text to /tags.txt, then read it: Closing tag: </tool_call>',
+        },
+      ],
+    },
+    {
+      callbacks: [
+        {
+          handleToolStart(...args) {
+            if (args[6]) tools.push(args[6])
+          },
+        },
+      ],
+    },
+  )
+  await writeFile(info.outputPath('inference.json'), JSON.stringify({ raw, result }))
+  expect(tools).toContain('write_file')
+  expect(tools).toContain('read_file')
+  const text = raw
+    .map((chunk) => {
+      const choice = chunk.choices[0]
+      return choice && 'delta' in choice ? (choice.delta.content ?? '') : ''
+    })
+    .join('')
+  const native = [...text.matchAll(/<tool_call>\s*({[\s\S]*?})\s*<\/tool_call>/g)].map((match) =>
+    JSON.parse(match[1]!),
+  )
+  const calls = result.messages
+    .filter(AIMessage.isInstance)
+    .flatMap((message) =>
+      (message.tool_calls ?? []).map((call) => ({ name: call.name, arguments: call.args })),
+    )
+  // A model may omit requested text; the adapter must preserve what it actually generated.
+  expect(calls).toEqual(native)
+  const written = calls.find((call) => call.name === 'write_file')
+  expect(result.files?.['/tags.txt']?.content).toEqual(written?.arguments.content)
+  expect(result.messages.at(-1)?.type).toBe('ai')
+  expect(result.messages.at(-1)?.text.length).toBeGreaterThan(0)
+})
+
 for (const modelId of ['Qwen3.5-4B-q4f16_1-MLC', 'gemma-4-E2B-it-q4f16_1-MLC']) {
   test(`${modelId}: a WebLLM Worker runs default Deep Agents and handles cancellation`, async ({
     page,
@@ -168,7 +328,7 @@ for (const modelId of ['Qwen3.5-4B-q4f16_1-MLC', 'gemma-4-E2B-it-q4f16_1-MLC']) 
     await page.evaluate((id) => window.checks.load(id, true), modelId)
     const model = new BrowserChatWebLLM(page, {
       modelId,
-      profile: { maxInputTokens: 32768 },
+      profile: await page.evaluate(() => window.checks.model(true).profile),
       request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
     })
     const agent = createDeepAgent({ model })

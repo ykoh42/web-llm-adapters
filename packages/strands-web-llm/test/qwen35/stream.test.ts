@@ -3,6 +3,22 @@ import { expect, it } from 'vitest'
 import { chunk, chunks, collect } from '../../fixtures/engine.js'
 import { qwen35Chunks } from '../../../../shared/web-llm/qwen35/stream.js'
 
+it.each([undefined, { type: 'number' }, { type: 'object' }] as const)(
+  'rejects overflowing tool numbers without replacing them with null: %j',
+  async (schema) => {
+    const value = schema?.type === 'object' ? '{"nested":[1e999]}' : '1e999'
+    const content = `<tool_call><function=read><parameter=value>${value}</parameter></function></tool_call>`
+    const tools: ToolSpec[] = [
+      {
+        name: 'read',
+        description: '',
+        ...(schema && { inputSchema: { type: 'object', properties: { value: schema } } }),
+      },
+    ]
+    await expect(collect(qwen35Chunks(chunks(chunk({ content }, 'stop')), tools))).rejects.toThrow()
+  },
+)
+
 const nullableStringSchemas: JSONSchema[] = [
   { type: ['string', 'null'] },
   { anyOf: [{ type: 'string' }, { type: 'null' }] },
@@ -334,15 +350,37 @@ it('rejects an unclosed Qwen3.5 parameter instead of dropping it', async () => {
   ).rejects.toThrow('malformed tool parameter')
 })
 
-it('preserves the token limit when a tool call is truncated', async () => {
+it.each([
+  ['length', 'maxTokens'],
+  ['abort', 'cancelled'],
+] as const)('returns a truncated tool call as text on %s', async (finishReason, stop) => {
+  const raw = '<tool_call><function=lookup><parameter=city>Seoul'
   const tools: ToolSpec[] = [{ name: 'lookup', description: 'Look up a city.' }]
+  const output = await collect(qwen35Chunks(chunks(chunk({ content: raw }, finishReason)), tools))
+
+  expect(output.map((part) => part.text).join('')).toBe(raw)
+  expect(output.at(-1)?.stop).toBe(stop)
+  expect(output.flatMap((item) => item.calls)).toEqual([])
+})
+
+it.each([1, 7, 128])('returns earlier complete calls across %i-character chunks', async (size) => {
+  const complete =
+    '<tool_call><function=lookup><parameter=city>Seoul</parameter></function></tool_call>'
+  const partial = '<tool_call><function=lookup><parameter=city>Tokyo'
+  const raw = complete + partial
+  const parts = raw.match(new RegExp(`[\\s\\S]{1,${size}}`, 'g'))!
   const output = await collect(
     qwen35Chunks(
-      chunks(chunk({ content: '<tool_call><function=lookup><parameter=city>Seoul' }, 'length')),
-      tools,
+      chunks(
+        ...parts.map((content, index) =>
+          chunk({ content }, index === parts.length - 1 ? 'length' : null),
+        ),
+      ),
+      [{ name: 'lookup', description: 'Look up a city.' }],
     ),
   )
 
+  expect(output.map((part) => part.text).join('')).toBe(raw)
+  expect(output.flatMap((part) => part.calls)).toHaveLength(1)
   expect(output.at(-1)?.stop).toBe('maxTokens')
-  expect(output.flatMap((item) => item.calls)).toEqual([])
 })

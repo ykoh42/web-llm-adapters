@@ -146,3 +146,23 @@ it('does not add an empty thinking block to a Qwen3.5 answer', () => {
 
   expect(request.messages.at(-1)?.content).toBe('Plain answer.')
 })
+
+it('rejects tool signatures that Qwen3.5 cannot preserve', () => {
+  const messages = [
+    new Message({
+      role: 'assistant',
+      content: [
+        new ToolUseBlock({
+          toolUseId: 'call-1',
+          name: 'lookup',
+          input: { city: 'Seoul' },
+          reasoningSignature: 'opaque-signature',
+        }),
+      ],
+    }),
+  ]
+
+  expect(() => qwen35Request({ modelId: 'Qwen3.5-4B-q4f16_1-MLC' }, messages, {})).toThrow(
+    'tool calls with reasoning signatures',
+  )
+})

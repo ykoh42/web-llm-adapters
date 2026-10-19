@@ -7,6 +7,7 @@ import {
   MaxTokensError,
   ModelError,
   Message,
+  ReasoningBlock,
   TextBlock,
   ToolUseBlock,
 } from '@strands-agents/sdk'
@@ -43,6 +44,19 @@ describe('WebLLMModel', () => {
     },
   )
 
+  it('rejects native named tool choices before generating without a matching tool', async () => {
+    const { model, create } = setup()
+    const choice = { tool: { name: 'missing' } }
+
+    await expect(collect(model.stream(messages, { toolChoice: choice }))).rejects.toBeInstanceOf(
+      ModelError,
+    )
+    await expect(
+      collect(model.stream(messages, { toolSpecs: tools, toolChoice: choice })),
+    ).rejects.toBeInstanceOf(ModelError)
+    expect(create).not.toHaveBeenCalled()
+  })
+
   it('can disable tools for a call while retaining the Agent tool registry', async () => {
     const { model, create } = setup(chunk({ content: 'Hello' }, 'stop'))
     model.updateConfig({ request: { tool_choice: 'none' } })
@@ -66,6 +80,40 @@ describe('WebLLMModel', () => {
     await collect(model.stream(messages, { toolSpecs: tools, toolChoice: { auto: {} } }))
     expect(create.mock.calls[1]![0].tool_choice).toBe('auto')
     expect(create.mock.calls[1]![0].tools).toHaveLength(1)
+  })
+
+  it('continues from unsigned reasoning in prior assistant history', async () => {
+    const { model, create } = setup(chunk({ content: 'Next answer.' }, 'stop'))
+    const history = [
+      new Message({ role: 'user', content: [new TextBlock('First question.')] }),
+      new Message({
+        role: 'assistant',
+        content: [new ReasoningBlock({ text: 'Plan.' }), new TextBlock('First answer.')],
+      }),
+      new Message({ role: 'user', content: [new TextBlock('Continue.')] }),
+    ]
+
+    await collect(model.stream(history))
+
+    expect(create.mock.calls[0]?.[0].messages).toContainEqual({
+      role: 'assistant',
+      content: 'Plan.\nFirst answer.',
+    })
+    expect(history[1]?.content[0]).toEqual(new ReasoningBlock({ text: 'Plan.' }))
+  })
+
+  it.each([
+    ['signed', new ReasoningBlock({ text: 'Plan.', signature: 'signature' })],
+    ['redacted', new ReasoningBlock({ redactedContent: new Uint8Array([1]) })],
+  ])('rejects %s reasoning before inference', async (_kind, reasoning) => {
+    const { model, create } = setup()
+    const history = [
+      new Message({ role: 'assistant', content: [reasoning] }),
+      new Message({ role: 'user', content: [new TextBlock('Continue.')] }),
+    ]
+
+    await expect(collect(model.stream(history))).rejects.toBeInstanceOf(ModelError)
+    expect(create).not.toHaveBeenCalled()
   })
   it('lets a completed-block hook use the same engine before the outer stream returns', async () => {
     const { model, engine, create } = setup(chunk({ content: 'First' }, 'stop'))
@@ -209,11 +257,23 @@ describe('WebLLMModel', () => {
         time_per_output_token_s: 0.5,
       },
     }
-    const { model } = setup(chunk({ content: 'Hi' }, 'stop'), {
-      ...chunk(),
-      choices: [],
-      usage,
-    })
+    const response = [
+      chunk({ content: 'Hi' }, 'stop'),
+      {
+        ...chunk(),
+        choices: [],
+        usage,
+      },
+    ]
+    const { model, create } = setup(...response)
+    create.mockImplementation(async () => chunks(...response))
+    const events: ModelStreamEvent[] = await collect(model.stream(messages))
+    const metadataIndex = events.findIndex((event) => event.type === 'modelMetadataEvent')
+    const stopIndex = events.findIndex((event) => event.type === 'modelMessageStopEvent')
+    expect(metadataIndex).toBeGreaterThanOrEqual(0)
+    expect(metadataIndex).toBeLessThan(stopIndex)
+    expect(stopIndex).toBe(events.length - 1)
+
     const result = await aggregate(model)
     expect(result.metadata?.usage).toEqual({ inputTokens: 5, outputTokens: 2, totalTokens: 7 })
     expect(result.metadata?.trace).toEqual(usage.extra)
@@ -252,8 +312,8 @@ describe('WebLLMModel', () => {
 
   it('joins split tool names and JSON without showing raw tool JSON as text', async () => {
     const { model } = setup(
+      chunk({ content: '[{"name":"weather","arguments":{"city":"Seoul"}}]' }),
       chunk({
-        content: 'raw tool JSON',
         tool_calls: [{ index: 0, id: 'a', function: { name: 'wea', arguments: '{"city":' } }],
       }),
       chunk(
@@ -271,6 +331,174 @@ describe('WebLLMModel', () => {
     ])
   })
 
+  it('streams native tool input before the backend finishes', async () => {
+    const { model, create } = setup()
+    const hold = pause()
+    const started = pause()
+    create.mockImplementationOnce(async () =>
+      (async function* () {
+        started.resume()
+        yield chunk({
+          tool_calls: [
+            { index: 0, id: 'call-1', function: { name: 'weather', arguments: '{"city":' } },
+          ],
+        })
+        await hold.wait
+        yield chunk(
+          { tool_calls: [{ index: 0, function: { arguments: '"Seoul"}' } }] },
+          'tool_calls',
+        )
+      })(),
+    )
+
+    const stream = model.stream(messages, { toolSpecs: tools })
+    try {
+      await stream.next()
+      expect(await stream.next()).toMatchObject({
+        value: {
+          type: 'modelContentBlockStartEvent',
+          start: { type: 'toolUseStart', name: 'weather', toolUseId: 'call-1' },
+        },
+      })
+      expect(await stream.next()).toMatchObject({
+        value: {
+          type: 'modelContentBlockDeltaEvent',
+          delta: { type: 'toolUseInputDelta', input: '{"city":' },
+        },
+      })
+      await started.wait
+
+      hold.resume()
+      const rest = await collect(stream)
+      expect(rest).toContainEqual({
+        type: 'modelContentBlockDeltaEvent',
+        delta: { type: 'toolUseInputDelta', input: '"Seoul"}' },
+      })
+      expect(rest.at(-1)).toEqual({ type: 'modelMessageStopEvent', stopReason: 'toolUse' })
+    } finally {
+      hold.resume()
+      await stream.return(undefined)
+    }
+  })
+
+  it('flushes the final native input fragment before closing a truncated tool block', async () => {
+    const { model } = setup(
+      chunk({
+        tool_calls: [
+          { index: 0, id: 'call-1', function: { name: 'weather', arguments: '{"city":' } },
+        ],
+      }),
+      chunk({ tool_calls: [{ index: 0, function: { arguments: '"Seoul"}' } }] }, 'length'),
+    )
+
+    const events = await collect(model.stream(messages, { toolSpecs: tools }))
+
+    expect(events).toContainEqual({
+      type: 'modelContentBlockDeltaEvent',
+      delta: { type: 'toolUseInputDelta', input: '"Seoul"}' },
+    })
+    expect(events).toContainEqual({ type: 'modelContentBlockStopEvent' })
+    expect(events.at(-1)).toEqual({ type: 'modelMessageStopEvent', stopReason: 'maxTokens' })
+  })
+
+  it('closes a started native tool block when cancelled', async () => {
+    const { model, create, stop } = setup()
+    const hold = pause()
+    const waiting = pause()
+    create.mockResolvedValueOnce(
+      (async function* () {
+        try {
+          yield chunk({
+            tool_calls: [
+              { index: 0, id: 'call-1', function: { name: 'weather', arguments: '{"city":' } },
+            ],
+          })
+          waiting.resume()
+          await hold.wait
+        } finally {
+          hold.resume()
+        }
+      })(),
+    )
+    stop.mockImplementation(async () => hold.resume())
+
+    const controller = new AbortController()
+    const stream = model.stream(messages, { toolSpecs: tools, cancelSignal: controller.signal })
+    try {
+      await stream.next()
+      await stream.next()
+      await stream.next()
+      const rest = collect(stream)
+      await waiting.wait
+      controller.abort()
+      const events = await rest
+
+      expect(events).toContainEqual({ type: 'modelContentBlockStopEvent' })
+      expect(events.at(-1)).toEqual({ type: 'modelMessageStopEvent', stopReason: 'cancelled' })
+    } finally {
+      hold.resume()
+      await stream.return(undefined)
+    }
+  })
+
+  it('keeps assistant commentary beside a native tool call', async () => {
+    const { model } = setup(
+      chunk(
+        {
+          content: 'Checking the weather now.',
+          tool_calls: [
+            {
+              index: 0,
+              id: 'call-1',
+              function: { name: 'weather', arguments: '{"city":"Seoul"}' },
+            },
+          ],
+        },
+        'tool_calls',
+      ),
+    )
+
+    const events = await collect(model.stream(messages, { toolSpecs: tools }))
+    expect(events).toContainEqual({
+      type: 'modelContentBlockDeltaEvent',
+      delta: { type: 'textDelta', text: 'Checking the weather now.' },
+    })
+    expect(events).toContainEqual({
+      type: 'modelContentBlockStartEvent',
+      start: { type: 'toolUseStart', name: 'weather', toolUseId: 'call-1' },
+    })
+    expect(events).toContainEqual({
+      type: 'modelContentBlockDeltaEvent',
+      delta: { type: 'toolUseInputDelta', input: '{"city":"Seoul"}' },
+    })
+  })
+
+  it('suppresses serialized tool JSON when parsed calls arrive with it', async () => {
+    const { model } = setup(
+      chunk(
+        {
+          content: '[{"name":"weather","arguments":{"city":"Seoul"}}]',
+          tool_calls: [
+            {
+              index: 0,
+              id: 'call-1',
+              function: { name: 'weather', arguments: '{"city":"Seoul"}' },
+            },
+          ],
+        },
+        'tool_calls',
+      ),
+    )
+
+    const events = await collect(model.stream(messages, { toolSpecs: tools }))
+    expect(
+      events.some(
+        (event) => event.type === 'modelContentBlockDeltaEvent' && event.delta.type === 'textDelta',
+      ),
+    ).toBe(false)
+    expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'toolUse' })
+  })
+
   it('never turns a truncated tool call into executable tool use', async () => {
     const { model } = setup(
       chunk(
@@ -281,14 +509,149 @@ describe('WebLLMModel', () => {
     await expect(aggregate(model, { toolSpecs: tools })).rejects.toBeInstanceOf(MaxTokensError)
   })
 
+  it.each([
+    [
+      'Qwen3-4B-q4f16_1-MLC',
+      '<tool_call>{"name":"lookup","arguments":{"city":"Seoul"}}</tool_call>',
+      '<tool_call>{"name":"lookup","arguments":{"city":"To',
+    ],
+    [
+      'Qwen3.5-4B-q4f16_1-MLC',
+      '<tool_call><function=lookup><parameter=city>Seoul</parameter></function></tool_call>',
+      '<tool_call><function=lookup><parameter=city>Tokyo',
+    ],
+  ])(
+    'preserves all tool output if %s reaches the token limit',
+    async (modelId, complete, partial) => {
+      const raw = complete + partial
+      const { model } = setup(chunk({ content: raw }, 'length'))
+      model.updateConfig({ modelId })
+
+      const events = await collect(
+        model.stream(messages, { toolSpecs: [{ name: 'lookup', description: 'Look up a city.' }] }),
+      )
+      const text = events
+        .flatMap((event) =>
+          event.type === 'modelContentBlockDeltaEvent' && event.delta.type === 'textDelta'
+            ? [event.delta.text]
+            : [],
+        )
+        .join('')
+
+      expect(text).toBe(raw)
+      expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'maxTokens' })
+      expect(
+        events.some(
+          (event) =>
+            event.type === 'modelContentBlockStartEvent' && event.start?.type === 'toolUseStart',
+        ),
+      ).toBe(false)
+    },
+  )
+
   it('rejects broken tool JSON', async () => {
     const { model } = setup(
+      chunk({
+        tool_calls: [{ index: 0, id: 'call-1', function: { name: 'weather', arguments: '{' } }],
+      }),
+      chunk({ tool_calls: [{ index: 0, function: { arguments: 'invalid' } }] }, 'tool_calls'),
+    )
+    const events: ModelStreamEvent[] = []
+
+    await expect(async () => {
+      for await (const event of model.stream(messages, { toolSpecs: tools })) events.push(event)
+    }).rejects.toThrow('invalid tool JSON')
+    expect(events).toContainEqual({ type: 'modelContentBlockStopEvent' })
+  })
+
+  it('closes a started native tool block before rejecting a tool-choice violation', async () => {
+    const registeredTools = [...tools, { name: 'time', description: 'Get the time.' }]
+    const { model } = setup(
+      chunk({
+        tool_calls: [{ index: 0, id: 'call-1', function: { name: 'time', arguments: '{' } }],
+      }),
+      chunk({ tool_calls: [{ index: 0, function: { arguments: '"UTC"}' } }] }, 'tool_calls'),
+    )
+    const events: ModelStreamEvent[] = []
+
+    await expect(async () => {
+      for await (const event of model.stream(messages, {
+        toolSpecs: registeredTools,
+        toolChoice: { tool: { name: 'weather' } },
+      })) {
+        events.push(event)
+      }
+    }).rejects.toThrow('outside tool_choice')
+    expect(events).toContainEqual({ type: 'modelContentBlockStopEvent' })
+  })
+
+  it.each(['[]', 'null', '42', '"text"'])(
+    'rejects non-object native tool arguments before running a tool: %s',
+    async (input) => {
+      const { model, create } = setup()
+      create.mockResolvedValueOnce(
+        chunks(
+          chunk(
+            { tool_calls: [{ index: 0, function: { name: 'weather', arguments: input } }] },
+            'tool_calls',
+          ),
+        ),
+      )
+      create.mockResolvedValueOnce(chunks(chunk({ content: 'Done' }, 'stop')))
+      const callback = vi.fn(() => 'Sunny')
+      const agent = new Agent({
+        model,
+        printer: false,
+        tools: [new FunctionTool({ ...tools[0]!, callback })],
+      })
+
+      await expect(agent.invoke('Weather?')).rejects.toThrow('must be an object')
+      expect(callback).not.toHaveBeenCalled()
+      expect(create).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it.each(['{"value":1e999}', '{"values":[{"value":-1e999}]}'])(
+    'rejects overflowing native tool arguments before running a tool: %s',
+    async (input) => {
+      const { model, create } = setup()
+      create.mockResolvedValueOnce(
+        chunks(
+          chunk(
+            { tool_calls: [{ index: 0, function: { name: 'weather', arguments: input } }] },
+            'tool_calls',
+          ),
+        ),
+      )
+      create.mockResolvedValueOnce(chunks(chunk({ content: 'Done' }, 'stop')))
+      const callback = vi.fn(() => 'Done')
+      const agent = new Agent({
+        model,
+        printer: false,
+        tools: [new FunctionTool({ ...tools[0]!, callback })],
+      })
+      await expect(agent.invoke('Weather?')).rejects.toThrow('finite numbers')
+      expect(callback).not.toHaveBeenCalled()
+      expect(create).toHaveBeenCalledTimes(1)
+      expect((await aggregate(model)).message.content).toEqual([new TextBlock('Done')])
+    },
+  )
+
+  it('preserves native tool JSON with finite numbers and literal protocol tags', async () => {
+    const input = ' { "small": 1e-300, "large": 1e300, "text": "</tool_call>", "items": [null] } '
+    const { model } = setup(
       chunk(
-        { tool_calls: [{ index: 0, function: { name: 'weather', arguments: '{' } }] },
+        { tool_calls: [{ index: 0, function: { name: 'weather', arguments: input } }] },
         'tool_calls',
       ),
     )
-    await expect(aggregate(model, { toolSpecs: tools })).rejects.toThrow('invalid tool JSON')
+    const events = await collect(
+      model.stream(messages, { toolSpecs: [{ name: 'lookup', description: 'Look up a city.' }] }),
+    )
+    expect(events).toContainEqual({
+      type: 'modelContentBlockDeltaEvent',
+      delta: { type: 'toolUseInputDelta', input },
+    })
   })
 
   it('rejects a stream without a stop reason', async () => {

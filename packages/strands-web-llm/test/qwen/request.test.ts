@@ -173,3 +173,23 @@ it('does not put Qwen2.5 reasoning blocks in the user-facing transcript', () => 
     'Old answer.',
   )
 })
+
+it('rejects tool signatures that Qwen cannot preserve', () => {
+  const messages = [
+    new Message({
+      role: 'assistant',
+      content: [
+        new ToolUseBlock({
+          toolUseId: 'call-1',
+          name: 'lookup',
+          input: { city: 'Seoul' },
+          reasoningSignature: 'opaque-signature',
+        }),
+      ],
+    }),
+  ]
+
+  expect(() => qwenRequest({ modelId: 'Qwen3-4B-q4f16_1-MLC' }, messages, {})).toThrow(
+    'tool calls with reasoning signatures',
+  )
+})

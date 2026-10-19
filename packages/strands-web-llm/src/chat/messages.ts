@@ -19,13 +19,16 @@ export function formatMessages(
   }
 
   for (const message of messages) {
-    if (message.role === 'assistant') output.push(formatAssistant(message.content))
-    else output.push(...formatUser(message.content))
+    if (message.role === 'assistant') {
+      const assistant = formatAssistant(message.content)
+      if (assistant.content !== null || assistant.tool_calls) output.push(assistant)
+    } else output.push(...formatUser(message.content))
   }
   return output
 }
 
 export function formatAssistant(content: ContentBlock[]): ChatCompletionAssistantMessageParam {
+  rejectSignedToolCalls(content)
   const calls = content.filter((block) => block.type === 'toolUseBlock')
   const text = textOnly(content.filter((block) => block.type !== 'toolUseBlock'))
   return {
@@ -41,18 +44,30 @@ export function formatAssistant(content: ContentBlock[]): ChatCompletionAssistan
   }
 }
 
+export function rejectSignedToolCalls(content: readonly ContentBlock[]) {
+  if (
+    content.some((block) => block.type === 'toolUseBlock' && block.reasoningSignature !== undefined)
+  )
+    throw new ModelError('WebLLM cannot replay tool calls with reasoning signatures.')
+}
+
 export function formatUser(content: ContentBlock[]): ChatCompletionMessageParam[] {
   const output: ChatCompletionMessageParam[] = []
+  const toolImageMessages: ChatCompletionMessageParam[] = []
   // Tool results must precede user text injected into the same Strands message.
   for (const block of content) {
     if (block.type !== 'toolResultBlock') continue
-    const text = textOnly(block.content)
+    const images = block.content.filter((part) => part.type === 'imageBlock').map(formatPart)
+    const text = textOnly(block.content.filter((part) => part.type !== 'imageBlock'))
+    const result = images.length && !text.trim() ? 'Tool successfully returned an image.' : text
     output.push({
       role: 'tool',
       tool_call_id: block.toolUseId,
-      content: block.status === 'error' ? `Tool error: ${text}` : text,
+      content: block.status === 'error' ? `Tool error: ${result}` : result,
     })
+    if (images.length) toolImageMessages.push({ role: 'user', content: images })
   }
+  output.push(...toolImageMessages)
   const parts = content
     .filter((block) => block.type !== 'toolResultBlock' && block.type !== 'cachePointBlock')
     .map(formatPart)
@@ -72,6 +87,11 @@ function textOnly(blocks: readonly (ContentBlock | ToolResultContent)[]): string
       if (block.type === 'textBlock') return block.text
       if (block.type === 'jsonBlock') return JSON.stringify(block.json)
       if (block.type === 'cachePointBlock') return ''
+      if (block.type === 'reasoningBlock') {
+        if (block.signature !== undefined || block.redactedContent !== undefined)
+          throw new ModelError('WebLLM cannot use signed or redacted reasoning blocks.')
+        return block.text ?? ''
+      }
       throw new ModelError(`WebLLM cannot use ${block.type} here.`)
     })
     .join('\n')
@@ -80,30 +100,26 @@ function textOnly(blocks: readonly (ContentBlock | ToolResultContent)[]): string
 function formatPart(block: ContentBlock): ChatCompletionContentPart {
   if (block.type === 'textBlock') return { type: 'text', text: block.text }
   if (block.type === 'imageBlock') {
-    if (block.source.type === 'imageSourceUrl') {
-      return { type: 'image_url', image_url: { url: block.source.url } }
+    const source = block.toJSON().image.source
+    if ('url' in source) {
+      return { type: 'image_url', image_url: { url: source.url } }
     }
-    if (block.source.type === 'imageSourceBytes') {
+    if ('bytes' in source) {
       const format = block.format === 'jpg' ? 'jpeg' : block.format
-      const url = `data:image/${format};base64,${base64(block.source.bytes)}`
+      const url = `data:image/${format};base64,${source.bytes}`
       return { type: 'image_url', image_url: { url } }
     }
   }
   if (block.type === 'audioBlock' && block.format === 'wav') {
-    if (block.source.type === 'audioSourceBytes') {
+    const source = block.toJSON().audio.source
+    if ('bytes' in source) {
       return {
         type: 'input_audio',
-        input_audio: { format: 'wav', data: base64(block.source.bytes) },
+        input_audio: { format: 'wav', data: source.bytes },
       }
     }
   }
   throw new ModelError(`WebLLM cannot use this ${block.type}. Use image URLs/bytes or WAV bytes.`)
-}
-
-function base64(bytes: Uint8Array): string {
-  let text = ''
-  for (const byte of bytes) text += String.fromCharCode(byte)
-  return btoa(text)
 }
 
 export function formatTools(tools: ToolSpec[]): ChatCompletionTool[] {

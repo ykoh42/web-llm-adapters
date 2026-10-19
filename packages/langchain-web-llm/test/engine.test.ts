@@ -1,9 +1,34 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { ChatWebLLM, withEngine } from '../src/index.js'
 import { withEngine as withStrandsEngine } from '../../strands-web-llm/src/index.js'
 import { chunk, chunks, collect, pause, setup } from '../fixtures/engine.js'
 
 describe('engine ownership', () => {
+  it.each([
+    [0, 1],
+    [1, 0],
+  ])('overrides %i model retries with %i call retries', async (defaults, retries) => {
+    const { engine, create } = setup(chunk({ content: 'Okay' }, 'stop'))
+    create.mockRejectedValueOnce(new Error('Opening failed'))
+    const model = new ChatWebLLM({ engine, modelId: 'test-model', maxRetries: defaults })
+
+    const result = model.invoke('Hi', { maxRetries: retries })
+    if (retries) expect((await result).text).toBe('Okay')
+    else await expect(result).rejects.toThrow('Opening failed')
+    expect(create).toHaveBeenCalledTimes(retries + 1)
+  })
+
+  it('keeps local retries off when maxRetries is undefined', async () => {
+    const { engine, create } = setup()
+    create.mockRejectedValue(new Error('GPU lost'))
+    const options = { engine, modelId: 'test-model' }
+    Object.assign(options, { maxRetries: undefined })
+    const model = new ChatWebLLM(options)
+
+    await expect(model.invoke('Hi')).rejects.toThrow('GPU lost')
+    expect(create).toHaveBeenCalledOnce()
+  })
+
   it('serializes concurrent LangChain calls on one engine', async () => {
     const { model, create } = setup()
     const hold = pause()
@@ -65,6 +90,68 @@ describe('engine ownership', () => {
     await native
     expect((await model.invoke('After')).text).toBe('Okay')
     expect(create).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the engine until a cancelled opening request settles', async () => {
+    const { model, create, stop } = setup(chunk({ content: 'Recovered' }, 'stop'))
+    const opening = pause()
+    const hold = pause()
+    const iterator = {
+      next: vi.fn(async () => ({ done: true as const, value: undefined })),
+      return: vi.fn(async () => ({ done: true as const, value: undefined })),
+    }
+    create.mockImplementationOnce(async () => {
+      opening.resume()
+      await hold.wait
+      return { [Symbol.asyncIterator]: () => iterator }
+    })
+    const cancel = new AbortController()
+    const first = model.invoke('First', { signal: cancel.signal })
+    await opening.wait
+    cancel.abort()
+    const failed = expect(first).rejects.toBeDefined()
+    const second = model.invoke('Second')
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(create).toHaveBeenCalledTimes(1)
+
+    hold.resume()
+    await failed
+    expect((await second).text).toBe('Recovered')
+    expect(stop).toHaveBeenCalledTimes(1)
+    expect(iterator.return).toHaveBeenCalledOnce()
+  })
+
+  it('cancels retry backoff without delaying the next engine call', async () => {
+    vi.useFakeTimers()
+    try {
+      const { engine, create } = setup(chunk({ content: 'Recovered' }, 'stop'))
+      const failed = pause()
+      create.mockImplementationOnce(async () => {
+        failed.resume()
+        throw new Error('Opening failed')
+      })
+      const model = new ChatWebLLM({
+        engine,
+        modelId: 'test-model',
+        maxConcurrency: 1,
+        maxRetries: 1,
+      })
+      const cancel = new AbortController()
+      const first = model.invoke('First', { signal: cancel.signal })
+
+      await failed.wait
+      await vi.advanceTimersByTimeAsync(0)
+      expect(vi.getTimerCount()).toBeGreaterThan(0)
+
+      cancel.abort()
+      await expect(first).rejects.toBeDefined()
+      expect((await model.invoke('Second')).text).toBe('Recovered')
+      await vi.runOnlyPendingTimersAsync()
+      expect(create).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('interrupts active generation and allows the next call to finish', async () => {

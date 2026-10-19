@@ -1,6 +1,7 @@
 import { AIMessage } from '@langchain/core/messages'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
+import { createAgent } from 'langchain'
 import { chunk, setup } from '../fixtures/engine.js'
 import { ChatWebLLM } from '../src/index.js'
 
@@ -22,6 +23,23 @@ function response(args: string) {
   )
 }
 describe('structured output', () => {
+  it('passes an agent response schema to WebLLM native JSON generation', async () => {
+    const { engine, create } = setup(chunk({ content: '{"answer":42}' }, 'stop'))
+    const model = new ChatWebLLM({ engine, modelId: 'Qwen3.5-4B-q4f16_1-MLC' })
+    const agent = createAgent({ model, responseFormat: z.object({ answer: z.number() }) })
+
+    const result = await agent.invoke({ messages: [{ role: 'user', content: 'Six times seven?' }] })
+
+    expect(result.structuredResponse).toEqual({ answer: 42 })
+    const format = create.mock.calls[0]?.[0].response_format
+    expect(format?.type).toBe('json_object')
+    expect(JSON.parse(format?.schema ?? '')).toMatchObject({
+      type: 'object',
+      properties: { answer: { type: 'number' } },
+      required: ['answer'],
+    })
+  })
+
   it('uses LangChain schema validation and reports parser failures', async () => {
     const { model } = response('{"answer":"wrong type"}')
     await expect(

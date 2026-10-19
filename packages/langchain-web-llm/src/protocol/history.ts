@@ -19,7 +19,7 @@ export function qwenHistory(
 ): ChatCompletionMessageParam[] {
   const output: ChatCompletionMessageParam[] = []
   const system = history[0]?.role === 'system' ? history[0].content : undefined
-  const declarations = tools.length ? (xml ? qwen35 : qwen).toolPrompt(tools, choice) : ''
+  const declarations = (xml ? qwen35 : qwen).toolPrompt(tools, choice)
   const parts = xml
     ? [declarations, system]
     : [
@@ -52,7 +52,11 @@ export function qwenHistory(
         return separator + (xml ? qwen35 : qwen).formatCall(call.function.name, input)
       })
       .join('')
-    output.push({ role: 'assistant', content: `${reasoning}${answer}${calls}` || null })
+    output.push({
+      role: 'assistant',
+      content: `${reasoning}${answer}${calls}` || null,
+      ...(message.name !== undefined && { name: message.name }),
+    })
     previousWasTool = false
   }
   return output

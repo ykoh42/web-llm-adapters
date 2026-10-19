@@ -1,15 +1,6 @@
 import { sampling } from '../../../shared/sampling.js'
-import {
-  CreateMLCEngine,
-  CreateWebWorkerMLCEngine,
-  prebuiltAppConfig,
-  type MLCEngineInterface,
-} from '@mlc-ai/web-llm'
-import { AIMessage } from '@langchain/core/messages'
-import { createAgent } from 'langchain'
-import { tool } from '@langchain/core/tools'
-import { z } from 'zod'
-import { ChatWebLLM, WebLLMEmbeddings, createBrowserBridge } from 'langchain-web-llm'
+import type { MLCEngineInterface } from '@mlc-ai/web-llm'
+type LangChainAdapter = typeof import('langchain-web-llm')
 import runtimeUrl from 'langchain-web-llm/runtime/gemma-4-e2b.wasm?url'
 import runtime from 'langchain-web-llm/runtime/manifest.json'
 
@@ -20,15 +11,30 @@ const modelSelect = document.querySelector<HTMLSelectElement>('#model')!
 const thinking = document.querySelector<HTMLInputElement>('#thinking')!
 let engine: MLCEngineInterface | undefined
 let modelId = ''
+let contextWindowSize: number | undefined
 let cancel: AbortController | undefined
 let worker: Worker | undefined
+let adapter: LangChainAdapter | undefined
 
-async function load(id: string, useWorker = false) {
+async function load(id: string, useWorker = true) {
+  const [{ CreateMLCEngine, CreateWebWorkerMLCEngine, prebuiltAppConfig }, langChainAdapter] =
+    await Promise.all([import('@mlc-ai/web-llm'), import('langchain-web-llm')])
   if (engine) {
-    await window.webllmLangChainBridge.close()
-    await engine.unload()
-    worker?.terminate()
+    const previousBridge = window.webllmLangChainBridge
+    const previousEngine = engine
+    const previousWorker = worker
+    engine = undefined
     worker = undefined
+    delete window.webllmLangChainBridge
+    try {
+      await previousBridge?.close()
+    } finally {
+      try {
+        await previousEngine.unload()
+      } finally {
+        previousWorker?.terminate()
+      }
+    }
   }
   modelId = id
   const appConfig = {
@@ -43,27 +49,27 @@ async function load(id: string, useWorker = false) {
         : model,
     ),
   }
+  contextWindowSize = appConfig.model_list.find((model) => model.model_id === id)?.overrides
+    ?.context_window_size
   const options = {
     appConfig,
     initProgressCallback: (progress: import('@mlc-ai/web-llm').InitProgressReport) => {
       status.textContent = progress.text
     },
   }
-  const context = id.startsWith('snowflake-arctic-embed-')
-    ? undefined
-    : { context_window_size: 32768 }
   engine = undefined
   try {
     if (useWorker) {
       worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
-      engine = await CreateWebWorkerMLCEngine(worker, id, options, context)
-    } else engine = await CreateMLCEngine(id, options, context)
+      engine = await CreateWebWorkerMLCEngine(worker, id, options)
+    } else engine = await CreateMLCEngine(id, options)
   } catch (error) {
     worker?.terminate()
     worker = undefined
     throw error
   }
-  window.webllmLangChainBridge = createBrowserBridge(engine)
+  adapter = langChainAdapter
+  window.webllmLangChainBridge = adapter.createBrowserBridge(engine)
   thinking.disabled = !model().profile.reasoningOutput
   thinking.checked = !thinking.disabled
   status.textContent = 'Ready'
@@ -71,15 +77,21 @@ async function load(id: string, useWorker = false) {
 
 function model(enabled = thinking.checked) {
   if (!engine) throw new Error('Load a model first.')
-  return new ChatWebLLM({
+  if (!adapter) throw new Error('Load a model first.')
+  return new adapter.ChatWebLLM({
     engine,
     modelId,
-    profile: { maxInputTokens: 32768 },
+    ...(contextWindowSize !== undefined && { profile: { maxInputTokens: contextWindowSize } }),
     request: { ...sampling(modelId, enabled), max_tokens: 4096, seed: 7 },
   })
 }
 
 async function run(message: string, enabled = thinking.checked, signal?: AbortSignal) {
+  const [{ createAgent }, { tool }, { z }] = await Promise.all([
+    import('langchain'),
+    import('@langchain/core/tools'),
+    import('zod'),
+  ])
   const lookup = tool(({ code }) => `The answer for ${code} is 42.`, {
     name: 'lookup',
     description: 'Look up the answer for a code.',
@@ -111,7 +123,8 @@ document.querySelector<HTMLFormElement>('#chat')!.onsubmit = (event) => {
   status.textContent = 'Running'
   const message = document.querySelector<HTMLInputElement>('#message')!.value
   void run(message, thinking.checked, cancel.signal)
-    .then((result) => {
+    .then(async (result) => {
+      const { AIMessage } = await import('@langchain/core/messages')
       answer.textContent = result.messages.at(-1)?.text ?? ''
       details.textContent = result.messages
         .filter(AIMessage.isInstance)
@@ -129,6 +142,7 @@ document.querySelector<HTMLFormElement>('#chat')!.onsubmit = (event) => {
 
 // Browser checks exercise the same engine and provider used by this example.
 export const checks = {
+  contextWindowSize: () => contextWindowSize,
   engine: () => {
     if (!engine) throw new Error('Load a model first.')
     return engine
@@ -138,7 +152,8 @@ export const checks = {
   model,
   embeddings: () => {
     if (!engine) throw new Error('Load an embedding model first.')
-    return new WebLLMEmbeddings({ engine, modelId })
+    if (!adapter) throw new Error('Load an embedding model first.')
+    return new adapter.WebLLMEmbeddings({ engine, modelId })
   },
 }
 Object.assign(window, { checks })

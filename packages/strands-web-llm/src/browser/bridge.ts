@@ -1,14 +1,16 @@
-import { Message } from '@strands-agents/sdk'
+import { Message, type ModelStreamEvent } from '@strands-agents/sdk'
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
 import { WebLLMModel } from '../model.js'
 import { withEngine } from '../../../../shared/web-llm/engine/access.js'
 import type { WebLLMChunk } from '../types.js'
-import type { BrowserBridge, BrowserRequest, BrowserResult, BrowserCountRequest } from './types.js'
+import { toBrowserError } from './errors.js'
+import type { BrowserBridge, BrowserRequest, BrowserResult } from './types.js'
 
 /** Serve a loaded engine on a private browser page. The caller owns its lifetime. */
 export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
   interface Call {
     stream: ReturnType<WebLLMModel['stream']>
+    pending?: Promise<IteratorResult<ModelStreamEvent, undefined>>
     controller: AbortController
     closing?: Promise<void>
     chunks: WebLLMChunk[]
@@ -33,11 +35,6 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
         nativeCalls.delete(pending)
       }
     },
-    async count({ messages, config, options }: BrowserCountRequest) {
-      checkOpen()
-      const model = new WebLLMModel({ engine, ...config })
-      return model.countTokens(messages.map(Message.fromJSON), options)
-    },
     async start({ messages, config, options, includeChunks }: BrowserRequest) {
       checkOpen()
       const id = crypto.randomUUID()
@@ -59,17 +56,18 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
       const call = calls.get(id)
       try {
         if (!call) throw new Error('Unknown browser call.')
-        const result = await call.stream.next()
+        const pending = call.pending ?? call.stream.next()
+        // Reserve the next event before waiting, so overlapping reads cannot share it.
+        call.pending = pending.then((result) => (result.done ? result : call.stream.next()))
+        void call.pending.catch(() => {})
+        const result = await pending
         if (result.done) calls.delete(id)
         return { ...result, ...(call.chunks.length && { chunks: call.chunks.splice(0) }) }
       } catch (error) {
         calls.delete(id)
         return {
           ...(call?.chunks.length && { chunks: call.chunks.splice(0) }),
-          error: {
-            name: error instanceof Error ? error.name : 'Error',
-            message: error instanceof Error ? error.message : String(error),
-          },
+          error: toBrowserError(error),
         }
       }
     },

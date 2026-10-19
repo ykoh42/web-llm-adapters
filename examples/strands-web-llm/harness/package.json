@@ -3,9 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node --experimental-strip-types src/main.ts",
+    "start": "node src/main.ts",
     "typecheck": "tsc --noEmit",
-    "test:install": "node --experimental-strip-types test/install/run.ts"
+    "test:install": "node test/install/run.ts"
   },
   "dependencies": {
     "@strands-agents/harness": "0.3.0",

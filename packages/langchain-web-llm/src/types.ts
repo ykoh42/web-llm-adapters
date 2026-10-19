@@ -36,4 +36,16 @@ export interface ChatWebLLMOptions extends WebLLMModelOptions {
 export interface WebLLMCallOptions extends BaseChatModelCallOptions {
   tools?: BindToolsInput[]
   request?: WebLLMRequest
+  /** LangChain agents pass provider schemas through this standard option. */
+  response_format?:
+    | NonNullable<WebLLMRequest['response_format']>
+    | {
+        type: 'json_schema'
+        json_schema: {
+          name?: string
+          description?: string
+          schema: Record<string, unknown>
+          strict?: boolean
+        }
+      }
 }

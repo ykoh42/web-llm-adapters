@@ -96,7 +96,7 @@ try {
     ])
   }
   console.log('Run the installed package.')
-  run(process.execPath, ['--experimental-strip-types', '--test', 'consumer.ts'])
+  run(process.execPath, ['--test', 'consumer.ts'])
 } finally {
   await rm(directory, { recursive: true, force: true })
 }

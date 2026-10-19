@@ -13,6 +13,9 @@ for (const modelId of [
 ]) {
   test(`${modelId}: default Deep Agents tools and final answer`, async ({ page }, testInfo) => {
     await page.evaluate((id) => window.checks.load(id), modelId)
+    const profile = await page.evaluate(() => window.checks.model().profile)
+    const configuredContext = await page.evaluate(() => window.checks.contextWindowSize())
+    expect(profile.maxInputTokens).toBe(configuredContext)
     await page.evaluate(() => {
       const engine = window.checks.engine()
       const create = engine.chat.completions.create.bind(engine.chat.completions)
@@ -30,7 +33,7 @@ for (const modelId of [
     const native: WebLLMChunk[] = []
     const model = new BrowserChatWebLLM(page, {
       modelId,
-      profile: { maxInputTokens: 32768 },
+      profile,
       onChunk: (chunk) => native.push(chunk),
       request: { ...sampling(modelId, thinking), max_tokens: 4096, seed: 7 },
     })

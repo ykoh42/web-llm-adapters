@@ -14,6 +14,7 @@ import {
   formatMessages,
   formatSystemPrompt,
   formatUser,
+  rejectSignedToolCalls,
 } from '../chat/messages.js'
 import { generationOptions, hasStructuredResponse } from '../request.js'
 import { appendQwenTurns, lastQwenQuery } from '../qwen/history.js'
@@ -50,15 +51,15 @@ function qwen35Messages(
 ) {
   const output = formatMessages([], undefined)
   const system = formatSystemPrompt(systemPrompt)
-  const prompt = tools.length
-    ? [toolPrompt(tools, choice), ...(system ? [system] : [])].join('\n\n')
-    : system
+  const declarations = toolPrompt(tools, choice)
+  const prompt = declarations ? [declarations, ...(system ? [system] : [])].join('\n\n') : system
   if (prompt) output.push({ role: 'system', content: prompt })
 
   const lastQuery = lastQwenQuery(messages)
   let previousWasToolResult = false
   for (const [index, message] of messages.entries()) {
     if (message.role === 'assistant') {
+      rejectSignedToolCalls(message.content)
       const thoughts = message.content.filter((block) => block.type === 'reasoningBlock')
       if (
         thoughts.some(

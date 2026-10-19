@@ -53,9 +53,24 @@ it('rejects cancelled work before reading a file', async () => {
   controller.abort(new Error('Stop reading'))
   const { tool, context } = setup(controller.signal)
   const read = vi.spyOn(context.agent.sandbox, 'readFile')
+  const list = vi.spyOn(context.agent.sandbox, 'listFiles')
   await expect(tool.invoke({ path: join(dir, 'note.pdf') }, context)).rejects.toThrow(
     'Stop reading',
   )
+  expect(read).not.toHaveBeenCalled()
+  expect(list).not.toHaveBeenCalled()
+})
+
+it('stops after cancellation during the size check', async () => {
+  const controller = new AbortController()
+  const { tool, context } = setup(controller.signal)
+  vi.spyOn(context.agent.sandbox, 'listFiles').mockImplementation(async () => {
+    controller.abort(new Error('Stop reading'))
+    return []
+  })
+  const read = vi.spyOn(context.agent.sandbox, 'readFile')
+
+  await expect(tool.invoke({ path: '/sandbox/note.pdf' }, context)).rejects.toThrow('Stop reading')
   expect(read).not.toHaveBeenCalled()
 })
 
@@ -75,6 +90,21 @@ it.each(['pdf', 'png'])('rejects oversized %s files', async (format) => {
     '20 MiB',
   )
 })
+
+it.each(['pdf', 'png'])(
+  'rejects oversized %s files before reading when size is known',
+  async (format) => {
+    const { tool, context } = setup()
+    const path = join(dir, 'large.' + format)
+    vi.spyOn(context.agent.sandbox, 'listFiles').mockResolvedValueOnce([
+      { name: 'large.' + format, size: 20 * 1024 * 1024 + 1 },
+    ])
+    const read = vi.spyOn(context.agent.sandbox, 'readFile')
+
+    await expect(tool.invoke({ path }, context)).rejects.toThrow('20 MiB')
+    expect(read).not.toHaveBeenCalled()
+  },
+)
 
 it.each(['gif', 'docx', 'wav'])('rejects unsupported %s media', async (format) => {
   const { tool, context } = setup()
@@ -103,10 +133,12 @@ it('rejects images with no readable text', async () => {
   )
 })
 
-it('reports malformed images without an uncaught worker error', async () => {
+it('rejects malformed images before starting OCR', async () => {
   const { tool, context } = setup()
   vi.spyOn(context.agent.sandbox, 'readFile').mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
-  await expect(tool.invoke({ path: '/sandbox/bad.png' }, context)).rejects.toThrow()
+  await expect(tool.invoke({ path: '/sandbox/bad.png' }, context)).rejects.toThrow(
+    'PNG or JPEG data',
+  )
 })
 
 it('rejects PDFs with no extractable text', async () => {

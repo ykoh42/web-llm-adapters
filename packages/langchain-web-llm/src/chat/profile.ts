@@ -13,7 +13,7 @@ export function modelProfile(modelId: string, profile: ModelProfile = {}): Model
   return {
     ...(qwen || gemma
       ? {
-          toolCalling: modelId !== 'Qwen3-1.7B-q4f16_1-MLC',
+          toolCalling: true,
           reasoningOutput: !modelId.startsWith('Qwen2.5-'),
           structuredOutput: true,
           imageInputs: false,
@@ -34,7 +34,7 @@ export function modelProfile(modelId: string, profile: ModelProfile = {}): Model
     pdfInputs: false,
     videoInputs: false,
     fileMimeTypes: [],
-    imageToolMessage: false,
+    imageToolMessage: profile.imageToolMessage ?? false,
     pdfToolMessage: false,
     imageOutputs: false,
     audioOutputs: false,

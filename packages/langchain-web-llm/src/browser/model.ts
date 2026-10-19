@@ -28,7 +28,7 @@ export class BrowserChatWebLLM extends WebLLMChatModel {
   ): AsyncGenerator<ChatGenerationChunk> {
     const signal = options.signal
     signal?.throwIfAborted()
-    const { tool_choice, request, stop } = options
+    const { tool_choice, request, stop, response_format, maxRetries } = options
     const input: BrowserRequest = {
       ...(this.onChunk && { includeChunks: true }),
       config: { modelId: this.modelId, request: this.request, maxRetries: this.retries },
@@ -38,35 +38,55 @@ export class BrowserChatWebLLM extends WebLLMChatModel {
         ...(tool_choice !== undefined && { tool_choice }),
         ...(request && { request }),
         ...(stop && { stop }),
+        ...(response_format && { response_format }),
+        ...(maxRetries !== undefined && { maxRetries }),
       },
     }
-    const id = await this.page.evaluate(
-      (json) => window.webllmLangChainBridge.start(JSON.parse(json)),
-      JSON.stringify(input),
-    )
+    const id = await this.page.evaluate((request) => {
+      const bridge = window.webllmLangChainBridge
+      if (!bridge)
+        throw new Error(
+          'Expose createBrowserBridge(engine) as window.webllmLangChainBridge before using BrowserChatWebLLM.',
+        )
+      return bridge.start(request)
+    }, input)
     let closing: Promise<void> | undefined
     const close = () =>
-      (closing ??= this.page.evaluate((id) => window.webllmLangChainBridge.stop(id), id))
+      (closing ??= this.page.evaluate((id) => {
+        const bridge = window.webllmLangChainBridge
+        if (!bridge) throw new Error('The WebLLM browser bridge is no longer available.')
+        return bridge.stop(id)
+      }, id))
     const cancel = () => {
       void close().catch(() => {})
     }
     signal?.addEventListener('abort', cancel, { once: true })
+    let failed = false
+    let complete = false
     try {
       signal?.throwIfAborted()
       while (true) {
-        const result = await this.page.evaluate((id) => window.webllmLangChainBridge.next(id), id)
+        const result = await this.page.evaluate((id) => {
+          const bridge = window.webllmLangChainBridge
+          if (!bridge) throw new Error('The WebLLM browser bridge is no longer available.')
+          return bridge.next(id)
+        }, id)
         signal?.throwIfAborted()
         for (const chunk of result.chunks ?? []) this.onChunk?.(chunk)
-        if ('error' in result)
+        if ('error' in result) {
+          complete = true
           throw Object.assign(new Error(result.error.message), { name: result.error.name })
-        if (result.done) return
+        }
+        if (result.done) {
+          complete = true
+          return
+        }
         const chunk = new ChatGenerationChunk({
           ...result.value,
           message: new AIMessageChunk<StandardMessageStructure>(result.value.message),
         })
-        yield chunk
-        if (chunk.text)
-          await runManager?.handleLLMNewToken(
+        if (runManager)
+          await runManager.handleLLMNewToken(
             chunk.text,
             undefined,
             undefined,
@@ -74,10 +94,17 @@ export class BrowserChatWebLLM extends WebLLMChatModel {
             undefined,
             { chunk },
           )
+        yield chunk
       }
+    } catch (error) {
+      failed = true
+      throw error
     } finally {
       signal?.removeEventListener('abort', cancel)
-      await close()
+      if (!complete) {
+        if (failed) await close().catch(() => {})
+        else await close()
+      }
     }
   }
 }

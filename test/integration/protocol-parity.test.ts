@@ -7,9 +7,9 @@ import {
   ToolUseBlock,
   ToolResultBlock,
 } from '@strands-agents/sdk'
-import { WebLLMModel } from '../../strands-web-llm/src/index.js'
-import { ChatWebLLM } from '../src/index.js'
-import { chunk, collect, setup } from '../fixtures/engine.js'
+import { WebLLMModel } from '../../packages/strands-web-llm/src/index.js'
+import { ChatWebLLM } from '../../packages/langchain-web-llm/src/index.js'
+import { chunk, collect, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
 
 const ids = [
   'Qwen3.5-9B-q4f16_1-MLC',

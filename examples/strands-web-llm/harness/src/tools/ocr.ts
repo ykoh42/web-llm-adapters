@@ -11,6 +11,8 @@ const files = [
 /** Extract image text locally. Each call owns and closes its CPU worker. */
 export async function imageText(bytes: Uint8Array, signal: AbortSignal) {
   signal.throwIfAborted()
+  if (!isPngOrJpeg(bytes)) throw new Error('Image must contain PNG or JPEG data.')
+
   const dir = await mkdtemp(join(tmpdir(), 'webllm-ocr-'))
   let worker: Worker | undefined
   const cleanup = new AbortController()
@@ -44,4 +46,18 @@ export async function imageText(bytes: Uint8Array, signal: AbortSignal) {
     cleanup.abort()
     await Promise.all([worker?.terminate(), rm(dir, { recursive: true, force: true })])
   }
+}
+
+function isPngOrJpeg(bytes: Uint8Array) {
+  return (
+    (bytes[0] === 0x89 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x4e &&
+      bytes[3] === 0x47 &&
+      bytes[4] === 0x0d &&
+      bytes[5] === 0x0a &&
+      bytes[6] === 0x1a &&
+      bytes[7] === 0x0a) ||
+    (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff)
+  )
 }

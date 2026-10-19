@@ -5,6 +5,7 @@ test-results/
 playwright-report/
 .cache/
 .agent/
+examples/strands-web-llm/browser/public/models.json
 .DS_Store
 *.tgz
 *.tsbuildinfo

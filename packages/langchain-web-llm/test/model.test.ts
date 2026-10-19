@@ -8,8 +8,9 @@ import {
 } from '@langchain/core/messages'
 import { tool } from '@langchain/core/tools'
 import { ChatPromptTemplate } from '@langchain/core/prompts'
+import { RunnableLambda } from '@langchain/core/runnables'
 import { createAgent } from 'langchain'
-import { createDeepAgent } from 'deepagents'
+import { createDeepAgent, createUnsupportedContentMiddleware } from 'deepagents'
 import { z } from 'zod'
 import { ChatWebLLM } from '../src/index.js'
 import { chunk, chunks, collect, pause, setup } from '../fixtures/engine.js'
@@ -21,6 +22,8 @@ const lookup = tool(({ code }) => `Result ${code}: 42`, {
 })
 const toolOutput =
   '<tool_call>\n<function=lookup>\n<parameter=code>\nA7\n</parameter>\n</function>\n</tool_call>'
+const secondToolOutput =
+  '<tool_call>\n<function=lookup>\n<parameter=code>\nA8\n</parameter>\n</function>\n</tool_call>'
 const qwen = 'Qwen3.5-0.8B-q4f16_1-MLC'
 
 function qwenModel(...items: ReturnType<typeof chunk>[]) {
@@ -36,6 +39,237 @@ function qwenModel(...items: ReturnType<typeof chunk>[]) {
 }
 
 describe('LangChain model', () => {
+  it('preserves native tool JSON with finite numbers and literal protocol tags', async () => {
+    const input = ' { "small": 1e-300, "large": 1e300, "text": "</tool_call>", "items": [null] } '
+    const { model } = setup(
+      chunk(
+        { tool_calls: [{ index: 0, function: { name: 'lookup', arguments: input } }] },
+        'tool_calls',
+      ),
+    )
+    const result = await model.invoke('Look up the code.')
+    expect(result.tool_call_chunks?.[0]?.args).toBe(input)
+    expect(result.tool_calls?.[0]?.args).toEqual(JSON.parse(input))
+  })
+
+  it('preserves assistant text streamed alongside a native tool call', async () => {
+    const { model } = setup(
+      chunk(
+        {
+          content: 'I will check that.',
+          tool_calls: [
+            {
+              index: 0,
+              id: 'call-1',
+              type: 'function',
+              function: { name: 'lookup', arguments: '{"code":"A7"}' },
+            },
+          ],
+        },
+        'tool_calls',
+      ),
+    )
+
+    const result = await model.bindTools([lookup]).invoke('Look up A7.')
+
+    expect(result.text).toBe('I will check that.')
+    expect(result.tool_calls).toMatchObject([
+      { id: 'call-1', name: 'lookup', args: { code: 'A7' } },
+    ])
+  })
+
+  it.each(['{"code":1e999}', '{"code":{"values":[-1e999]}}'])(
+    'rejects overflowing native tool arguments before running a tool: %s',
+    async (input) => {
+      const { model, create } = setup()
+      create.mockResolvedValueOnce(
+        chunks(
+          chunk(
+            { tool_calls: [{ index: 0, function: { name: 'lookup', arguments: input } }] },
+            'tool_calls',
+          ),
+        ),
+      )
+      create.mockResolvedValueOnce(chunks(chunk({ content: 'Done' }, 'stop')))
+      const callback = vi.fn(() => 'Done')
+      const lookup = tool(callback, { name: 'lookup', schema: z.object({ code: z.unknown() }) })
+      const agent = createAgent({ model, tools: [lookup] })
+      await expect(
+        agent.invoke({ messages: [new HumanMessage('Look up the code.')] }),
+      ).rejects.toThrow('finite numbers')
+      expect(callback).not.toHaveBeenCalled()
+      expect(create).toHaveBeenCalledTimes(1)
+      expect((await model.invoke('Next')).text).toBe('Done')
+    },
+  )
+
+  it('can cancel from a reasoning callback and use the engine again', async () => {
+    const { model, create, stop } = qwenModel(chunk({ content: 'Recovered' }, 'stop'))
+    create.mockResolvedValueOnce(
+      chunks(
+        chunk({ content: '<think>Planning.' }),
+        chunk({ content: '</think>Too late.' }, 'stop'),
+      ),
+    )
+    const cancel = new AbortController()
+    await expect(
+      model.invoke('Hi', {
+        signal: cancel.signal,
+        callbacks: [
+          {
+            handleLLMNewToken(...args) {
+              const chunk = args[5]?.chunk
+              if (
+                chunk &&
+                'message' in chunk &&
+                chunk.message.contentBlocks.some((block) => block.type === 'reasoning')
+              )
+                cancel.abort()
+            },
+          },
+        ],
+      }),
+    ).rejects.toBeDefined()
+    expect(stop).toHaveBeenCalledTimes(1)
+    expect((await model.invoke('Next')).text).toBe('Recovered')
+  })
+
+  it('forwards reasoning, tool calls and final metadata through callbacks', async () => {
+    const { model } = qwenModel(
+      chunk({ content: '<think>Need the lookup.</think>' + toolOutput }, 'stop'),
+    )
+    const seen: AIMessageChunk[] = []
+    await model.bindTools([lookup]).invoke('Look up A7.', {
+      callbacks: [
+        {
+          handleLLMNewToken(...args) {
+            const chunk = args[5]?.chunk
+            if (chunk && 'message' in chunk && AIMessageChunk.isInstance(chunk.message))
+              seen.push(chunk.message)
+          },
+        },
+      ],
+    })
+    expect(seen.flatMap((message) => message.contentBlocks)).toContainEqual(
+      expect.objectContaining({ type: 'reasoning', reasoning: 'Need the lookup.' }),
+    )
+    expect(seen.flatMap((message) => message.tool_calls ?? [])).toMatchObject([
+      { name: 'lookup', args: { code: 'A7' } },
+    ])
+    expect(
+      seen.flatMap((message) => message.tool_call_chunks ?? []).map((call) => call.index),
+    ).toEqual([0])
+    expect(seen.at(-1)?.response_metadata.finish_reason).toBe('tool_calls')
+  })
+
+  it('streams reasoning and tools from a nested invoke through standard events', async () => {
+    const { model } = qwenModel(
+      chunk({ content: '<think>Need the lookup.</think>' + toolOutput }, 'stop'),
+    )
+    const run = RunnableLambda.from((input: string, config) =>
+      model.bindTools([lookup]).invoke(input, config),
+    )
+    const events = await collect(run.streamEvents('Look up A7.', { version: 'v2' }))
+    const messages = events
+      .filter((event) => event.event === 'on_chat_model_stream')
+      .map((event) => event.data.chunk as AIMessageChunk)
+    expect(messages.flatMap((message) => message.contentBlocks)).toContainEqual(
+      expect.objectContaining({ type: 'reasoning', reasoning: 'Need the lookup.' }),
+    )
+    expect(messages.flatMap((message) => message.tool_calls ?? [])).toMatchObject([
+      { name: 'lookup', args: { code: 'A7' } },
+    ])
+  })
+
+  it('streams reasoning, tool calls, and usage through LangChain content streams', async () => {
+    const usage = {
+      prompt_tokens: 3,
+      completion_tokens: 2,
+      total_tokens: 5,
+      extra: {
+        e2e_latency_s: 1,
+        prefill_tokens_per_s: 2,
+        decode_tokens_per_s: 3,
+        time_to_first_token_s: 0.1,
+        time_per_output_token_s: 0.2,
+      },
+    }
+    const response = {
+      ...chunk(
+        {
+          content:
+            '<think>Need the lookup.</think>Checking both codes.' + toolOutput + secondToolOutput,
+        },
+        'stop',
+      ),
+      usage,
+    }
+    const { model } = qwenModel(response)
+    const stream = model.streamEvents('Look up A7.', { tools: [lookup] })
+
+    const [reasoning, text, toolCalls, tokenUsage, message] = await Promise.all([
+      stream.reasoning,
+      stream.text,
+      stream.toolCalls,
+      stream.usage,
+      stream,
+    ])
+
+    expect(reasoning).toContain('Need the lookup.')
+    expect(text).toContain('Checking both codes.')
+    expect(toolCalls).toMatchObject([
+      { name: 'lookup', args: { code: 'A7' } },
+      { name: 'lookup', args: { code: 'A8' } },
+    ])
+    expect(tokenUsage).toMatchObject({ input_tokens: 3, output_tokens: 2, total_tokens: 5 })
+    expect(message.tool_calls).toMatchObject([
+      { name: 'lookup', args: { code: 'A7' } },
+      { name: 'lookup', args: { code: 'A8' } },
+    ])
+
+    const events = await collect(stream)
+    expect(events).toContainEqual({
+      event: 'content-block-start',
+      index: 1,
+      content: { type: 'text', text: '' },
+    })
+    expect(events).toContainEqual({
+      event: 'content-block-delta',
+      index: 1,
+      delta: { type: 'text-delta', text: 'Checking both codes.' },
+    })
+    expect(events).toContainEqual({
+      event: 'message-finish',
+      reason: 'tool_use',
+      usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
+      responseMetadata: expect.objectContaining({ model_provider: 'webllm' }),
+    })
+    const blockIndexes = events
+      .filter((event) => event.event === 'content-block-start')
+      .map((event) => event.index)
+    expect(new Set(blockIndexes).size).toBe(blockIndexes.length)
+  })
+
+  it.each([
+    ['stop', 'stop'],
+    ['length', 'length'],
+  ] as const)(
+    'maps WebLLM %s endings in LangChain content streams',
+    async (webllmReason, reason) => {
+      const { model } = setup(chunk({ content: 'Answer' }, webllmReason))
+      const events = await collect(model.streamEvents('Hi'))
+      expect(events.at(-1)).toMatchObject({ event: 'message-finish', reason })
+      const text = events
+        .flatMap((event) =>
+          event.event === 'content-block-delta' && event.delta.type === 'text-delta'
+            ? [event.delta.text]
+            : [],
+        )
+        .join('')
+      expect(text).toBe('Answer')
+    },
+  )
+
   it('returns text, usage, and native metadata without owning the engine', async () => {
     const usage = {
       prompt_tokens: 3,
@@ -90,6 +324,16 @@ describe('LangChain model', () => {
     hold.resume()
     await collect(stream)
     expect(callback.mock.calls.map(([token]) => token).join('')).toBe('AB')
+  })
+
+  it('runs the callback before yielding when the consumer stops early', async () => {
+    const { model } = setup(chunk({ content: 'A' }), chunk({ content: 'B' }, 'stop'))
+    const callback = vi.fn()
+    const stream = await model.stream('Hi', { callbacks: [{ handleLLMNewToken: callback }] })
+
+    expect((await stream.next()).value?.text).toBe('A')
+    expect(callback).toHaveBeenCalledOnce()
+    await stream.return()
   })
 
   it('works in a prompt chain, batch, and message serialization', async () => {
@@ -148,6 +392,66 @@ describe('LangChain model', () => {
         { role: 'user', content: '<tool_response>\nResult A7: 42\n</tool_response>' },
       ]),
     })
+  })
+
+  it('keeps tool images in the next request for custom vision models', async () => {
+    const { engine, create } = setup()
+    const model = new ChatWebLLM({
+      engine,
+      modelId: 'custom-vision',
+      profile: { toolCalling: true, imageInputs: true, imageToolMessage: true },
+    })
+    create.mockResolvedValueOnce(
+      chunks(
+        chunk(
+          {
+            tool_calls: [
+              {
+                index: 0,
+                id: 'call-image',
+                type: 'function',
+                function: {
+                  name: 'inspect_image',
+                  arguments: '{"question":"What is shown?"}',
+                },
+              },
+            ],
+          },
+          'tool_calls',
+        ),
+      ),
+    )
+    create.mockResolvedValueOnce(chunks(chunk({ content: 'A cat.' }, 'stop')))
+    const inspectImage = tool(() => [{ type: 'image', data: 'AA==', mimeType: 'image/png' }], {
+      name: 'inspect_image',
+      description: 'Return the image to inspect.',
+      schema: z.object({ question: z.string() }),
+    })
+    const agent = createAgent({
+      model,
+      tools: [inspectImage],
+      middleware: [createUnsupportedContentMiddleware()],
+    })
+
+    const result = await agent.invoke({ messages: [new HumanMessage('Look at this image.')] })
+    const toolResult = result.messages.find(ToolMessage.isInstance)
+
+    expect(result.messages.map((message) => message.type)).toEqual(['human', 'ai', 'tool', 'ai'])
+    expect(toolResult?.content).toEqual([{ type: 'image', data: 'AA==', mimeType: 'image/png' }])
+    expect(create).toHaveBeenCalledTimes(2)
+    expect(create.mock.calls[1]?.[0].messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'tool',
+          tool_call_id: toolResult?.tool_call_id,
+          content: '[Image attached]',
+        }),
+        {
+          role: 'user',
+          content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } }],
+        },
+      ]),
+    )
   })
 
   it('uses the complete default Deep Agents middleware and built-in tools', async () => {
@@ -242,7 +546,7 @@ describe('LangChain model', () => {
     expect(history[1]?.content).toContainEqual({ type: 'reasoning', reasoning: 'Old thought' })
   })
 
-  it('preserves system messages, tool IDs, image and audio content', async () => {
+  it('preserves system messages, tool IDs, and valid normalized image content', async () => {
     const { model, create } = setup(chunk({ content: 'Okay' }, 'stop'))
     await model.invoke([
       new SystemMessage('One'),
@@ -250,9 +554,8 @@ describe('LangChain model', () => {
       new HumanMessage({
         content: [
           { type: 'text', text: 'First' },
-          { type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } },
           { type: 'text', text: 'Last' },
-          { type: 'input_audio', input_audio: { format: 'wav', data: 'AQ==' } },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } },
         ],
       }),
       new AIMessage({
@@ -267,10 +570,8 @@ describe('LangChain model', () => {
         {
           role: 'user',
           content: [
-            { type: 'text', text: 'First' },
+            { type: 'text', text: 'FirstLast' },
             { type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } },
-            { type: 'text', text: 'Last' },
-            { type: 'input_audio', input_audio: { format: 'wav', data: 'AQ==' } },
           ],
         },
         {
@@ -321,6 +622,48 @@ describe('LangChain model', () => {
     expect(result.response_metadata.finish_reason).toBe('length')
   })
 
+  it.each([
+    ['Qwen2.5-3B-Instruct-q4f16_1-MLC', '<tool_call>{"name":"lookup","arguments":{"code":"A'],
+    ['Qwen3.5-0.8B-q4f16_1-MLC', '<tool_call><function=lookup><parameter=code>A'],
+  ])('returns a truncated %s tool call as text without running it', async (modelId, raw) => {
+    const { engine } = setup(chunk({ content: raw }, 'length'))
+    const model = new ChatWebLLM({ engine, modelId })
+    const result = await model.bindTools([lookup]).invoke('Look up code A7.')
+
+    expect(result.text).toBe(raw)
+    expect(result.tool_calls).toEqual([])
+    expect(result.response_metadata.finish_reason).toBe('length')
+  })
+
+  it('preserves an earlier complete Qwen tool call if a later call is truncated', async () => {
+    const complete =
+      '<tool_call><function=lookup><parameter=code>A7</parameter></function></tool_call>'
+    const partial = '<tool_call><function=lookup><parameter=code>A8'
+    const { engine } = setup(chunk({ content: complete + partial }, 'length'))
+    const model = new ChatWebLLM({ engine, modelId: qwen })
+    const result = await model.bindTools([lookup]).invoke('Look up codes A7 and A8.')
+
+    expect(result.text).toBe(complete + partial)
+    expect(result.tool_calls).toEqual([])
+    expect(result.response_metadata.finish_reason).toBe('length')
+  })
+
+  it.each([
+    ['Qwen2.5-3B-Instruct-q4f16_1-MLC', '<tool_call>{"name":"lookup","arguments":{"code":"A'],
+    ['Qwen3.5-0.8B-q4f16_1-MLC', '<tool_call><function=lookup><parameter=code>A'],
+  ])('streams partial %s output before reporting cancellation', async (modelId, raw) => {
+    const { engine } = setup(chunk({ content: raw }, 'abort'))
+    const model = new ChatWebLLM({ engine, modelId })
+    const output: string[] = []
+
+    await expect(async () => {
+      const stream = await model.bindTools([lookup]).stream('Look up code A7.')
+      for await (const message of stream) output.push(message.text)
+    }).rejects.toThrow('cancelled generation')
+
+    expect(output.join('')).toBe(raw)
+  })
+
   it('keeps tool_choice none and rejects unsupported required choices', async () => {
     const { model, create, engine } = setup(chunk({ content: 'Answer' }, 'stop'))
     await model.bindTools([lookup], { tool_choice: 'none' }).invoke('Hi')
@@ -333,5 +676,17 @@ describe('LangChain model', () => {
     await expect(
       gemma.bindTools([lookup], { tool_choice: 'required' }).invoke('Hi'),
     ).rejects.toThrow('required')
+  })
+
+  it('rejects unregistered native tool choices before generating', async () => {
+    const { model, create } = setup()
+
+    await expect(
+      model.bindTools([lookup], { tool_choice: 'missing' }).invoke('Hi'),
+    ).rejects.toThrow('not registered')
+    await expect(model.bindTools([], { tool_choice: 'missing' }).invoke('Hi')).rejects.toThrow(
+      'not registered',
+    )
+    expect(create).not.toHaveBeenCalled()
   })
 })

@@ -2,6 +2,7 @@ import { ModelError, type ToolSpec } from '../types.js'
 import type { ChatCompletionChunk } from '@mlc-ai/web-llm'
 import { stopReason, type StreamChunk, type ToolDelta } from '../stream/chunks.js'
 import { textEnd } from '../gemma/markers.js'
+import { parseJSON } from '../json.js'
 
 const thinkStart = '<think>'
 const thinkEnd = '</think>'
@@ -18,6 +19,10 @@ export async function* qwen35Chunks(
   let mode: 'text' | 'thinking' | 'tool' = 'text'
   let pending = ''
   let toolText = ''
+  // Hold output after a call marker so truncation can return it in order.
+  let fallbackText = ''
+  let afterToolText = ''
+  let sawTool = false
   let callIndex = 0
   for await (const chunk of chunks) {
     onChunk?.(chunk)
@@ -28,6 +33,12 @@ export async function* qwen35Chunks(
     let text = ''
     let reasoning = ''
     const calls: ToolDelta[] = []
+    const appendText = (value: string) => {
+      if (sawTool) {
+        afterToolText += value
+        fallbackText += value
+      } else text += value
+    }
 
     while (pending) {
       if (mode === 'tool') {
@@ -39,6 +50,7 @@ export async function* qwen35Chunks(
           break
         }
         toolText += pending.slice(0, at)
+        fallbackText += `${callStart}${toolText}${callEnd}`
         pending = pending.slice(at + callEnd.length)
         const parsed = parseCalls(toolText, tools, callIndex)
         calls.push(...parsed)
@@ -49,7 +61,7 @@ export async function* qwen35Chunks(
       }
 
       if (mode === 'text' && !parseProtocol) {
-        text += pending
+        appendText(pending)
         pending = ''
         break
       }
@@ -59,15 +71,20 @@ export async function* qwen35Chunks(
       if (at !== undefined) {
         const value = pending.slice(0, at.index)
         if (mode === 'thinking') reasoning += value
-        else text += value
+        else appendText(value)
         pending = pending.slice(at.index + at.marker.length)
-        mode = mode === 'thinking' ? 'text' : at.marker === thinkStart ? 'thinking' : 'tool'
+        if (mode === 'thinking') mode = 'text'
+        else if (at.marker === thinkStart) mode = 'thinking'
+        else {
+          sawTool = true
+          mode = 'tool'
+        }
         continue
       }
       const end = textEnd(pending, markers)
       const value = pending.slice(0, end)
       if (mode === 'thinking') reasoning += value
-      else text += value
+      else appendText(value)
       pending = pending.slice(end)
       break
     }
@@ -77,6 +94,7 @@ export async function* qwen35Chunks(
       if (mode === 'tool' && stop !== 'maxTokens' && stop !== 'cancelled')
         throw new ModelError('Qwen3.5 ended inside a tool call.')
       if (mode === 'tool') {
+        fallbackText += `${callStart}${toolText}${pending}`
         pending = ''
         toolText = ''
       }
@@ -84,9 +102,11 @@ export async function* qwen35Chunks(
         reasoning += pending
         pending = ''
       } else {
-        text += pending
+        appendText(pending)
         pending = ''
       }
+      if (sawTool)
+        text += stop === 'maxTokens' || stop === 'cancelled' ? fallbackText : afterToolText
       mode = 'text'
     }
     yield { text, reasoning, toolText: '', calls, stop, usage: chunk.usage }
@@ -140,7 +160,7 @@ function parseValue(source: string, types: string[] | undefined) {
     const otherTypes = types.filter((type) => type !== 'string' && type !== 'null')
     if (otherTypes.length) {
       try {
-        const value: unknown = JSON.parse(text)
+        const value = parseJSON(text)
         if (otherTypes.some((type) => matchesType(value, type)))
           throw new ModelError('Qwen3.5 returned an ambiguous tool argument.')
       } catch (cause) {
@@ -150,13 +170,13 @@ function parseValue(source: string, types: string[] | undefined) {
     return text
   }
   try {
-    const value: unknown = JSON.parse(text)
+    const value = parseJSON(text)
     if (types?.length && !types.some((type) => matchesType(value, type)))
       throw new ModelError('Qwen3.5 returned a tool argument with the wrong type.')
     return value
   } catch (cause) {
-    if (types === undefined) return text
     if (cause instanceof ModelError) throw cause
+    if (types === undefined) return text
     throw new ModelError('Qwen3.5 returned an invalid tool argument.', { cause })
   }
 }

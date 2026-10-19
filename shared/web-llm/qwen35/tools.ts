@@ -13,6 +13,8 @@ function formatTools(tools: ToolSpec[]): ChatCompletionTool[] {
 }
 
 export function toolPrompt(tools: ToolSpec[], choice?: ToolChoice) {
+  if (choice && !('auto' in choice) && !tools.length)
+    throw new ModelError('A required Qwen3.5 tool choice needs at least one registered tool.')
   if (!tools.length) return ''
   if (choice && 'tool' in choice && !tools.some((tool) => tool.name === choice.tool.name))
     throw new ModelError('The chosen Qwen3.5 tool is not registered.')

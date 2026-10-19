@@ -23,6 +23,7 @@ interface ProtocolInput {
   request: WebLLMRequest
   onChunk: ChatWebLLMOptions['onChunk']
   signal: AbortSignal | undefined
+  maxRetries: number | undefined
 }
 
 export function protocolStream({
@@ -35,12 +36,27 @@ export function protocolStream({
   request,
   onChunk,
   signal,
+  maxRetries,
 }: ProtocolInput): AsyncIterable<StreamChunk> {
-  const open = <T>(run: () => Promise<T>) =>
-    caller.call(() => {
-      signal?.throwIfAborted()
-      return run()
+  const open = <T>(run: () => Promise<AsyncIterable<T>>) => {
+    let attempt: Promise<AsyncIterable<T>> | undefined
+    const pending = caller.callWithOptions(
+      {
+        ...(maxRetries !== undefined && { maxRetries }),
+        ...(signal && { signal }),
+      },
+      () => {
+        signal?.throwIfAborted()
+        attempt = run()
+        return attempt
+      },
+    )
+    if (!signal) return pending
+    return pending.catch(async (error) => {
+      if (signal.aborted && attempt) await closeUnclaimedStream(attempt)
+      throw error
     })
+  }
   const gemma = /^gemma-4-/i.test(modelId)
   const structured =
     request.response_format?.type !== undefined && request.response_format.type !== 'text'
@@ -64,6 +80,8 @@ export function protocolStream({
     delete sampling.extra_body.enable_thinking
   }
   if (gemma && (tools.length || thinking || hasHistory)) {
+    if (history.some((message) => 'name' in message && message.name !== undefined))
+      throw new Error('Gemma protocol mode cannot preserve message names.')
     if (structured || request.extra_body?.resumable?.enabled || request.ignore_eos)
       throw new Error(
         'Gemma protocol mode does not support constrained response_format, resume, or ignore_eos.',
@@ -128,6 +146,13 @@ export function protocolStream({
       signal,
     )
   }
+  if (
+    choice !== 'none' &&
+    choice &&
+    'tool' in choice &&
+    !tools.some((tool) => tool.name === choice.tool.name)
+  )
+    throw new Error('The chosen WebLLM tool is not registered.')
   const native: ChatCompletionRequestStreaming = { ...sampling, messages: nativeMessages(history) }
   if (tools.length)
     native.tools = tools.map((tool) => ({
@@ -153,9 +178,9 @@ export function protocolStream({
         if (chunk.choices.length > 1 || (first && first.index !== 0))
           throw new Error('WebLLM adapters need one response per request.')
         yield {
-          text: tools.length ? '' : (first?.delta.content ?? ''),
+          text: first?.delta.content ?? '',
           reasoning: '',
-          toolText: tools.length ? (first?.delta.content ?? '') : '',
+          toolText: '',
           calls: (first?.delta.tool_calls ?? []).map((call) => ({
             index: call.index,
             id: call.id,
@@ -169,4 +194,15 @@ export function protocolStream({
     },
     signal,
   )
+}
+
+async function closeUnclaimedStream<T>(pending: Promise<AsyncIterable<T>>) {
+  let stream: AsyncIterable<T>
+  try {
+    stream = await pending
+  } catch {
+    return
+  }
+
+  await stream[Symbol.asyncIterator]().return?.()
 }

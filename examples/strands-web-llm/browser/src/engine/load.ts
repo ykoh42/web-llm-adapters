@@ -1,11 +1,4 @@
-import {
-  MLCEngine,
-  WebWorkerMLCEngine,
-  ServiceWorkerMLCEngine,
-  ExtensionServiceWorkerMLCEngine,
-  prebuiltAppConfig,
-} from '@mlc-ai/web-llm'
-import type { AppConfig, InitProgressCallback, MLCEngineInterface } from '@mlc-ai/web-llm'
+import { type AppConfig, type InitProgressCallback, type MLCEngineInterface } from '@mlc-ai/web-llm'
 import serviceWorkerUrl from './service-worker.ts?worker&url'
 import { runtimeConfig } from './runtime.js'
 
@@ -19,6 +12,8 @@ export async function openEngine(
   if (appConfig.cacheBackend === 'cross-origin' && kind !== 'main') {
     throw new Error('Use Main thread for the Cross-Origin Storage extension.')
   }
+  const { MLCEngine, WebWorkerMLCEngine, ServiceWorkerMLCEngine, ExtensionServiceWorkerMLCEngine } =
+    await import('@mlc-ai/web-llm')
   const config = { appConfig, initProgressCallback }
   let worker: Worker | undefined
   let engine: MLCEngineInterface
@@ -80,7 +75,7 @@ function waitForController(): Promise<void> {
   })
 }
 
-export function cacheConfig(backend: string): AppConfig {
+export async function cacheConfig(backend: string): Promise<AppConfig> {
   if (
     backend !== 'cache' &&
     backend !== 'indexeddb' &&
@@ -92,6 +87,7 @@ export function cacheConfig(backend: string): AppConfig {
   if (backend === 'cross-origin' && !hasSharedCache()) {
     throw new Error('Install the Cross-Origin Storage extension and open this page on localhost.')
   }
+  const { prebuiltAppConfig } = await import('@mlc-ai/web-llm')
   return runtimeConfig({ ...prebuiltAppConfig, cacheBackend: backend })
 }
 

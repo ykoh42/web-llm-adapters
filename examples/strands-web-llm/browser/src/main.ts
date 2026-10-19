@@ -1,5 +1,3 @@
-import { deleteModelAllInfoInCache, hasModelInCache, prebuiltAppConfig } from '@mlc-ai/web-llm'
-import { openEngine, cacheConfig } from './engine/load.js'
 import { examples } from './examples/catalog.js'
 
 const exampleSelect = document.querySelector<HTMLSelectElement>('#example')!
@@ -19,18 +17,19 @@ const progress = document.querySelector<HTMLProgressElement>('#progress')!
 const output = document.querySelector<HTMLPreElement>('#output')!
 const details = document.querySelector<HTMLPreElement>('#details')!
 const reports: unknown[] = []
-let loaded: Awaited<ReturnType<typeof openEngine>> | undefined
+let loaded: Awaited<ReturnType<typeof import('./engine/load.js').openEngine>> | undefined
 let controller: AbortController | undefined
 let busy = false
 
 if (globalThis.chrome?.runtime?.id)
   engineSelect.add(new Option('Chrome extension worker', 'extension'))
-cacheSelect.add(new Option('Cross-origin storage (extension)', 'cross-origin'))
+cacheSelect.add(new Option('Cross-origin storage (Main thread only)', 'cross-origin'))
 
 for (const example of examples) exampleSelect.add(new Option(example.name, example.id))
-for (const model of prebuiltAppConfig.model_list) {
-  modelSelect.add(new Option(model.model_id, model.model_id))
-}
+const modelResponse = await fetch('/models.json')
+if (!modelResponse.ok) throw new Error('Could not load WebLLM models.')
+const modelIds = (await modelResponse.json()) as string[]
+for (const modelId of modelIds) modelSelect.add(new Option(modelId, modelId))
 
 function selectedExample() {
   return examples.find((example) => example.id === exampleSelect.value)!
@@ -68,7 +67,16 @@ exampleSelect.onchange = () => {
   file.hidden = !example.accept
   document.querySelector<HTMLLabelElement>('#file-label')!.hidden = !example.accept
 }
-cacheSelect.onchange = updateButtons
+function updateEngineOptions() {
+  const mainOnly = cacheSelect.value === 'cross-origin'
+  for (const option of engineSelect.options) option.disabled = mainOnly && option.value !== 'main'
+  if (mainOnly) engineSelect.value = 'main'
+}
+
+cacheSelect.onchange = () => {
+  updateEngineOptions()
+  updateButtons()
+}
 exampleSelect.dispatchEvent(new Event('change'))
 
 loadButton.onclick = async () => {
@@ -78,12 +86,14 @@ loadButton.onclick = async () => {
   details.textContent = ''
   reports.length = 0
   try {
+    const { openEngine, cacheConfig } = await import('./engine/load.js')
     const example = selectedExample()
+    const appConfig = await cacheConfig(cacheSelect.value)
     loaded = await openEngine(
       engineSelect.value,
       modelSelect.value,
       example.contextWindow ?? 2048,
-      cacheConfig(cacheSelect.value),
+      appConfig,
       (report) => {
         progress.value = report.progress
         status.textContent = report.text
@@ -161,7 +171,10 @@ unloadButton.onclick = async () => {
 
 cacheButton.onclick = async () => {
   try {
-    info({ cached: await hasModelInCache(modelSelect.value, cacheConfig(cacheSelect.value)) })
+    const { cacheConfig } = await import('./engine/load.js')
+    const { hasModelInCache } = await import('@mlc-ai/web-llm')
+    const appConfig = await cacheConfig(cacheSelect.value)
+    info({ cached: await hasModelInCache(modelSelect.value, appConfig) })
   } catch (error) {
     showError(error)
   }
@@ -171,7 +184,10 @@ deleteButton.onclick = async () => {
   busy = true
   updateButtons()
   try {
-    await deleteModelAllInfoInCache(modelSelect.value, cacheConfig(cacheSelect.value))
+    const { cacheConfig } = await import('./engine/load.js')
+    const { deleteModelAllInfoInCache } = await import('@mlc-ai/web-llm')
+    const appConfig = await cacheConfig(cacheSelect.value)
+    await deleteModelAllInfoInCache(modelSelect.value, appConfig)
     status.textContent = 'Cached model removed'
   } catch (error) {
     showError(error)

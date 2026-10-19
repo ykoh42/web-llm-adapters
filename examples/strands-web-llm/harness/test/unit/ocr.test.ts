@@ -18,10 +18,19 @@ it('starts no worker when the request is already cancelled', async () => {
   expect(create).not.toHaveBeenCalled()
 })
 
+it('rejects non-image bytes before starting a worker', async () => {
+  const create = vi.mocked(Tesseract.createWorker)
+  await expect(imageText(new Uint8Array([1, 2, 3]), new AbortController().signal)).rejects.toThrow(
+    'PNG or JPEG data',
+  )
+  expect(create).not.toHaveBeenCalled()
+})
+
 it.each(['initialization', 'recognition'])(
   'closes the worker after cancellation during %s',
   async (stage) => {
     const controller = new AbortController()
+    const bytes = await readFile(new URL('../../fixtures/data/text.png', import.meta.url))
     const { createWorker: original } = await vi.importActual<typeof Tesseract>('tesseract.js')
     let worker: Tesseract.Worker | undefined
     vi.mocked(Tesseract.createWorker).mockImplementationOnce(async (...args) => {
@@ -35,7 +44,7 @@ it.each(['initialization', 'recognition'])(
         })
       return worker
     })
-    await expect(imageText(new Uint8Array(), controller.signal)).rejects.toThrow('Stop OCR')
+    await expect(imageText(bytes, controller.signal)).rejects.toThrow('Stop OCR')
     expect(worker?.terminate).toHaveBeenCalledOnce()
   },
 )

@@ -10,8 +10,9 @@ npm run dev:strands
 ```
 
 Open <http://127.0.0.1:4173>. Choose an **Example** and **Engine**, click **Load model**,
-then **Send**. **Unload** before changing either. Each run starts a new conversation.
-The first load downloads model files; later runs use the browser cache.
+then **Send**. Web Worker is selected by default to keep inference off the main thread.
+**Unload** before changing either. Each run starts a new conversation.
+The first load fetches WebLLM's runtime and model files; later runs use the browser cache.
 
 | Example                     | Source                                                                   | Purpose                                                        |
 | --------------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------- |
@@ -44,6 +45,7 @@ The integrity check computes hashes; applications should pin trusted hashes.
 Cache deletion requires unloading. Cross-origin cache uses the Cross-Origin Storage extension
 in Main thread mode; shared deletion is unavailable.
 
+Selecting Cross-origin Storage switches the engine to Main thread mode.
 To try the Chrome extension worker, run `npm run build`, open `chrome://extensions`,
 enable Developer mode, and load `examples/strands-web-llm/browser/dist` as an unpacked extension.
 Open its `index.html` page and choose **Chrome extension worker**.
