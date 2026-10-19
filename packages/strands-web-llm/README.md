@@ -1,20 +1,77 @@
 # strands-web-llm
 
 A community WebLLM provider for Strands SDK and Harness. Run inference in a
-WebGPU browser; use the same engine from Strands and WebLLM's native APIs.
+WebGPU browser while tools run in your application.
 
-See the [browser examples](https://github.com/ykoh42/web-llm-adapters/blob/main/examples/strands-web-llm/browser/README.md)
-or [Node.js Harness example](https://github.com/ykoh42/web-llm-adapters/blob/main/examples/strands-web-llm/harness/README.md).
+This guide covers unreleased **0.1.1**; npm currently has **0.1.0**.
+
+## Install
+
+```sh
+npm install strands-web-llm @mlc-ai/web-llm @strands-agents/sdk
+```
+
+## Browser
+
+Load a model with WebLLM, then pass its engine to Strands:
+
+```ts
+import { CreateMLCEngine } from '@mlc-ai/web-llm'
+import { Agent } from '@strands-agents/sdk'
+import { WebLLMModel } from 'strands-web-llm'
+
+const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
+const engine = await CreateMLCEngine(modelId)
+const agent = new Agent({ model: new WebLLMModel({ engine, modelId }) })
+
+try {
+  console.log((await agent.invoke('Say hello.')).lastMessage.content)
+} finally {
+  await engine.unload()
+}
+```
+
+You own model loading and unloading. WebLLM's Worker factories work too.
+See the [runnable examples](https://github.com/ykoh42/web-llm-adapters/blob/main/examples/strands-web-llm/README.md).
+
+## Node.js Harness
+
+On a browser page controlled by your application, load the model with
+`context_window_size: 16384` and expose its engine:
+
+```ts
+import { createBrowserBridge } from 'strands-web-llm'
+window.webllmBridge = createBrowserBridge(engine)
+```
+
+Pass its Playwright page to Harness in Node.js:
+
+```ts
+import { createHarness } from '@strands-agents/harness'
+import { BrowserModel } from 'strands-web-llm'
+
+const model = new BrowserModel(page, {
+  modelId: 'Qwen3.5-4B-q4f16_1-MLC',
+  contextWindowLimit: 16384, // Match the loaded engine.
+  maxTokens: 4096,
+})
+const agent = await createHarness({ model })
+try {
+  console.log((await agent.invoke('Say hello.')).lastMessage.content)
+} finally {
+  await agent.shutdown()
+  await page.evaluate(() => window.webllmBridge.close())
+}
+```
+
+Tools use your host permissions unless you configure a Harness sandbox.
+The [Harness example](https://github.com/ykoh42/web-llm-adapters/blob/main/examples/strands-web-llm/harness/README.md) includes browser startup and shutdown.
 
 ## Models
 
-Verified [WebLLM **0.2.86** IDs](https://github.com/mlc-ai/web-llm/blob/v0.2.86/src/config.ts)
-in Strands Harness. `O` = verified; `△` = unreliable; `X` = unverified. Tools covers call → result → final answer;
-Think means separate reasoning blocks.
-
-Sorted by published upstream MMLU-Pro (thinking on; Qwen2.5 has no thinking mode).
-Sources and evaluation settings vary.
-Speed is local WebLLM throughput on M4 Pro (24 GB), Chrome 155: median of 3 runs, thinking off, max 128 tokens.
+Exact WebLLM **0.2.86** IDs checked in Harness. `O` = verified; `△` = unreliable;
+`X` = unverified. Tools covers call → result → final answer; Think means separate reasoning blocks.
+Decode speeds are local measurements on M4 Pro (24 GB), Chrome 155.
 
 | Exact WebLLM `model_id`             |                                                                                 MMLU-Pro | Decode tok/s | Tools | Think | Image | Audio | Video |
 | ----------------------------------- | ---------------------------------------------------------------------------------------: | -----------: | ----- | ----- | ----- | ----- | ----- |
@@ -31,98 +88,66 @@ Speed is local WebLLM throughput on M4 Pro (24 GB), Chrome 155: median of 3 runs
 | `Qwen2.5-1.5B-Instruct-q4f16_1-MLC` |                                       [32.4](https://qwenlm.github.io/blog/qwen2.5-llm/) |         87.6 | O     | X     | X     | X     | X     |
 | `Qwen2.5-0.5B-Instruct-q4f16_1-MLC` |                                       [15.0](https://qwenlm.github.io/blog/qwen2.5-llm/) |        136.8 | O     | X     | X     | X     | X     |
 
+Qwen3 0.6B can miscopy arguments or omit answers with thinking on;
+Qwen3 4B can call dependent tools together.
+Gemma 4 E2B requires the bundled [runtime setup and protocol limits](https://github.com/ykoh42/web-llm-adapters/blob/main/shared/runtime/README.md).
+
+<details>
+<summary>Benchmark notes and tool formats</summary>
+
+Models are ranked by published upstream MMLU-Pro with thinking on; Qwen2.5 has no thinking mode.
+Sources and evaluation settings vary. Decode speeds are the median of three local runs,
+thinking off, max 128 tokens; they are not portable across devices.
+
 Tool formats follow [Hermes](https://github.com/QwenLM/Qwen3/blob/main/docs/source/framework/function_call.md)
 (Qwen2.5/Qwen3), [Qwen3 Coder](https://github.com/vllm-project/vllm/blob/5c1c903501927ea7c6c699aabd4c271015e66e71/vllm/parser/qwen3.py)
 (Qwen3.5), and [Gemma](https://ai.google.dev/gemma/docs/capabilities/text/function-calling-gemma4).
-With thinking on, Qwen3 0.6B can miscopy arguments or omit answers;
-Qwen3 4B can call dependent tools together.
-The Qwen parser fixes are included in [0.1.1](CHANGELOG.md), which is not yet published.
 
-### Other verified model types
+</details>
 
-| Exact WebLLM `model_id`                 | Strands API   | Image | Audio | Video | Verified result                       | Limit                |
-| --------------------------------------- | ------------- | ----- | ----- | ----- | ------------------------------------- | -------------------- |
-| `Phi-3.5-vision-instruct-q4f16_1-MLC`   | `ImageBlock`  | O     | X     | X     | Harness reads a generated image       | See model list       |
-| `snowflake-arctic-embed-s-q0f32-MLC-b4` | `MemoryStore` | —     | —     | —     | Semantic search and Harness injection | 384 dims; 512 tokens |
+### Images and embeddings
 
-`WebLLMEmbeddingSearchStrategy` connects embeddings to Strands
-[`SearchStrategy`](https://strandsagents.com/docs/user-guide/sdk/storage/search-strategies/).
-See the [memory example](../../examples/strands-web-llm/harness/src/memory.ts).
-For Arctic Embed S, prefix search queries with
+| Exact WebLLM `model_id`                 | Strands API                      | Verified use                       |
+| --------------------------------------- | -------------------------------- | ---------------------------------- |
+| `Phi-3.5-vision-instruct-q4f16_1-MLC`   | `ImageBlock`                     | Harness reads an image             |
+| `snowflake-arctic-embed-s-q0f32-MLC-b4` | `MemoryStore` / `SearchStrategy` | Semantic search and Harness memory |
+
+`WebLLMEmbeddingSearchStrategy` connects WebLLM to Strands memory; see the
+[memory example](https://github.com/ykoh42/web-llm-adapters/blob/main/examples/strands-web-llm/harness/src/memory.ts).
+Arctic Embed S has 384 dimensions and a 512-token input limit. Prefix queries with
 `Represent this sentence for searching relevant passages: `; leave stored text unprefixed.
-Use small memory stores: searches scan all entries, text is not split, and vectors rebuild after restart.
+Searches scan all entries, and vectors rebuild after restart; use small stores and split long entries.
 
-Other vision and embedding IDs are unverified. Audio understanding is unverified; video is unsupported.
+Other vision and embedding IDs and speech understanding are unverified. Video is unsupported.
 
-## Install
+## Support
 
-```sh
-npm install strands-web-llm @mlc-ai/web-llm @strands-agents/sdk
-```
+Targets: WebLLM **0.2.86**, Strands SDK **1.21.0**, Harness **0.3.0**.
+Features depend on the exact model above.
 
-## Browser
+| Feature                               | Use                                               | Limit                                                    |
+| ------------------------------------- | ------------------------------------------------- | -------------------------------------------------------- |
+| Chat, system prompts, history         | Strands messages and `systemPrompt`               | Unsupported blocks raise errors                          |
+| Streaming and cancellation            | `agent.stream()`, `agent.cancel()`                | One assistant response per call                          |
+| Tools and results                     | Strands tools and `toolChoice`                    | Qwen supports `any`; Gemma and native tool APIs do not   |
+| Disable tools                         | `request.tool_choice: 'none'`                     | Keeps the Agent tool registry                            |
+| Thinking                              | `request.extra_body.enable_thinking`              | Render `textBlock` values to show only the answer        |
+| Sampling and token limits             | `request`; `maxTokens`, `temperature`, `topP`     | SDK aliases take precedence                              |
+| JSON schema, grammar, structural tags | `request.response_format`                         | Cannot combine with Qwen tools or Gemma protocol mode    |
+| Images and WAV audio                  | `ImageBlock`, `AudioBlock`, `pcmAudio()`          | Model-dependent; PCM is converted to WAV                 |
+| Usage, logprobs, timing               | Strands metadata and `onChunk`                    | Native chunk fields retained                             |
+| Embeddings                            | `WebLLMEmbeddingSearchStrategy` or `withEngine()` | Separate embedding model required                        |
+| Context recovery                      | `countTokens()` and Strands overflow error        | Counts are estimates; set the loaded context window size |
+| Other native APIs                     | `withEngine()`                                    | Caller owns setup and lifecycle                          |
 
-This example uses Qwen3 0.6B. For Gemma 4 E2B, use the
-[required runtime setup](runtime/README.md#use).
+Signed/redacted reasoning, S3 media, video, documents, guardrails, and media in tool results
+are unsupported. Invalid or incomplete tool output reaches the caller; the adapter does not
+change tool names or arguments or supply answers. Model-selected tools and arguments still need validation.
 
-```ts
-import { CreateMLCEngine } from '@mlc-ai/web-llm'
-import { Agent } from '@strands-agents/sdk'
-import { WebLLMModel } from 'strands-web-llm'
+<details>
+<summary>Native APIs and advanced options</summary>
 
-const modelId = 'Qwen3-0.6B-q4f16_1-MLC'
-const engine = await CreateMLCEngine(modelId)
-const model = new WebLLMModel({ engine, modelId })
-const agent = new Agent({ model })
-
-try {
-  const result = await agent.invoke('Say hello.')
-  console.log(result.lastMessage.content)
-} finally {
-  await engine.unload()
-}
-```
-
-The application owns loading and unloading. WebLLM's Worker factories work too.
-
-## Node.js Harness
-
-On your browser page, expose the loaded engine:
-
-```ts
-import { createBrowserBridge } from 'strands-web-llm'
-
-window.webllmBridge = createBrowserBridge(engine)
-```
-
-In Node.js, pass its Playwright page to Harness:
-
-```ts
-import { createHarness } from '@strands-agents/harness'
-import { BrowserModel } from 'strands-web-llm'
-
-const model = new BrowserModel(page, {
-  modelId, // The model loaded in the browser.
-  contextWindowLimit: 16384, // Match the loaded engine.
-  maxTokens: 4096,
-})
-const agent = await createHarness({ model })
-try {
-  console.log((await agent.invoke('Say hello.')).lastMessage.content)
-} finally {
-  await agent.shutdown()
-}
-```
-
-Tools run in Node.js; inference runs in the browser. Before unloading or closing
-the page, call `await page.evaluate(() => window.webllmBridge.close())`.
-Harness tools use your host permissions unless you configure a sandbox.
-Use a page controlled by your application. The browser app uses TypeScript
-`moduleResolution: "Bundler"`; Node.js callers can use `module: "NodeNext"`.
-
-## Native WebLLM APIs
-
-Use `withEngine()` in tools, hooks, or application code to share the engine safely:
+Share the engine safely from tools, hooks, or application code:
 
 ```ts
 import { withEngine } from 'strands-web-llm'
@@ -140,74 +165,28 @@ const stats = await page.evaluate(() =>
 )
 ```
 
-The callback receives the original engine. Await all work and consume streams
-inside it. Return serializable results to Node.js. Calls sharing an engine wait
-in order; do not invoke an Agent or another scope on that engine inside the callback.
-Stop callers before replacing their loaded models. Direct engine calls bypass the queue.
+Await all work and consume streams inside the callback. Return serializable results to Node.js.
+Calls sharing an engine run in order; do not invoke an Agent or another scope on that engine
+inside the callback. Direct engine calls bypass the queue. Stop callers before replacing models.
 
-## Options
+| Native feature                                      | API or limit                                                  |
+| --------------------------------------------------- | ------------------------------------------------------------- |
+| Raw prompts, echo, multiple choices                 | Native completions; multiple streamed choices are unsupported |
+| Generation save and resume                          | Native chat recovery; separate from Strands sessions          |
+| Reload, unload, reset, progress, stats, GPU queries | Original engine APIs                                          |
+| Logit processors                                    | WebLLM engine setup                                           |
+| Cache backends, integrity, custom models            | WebLLM setup and cache APIs                                   |
+| Main thread, Worker, Service Worker, extension      | Any `MLCEngineInterface`; use WebLLM's factories and handlers |
+| Message `name`                                      | Native chat; SDK messages have no name field                  |
 
-Both models accept native generation settings in `request` and original output
-chunks through `onChunk`. SDK `maxTokens`, `temperature`, and `topP` take precedence.
 `updateConfig()` merges settings; `modelId` selects an already loaded model.
 Use model-card sampling settings. WebLLM does not expose `top_k` or `min_p`.
+Cache hints do not configure WebLLM's KV cache. Recovering external tool side effects
+is the application's responsibility.
 
-Use `agent.stream()` for events and `agent.cancel()` to stop generation. Gemma,
-Qwen3, and Qwen3.5 return separate Strands reasoning blocks when thinking is on.
-Qwen keeps constrained JSON output unchanged. Render only `textBlock` values to hide reasoning.
-`pcmAudio(samples, sampleRate)` converts mono float32 PCM to a lossless WAV `AudioBlock`.
+See the [native engine interface](https://github.com/mlc-ai/web-llm/blob/v0.2.86/src/types.ts)
+and [Strands provider contract](https://strandsagents.com/docs/user-guide/sdk/model-providers/custom_model_provider/).
 
-## Support
+</details>
 
-Targets: WebLLM **0.2.86**, Strands SDK **1.21.0**, Harness **0.3.0**.
-“Native” below means WebLLM's original API inside `withEngine()`.
-
-| Feature                                                              | Connection                                                        | Limits                                                           |
-| -------------------------------------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------- |
-| Text, system prompts, history                                        | Strands messages and `systemPrompt`                               | Unsupported block types raise errors                             |
-| Model selection                                                      | `modelId`                                                         | Model must already be loaded                                     |
-| Token limit, sampling, penalties, seed, stop, logit bias             | `request`; SDK config aliases                                     | SDK settings take precedence                                     |
-| Logprobs and original chunks                                         | `request`, `onChunk`                                              | Available in both providers                                      |
-| Usage, latency, timing                                               | Strands metadata and `onChunk`                                    | Native extra fields retained                                     |
-| Plain text, JSON schema, grammar, structural tags                    | `request.response_format`                                         | Gemma protocol mode accepts plain text only                      |
-| Tool declarations, results, auto/named/none choice                   | Strands tools and `toolChoice`; `request.tool_choice: 'none'`     | `any` unsupported; model must support tools                      |
-| Thinking                                                             | `request.extra_body.enable_thinking`                              | Depends on the exact model ID; see the model table above         |
-| Images: URL, data URL, bytes                                         | SDK `ImageBlock`                                                  | Only the verified vision ID above is tested                      |
-| WAV and float32 PCM                                                  | SDK `AudioBlock`, `pcmAudio()`                                    | Needs an audio model; WAV bytes only at the native chat boundary |
-| `ignore_eos`                                                         | `request.ignore_eos`                                              | Unavailable in Gemma protocol mode                               |
-| Streaming and final response                                         | `agent.stream()`, `agent.invoke()`                                | One assistant response per model call                            |
-| Multiple choices, non-streaming backend                              | Native chat/completion                                            | WebLLM rejects multiple streamed choices                         |
-| Raw prompt and echo                                                  | Native completions                                                | Separate from Strands message turns                              |
-| Embeddings                                                           | Strands `MemoryStore` / `SearchStrategy` or tool + `withEngine()` | Not a chat model; see the verified ID above                      |
-| Message `name`                                                       | Native chat                                                       | SDK messages have no name field                                  |
-| Generation persistence                                               | Native chat `request.extra_body.resumable`; native recovery APIs  | Separate from Strands sessions; no raw-completion recovery       |
-| Reload/unload, reset, progress, logging, message, stats, GPU queries | Native engine                                                     | Caller owns lifecycle                                            |
-| Token-level sampling and logit processors                            | Native engine and setup                                           | Keep processor setup in WebLLM                                   |
-| Cache backends, inspection, deletion, integrity, custom models       | Native WebLLM setup/cache APIs                                    | Backend and model restrictions apply                             |
-| Main thread, Web Worker, Service Worker, extension worker            | Any `MLCEngineInterface`                                          | Set up workers with WebLLM's factories and handlers              |
-| Context counting and overflow                                        | Strands `countTokens()` and recovery error                        | Counts are estimates; set the loaded context window size         |
-
-## Limits
-
-Features depend on the loaded model and WebLLM. Invalid model output and token-limit
-errors reach the caller. Qwen parsers accept known delimiter variants; incomplete
-or ambiguous arguments raise errors. The adapter never changes parsed tool names
-or arguments or supplies answers.
-Qwen prompt-based tool calls cannot share a request with a structured `response_format`.
-Structured output is passed through unchanged, including text that looks like protocol tags.
-For Gemma 4 E2B on WebLLM 0.2.86, see the [required cache fix and protocol limits](runtime/README.md).
-
-S3 media, video, documents, guardrails, and media in tool results are unsupported.
-Cache hints do not configure WebLLM's KV cache. Signed/redacted reasoning is unsupported.
-Strands sessions save Agent history; WebLLM checkpoints save native generation.
-Recovering an interrupted external tool effect requires application-level handling.
-
-See the [runnable examples](https://github.com/ykoh42/web-llm-adapters/blob/main/examples/strands-web-llm/browser/README.md)
-and [Harness flows](https://github.com/ykoh42/web-llm-adapters/blob/main/examples/strands-web-llm/harness/README.md)
-for complete setups and tests. The [native engine interface](https://github.com/mlc-ai/web-llm/blob/v0.2.86/src/types.ts)
-and [Strands provider contract](https://strandsagents.com/docs/user-guide/sdk/model-providers/custom_model_provider/)
-define each library's API boundary.
-
-## License
-
-[MIT](LICENSE). The bundled runtime retains its [upstream licenses and notices](runtime/NOTICE.txt).
+[MIT](LICENSE). The bundled runtime retains its [upstream licenses and notices](https://github.com/ykoh42/web-llm-adapters/blob/main/shared/runtime/NOTICE.txt).

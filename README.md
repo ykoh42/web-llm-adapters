@@ -3,13 +3,11 @@
 [WebLLM](https://github.com/mlc-ai/web-llm) runs AI models locally in your browser using WebGPU.
 These community adapters connect WebLLM to agent frameworks.
 
-| Package           | Guide                                                   | Examples                                                      |
-| ----------------- | ------------------------------------------------------- | ------------------------------------------------------------- |
-| `strands-web-llm` | [Usage and support](packages/strands-web-llm/README.md) | [Strands SDK and Harness](examples/strands-web-llm/README.md) |
+| Package             | Guide                                                     | Examples                                                          | npm                                                            |
+| ------------------- | --------------------------------------------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------- |
+| `langchain-web-llm` | [Usage and support](packages/langchain-web-llm/README.md) | [LangChain and Deep Agents](examples/langchain-web-llm/README.md) | Unreleased                                                     |
+| `strands-web-llm`   | [Usage and support](packages/strands-web-llm/README.md)   | [Strands SDK and Harness](examples/strands-web-llm/README.md)     | [0.1.0](https://www.npmjs.com/package/strands-web-llm/v/0.1.0) |
 
-Model support is specific to WebLLM's exact `model_id` and quantization. See the
-[model IDs and verified features](packages/strands-web-llm/README.md#models).
+Model support depends on WebLLM's exact `model_id` and quantization. Each package lists its verified models and features.
 
-## Release
-
-MIT · [0.1.0 on npm](https://www.npmjs.com/package/strands-web-llm/v/0.1.0).
+MIT.

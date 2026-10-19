@@ -2,6 +2,9 @@
 
 ## 0.1.1 (unreleased)
 
+- Share protocol parsers, engine scheduling, and runtime assets with other adapters.
+- Reject tool output that violates an explicit tool choice.
+- Preserve Gemma reasoning when a caller-supplied stop string ends generation.
 - Match Qwen tool history, reasoning, and Qwen3.5 tool declarations to their templates.
 - Accept Qwen3.5 parameter boundaries and extra closing tags handled by its recommended parser.
 - Sort Gemma object keys to match its template.

@@ -1,96 +1,77 @@
 # Strands Harness + WebLLM
 
-Harness and tools run in Node.js; WebLLM inference runs in a WebGPU browser.
-This example uses the package's public `BrowserModel` and `createBrowserBridge`.
-Tools run with your user account's file and shell permissions. Configure a Harness
-sandbox to isolate them.
+Harness and tools run in Node.js; WebLLM runs in a WebGPU browser.
+Tools use your account's file and shell permissions; configure a Harness sandbox to isolate them.
 
 ## Run
+
+From the repository root, start the local browser host:
 
 ```sh
 npm ci
 npm run dev:strands
 ```
 
-In another terminal:
+Keep it running at <http://127.0.0.1:4173>. In another terminal:
 
 ```sh
 npm run start --workspace @web-llm-adapters/strands-harness -- 'Say hello.'
-npm run start --workspace @web-llm-adapters/strands-harness -- --semantic-memory -- 'Say hello.'
-npm run start --workspace @web-llm-adapters/strands-harness -- --think --tool read 'Read /absolute/path/to/note.txt and summarize it.'
-npm run start --workspace @web-llm-adapters/strands-harness -- --model Qwen3-4B-q4f16_1-MLC --think --tool read 'Read /absolute/path/to/note.txt and summarize it.'
-npm run start --workspace @web-llm-adapters/strands-harness -- --tool read 'Read /absolute/path/to/note.pdf and summarize its text.'
-npm run start --workspace @web-llm-adapters/strands-harness -- --think --tool read 'Read the text in /absolute/path/to/note.png.'
-npm run start --workspace @web-llm-adapters/strands-harness -- --tool web_search 'Find the official Strands Harness SDK repository.'
 ```
 
-Gemma 4 E2B is the default. Pass `--model <exact WebLLM model_id>` to choose another model.
-The CLI opens Chrome and reuses `.cache/chrome`.
-Keep the app running at <http://127.0.0.1:4173>. The first run downloads model files.
-The page uses the package's [cache-fixed runtime](../../../packages/strands-web-llm/runtime/README.md)
-with WebLLM 0.2.86; no upstream update or runtime build is needed.
+The CLI opens Chrome and caches model downloads. Gemma 4 E2B is the example default;
+use `--model <exact model_id>` to choose another [verified model](../../../packages/strands-web-llm/README.md#models).
+The demo includes Gemma's required runtime setup.
 
-## Verified models
-
-The [package model table](../../../packages/strands-web-llm/README.md#models) lists each exact ID
-that passed a real Harness tool call, result, and final answer. It also shows which models passed
-with thinking enabled.
-
-`--semantic-memory` loads the verified Snowflake Arctic Embed S model and uses it through Strands
-`FileMemoryStore`. It adds a model download and uses extra GPU memory.
-
-| Option              | Meaning                                                                   |
+| Option              | Purpose                                                                   |
 | ------------------- | ------------------------------------------------------------------------- |
-| `--think`           | Keep thinking separate from answer text                                   |
-| `--semantic-memory` | Load Snowflake Arctic Embed S for Strands semantic memory                 |
+| `--model <id>`      | Choose the loaded WebLLM model                                            |
+| `--think`           | Enable separate reasoning blocks                                          |
+| `--semantic-memory` | Load Snowflake Arctic Embed S for semantic memory; uses extra GPU memory  |
 | `--tool <name>`     | Select the first tool; the model generates its arguments and final answer |
 
-E2B may select the wrong tool or alter identifiers. Named choice helps select a
-specific first step; use the actual tool result when exact values matter.
+For example, read a file with thinking enabled:
 
-## Examples
+```sh
+npm run start --workspace @web-llm-adapters/strands-harness -- --think --tool read 'Read /absolute/path/to/note.txt and summarize it.'
+```
 
-| Feature                  | Source                                                  | Notes                                                     |
-| ------------------------ | ------------------------------------------------------- | --------------------------------------------------------- |
-| Full CLI setup           | [main.ts](src/main.ts)                                  | Browser startup, model config, Harness, shutdown          |
-| Text, PDF, image reading | [read.ts](src/tools/read.ts)                            | Extends Harness `read`; text paging retained              |
-| Image OCR                | [ocr.ts](src/tools/ocr.ts)                              | English/Korean PNG and JPEG; local CPU processing         |
-| Memory                   | [memory.ts](src/memory.ts)                              | Harness memory policy with native JSON extraction         |
-| Embedding memory         | [memory.ts](src/memory.ts)                              | Strands `FileMemoryStore` with WebLLM semantic search     |
-| Native APIs in tools     | [engine.browser.ts](test/browser/engine.browser.ts)     | Raw completions and generation recovery                   |
-| Restart recovery         | [recovery.browser.ts](test/browser/recovery.browser.ts) | Restore WebLLM checkpoints and Harness history separately |
+## Source
 
-Sessions, skills, memory, background tasks, subagents, and ordinary tools keep
-their Harness defaults.
-`read: false` replaces the built-in reader with the extended tool under the same name. `printer: false` keeps the CLI
-output focused on the answer. Main, auxiliary, and memory requests share one engine.
+| Feature                                          | Source                       |
+| ------------------------------------------------ | ---------------------------- |
+| Browser startup, model config, Harness, shutdown | [main.ts](src/main.ts)       |
+| Text and PDF reading                             | [read.ts](src/tools/read.ts) |
+| Local image OCR                                  | [ocr.ts](src/tools/ocr.ts)   |
+| Memory and embedding search                      | [memory.ts](src/memory.ts)   |
 
-State lives under `.agent/`. Pass `session: { id: previousSessionId }` to restore a
-conversation. Put skills under `.agent/skills/<name>/SKILL.md`. Shut agents down
-before closing the browser so pending memory work can finish.
+The example keeps Harness's sessions, skills, background tasks, and subagents enabled.
+It replaces `read` with a PDF/OCR reader and supplies WebLLM-backed memory.
+State is stored under `.agent/`. Shut agents down before closing the browser.
 
 ## Limits
 
-| Feature              | Limit                                                                         |
-| -------------------- | ----------------------------------------------------------------------------- |
-| PDF                  | Embedded text only; 20 MiB; scanned pages need OCR                            |
-| OCR                  | PNG/JPEG up to 20 MiB; accuracy depends on image quality                      |
-| Gemma images         | The WebLLM artifact has no image input; this example uses OCR                 |
-| Speech transcription | Not enabled here; real speech checks were inaccurate                          |
-| Web search           | Exa receives search queries; optional `EXA_API_KEY` increases limits          |
-| Embedding memory     | 512 tokens per text; reads every entry per search; long entries need chunking |
-| Concurrent requests  | One shared engine queue; independent histories and cancellation               |
-| Recovery             | Native generation checkpoints and Harness sessions store different state      |
+| Feature             | Limit                                                                     |
+| ------------------- | ------------------------------------------------------------------------- |
+| PDF                 | Embedded text only; 20 MiB; scanned pages need OCR                        |
+| Image reading       | Local OCR for PNG/JPEG up to 20 MiB; Gemma has no native image input here |
+| Speech              | Transcription is not enabled                                              |
+| Web search          | Uses Exa; queries leave the machine; `EXA_API_KEY` is optional            |
+| Embedding memory    | 512 tokens per text; scans all entries per search; split long entries     |
+| Concurrent requests | One engine queue, with separate histories and cancellation                |
+| Recovery            | Harness sessions and native generation checkpoints save different state   |
 
-The [package support table](../../../packages/strands-web-llm/README.md#support) covers
-provider features. The [browser examples](../browser/README.md) cover media and
-native engine APIs. No hook supplies an answer or completes the model's tool turn.
+See the [package support table](../../../packages/strands-web-llm/README.md#support)
+for adapter features and the [browser examples](../browser/README.md) for native WebLLM APIs.
 
-## Test
+<details>
+<summary>Run real-model tests</summary>
 
 ```sh
-npm run test:browser -- examples/strands-web-llm/harness/test
+npm run test:browser -- --project=strands-harness
 ```
 
-These tests run real inference with isolated files, sessions, skills, and memory.
-Some use named choice to test a feature independently of tool-selection accuracy.
+Tests use isolated files, sessions, skills, and memory. Some use named tool choice
+to check a feature independently of the model's choice of tool. Native API and
+restart checks live under [test/browser](test/browser).
+
+</details>
