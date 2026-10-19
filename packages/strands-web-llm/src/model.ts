@@ -7,6 +7,7 @@ import {
 import type { ModelStreamEvent } from '@strands-agents/sdk'
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
 import { chatStream } from './chat/model.js'
+import { modelError } from './engine/error.js'
 import { isGemma, usesGemmaProtocol } from './gemma/request.js'
 import { gemmaStream } from './gemma/model.js'
 import { promptTokens } from './gemma/prompt.js'
@@ -45,7 +46,11 @@ export class WebLLMModel extends Model<WebLLMModelConfig> {
   ): Promise<number> {
     if (!isGemma(this.config.modelId)) return super.countTokens(messages, options)
     const thinking = this.config.request?.extra_body?.enable_thinking === true
-    return (await super.countTokens(trimThoughts(messages))) + promptTokens(options, thinking)
+    try {
+      return (await super.countTokens(trimThoughts(messages))) + promptTokens(options, thinking)
+    } catch (error) {
+      throw modelError(error)
+    }
   }
 
   override async *stream(
@@ -68,6 +73,10 @@ export class WebLLMModel extends Model<WebLLMModelConfig> {
     if (usesGemmaProtocol(config, messages, options)) stream = gemmaStream
     else if (usesQwen35Protocol(config)) stream = qwen35Stream
     else if (usesQwenProtocol(config)) stream = qwenStream
-    yield* stream(this.engine, config, messages, options, this.onChunk)
+    try {
+      yield* stream(this.engine, config, messages, options, this.onChunk)
+    } catch (error) {
+      throw modelError(error)
+    }
   }
 }

@@ -5,6 +5,7 @@ import {
   ContentBlockEvent,
   FunctionTool,
   MaxTokensError,
+  ModelError,
   Message,
   TextBlock,
   ToolUseBlock,
@@ -25,6 +26,23 @@ async function aggregate(model: WebLLMModel, options: StreamOptions = {}) {
 }
 
 describe('WebLLMModel', () => {
+  it.each(['Qwen3-8B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC'])(
+    'keeps Strands error types when %s rejects an undeclared tool choice',
+    async (modelId) => {
+      const { engine, create } = setup()
+      const model = new WebLLMModel({ engine, modelId })
+      await expect(
+        collect(
+          model.stream(messages, {
+            toolSpecs: tools,
+            toolChoice: { tool: { name: 'missing' } },
+          }),
+        ),
+      ).rejects.toBeInstanceOf(ModelError)
+      expect(create).not.toHaveBeenCalled()
+    },
+  )
+
   it('can disable tools for a call while retaining the Agent tool registry', async () => {
     const { model, create } = setup(chunk({ content: 'Hello' }, 'stop'))
     model.updateConfig({ request: { tool_choice: 'none' } })
@@ -621,4 +639,22 @@ describe('WebLLMModel', () => {
       { type: 'modelMessageStopEvent', stopReason: 'endTurn' },
     ])
   })
+})
+
+it('rejects a Qwen response outside the requested tool choice', async () => {
+  const { engine } = setup(
+    chunk({ content: '<tool_call>\n{"name":"write","arguments":{}}\n</tool_call>' }, 'stop'),
+  )
+  const model = new WebLLMModel({ engine, modelId: 'Qwen3-8B-q4f16_1-MLC' })
+  await expect(
+    collect(
+      model.stream(messages, {
+        toolSpecs: [
+          { name: 'read', description: 'Read' },
+          { name: 'write', description: 'Write' },
+        ],
+        toolChoice: { tool: { name: 'read' } },
+      }),
+    ),
+  ).rejects.toThrow('outside tool_choice')
 })

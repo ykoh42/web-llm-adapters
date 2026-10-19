@@ -1,0 +1,23 @@
+{
+  "name": "@web-llm-adapters/langchain-browser",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite --host 127.0.0.1 --port 4175 --strictPort",
+    "preview": "vite preview --host 127.0.0.1 --port 4175 --strictPort",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@langchain/core": "1.2.18",
+    "@mlc-ai/web-llm": "0.2.86",
+    "langchain": "1.5.18",
+    "langchain-web-llm": "*",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "vite": "^8.3.4",
+    "deepagents": "1.15.1",
+    "@langchain/langgraph": "1.5.1"
+  }
+}

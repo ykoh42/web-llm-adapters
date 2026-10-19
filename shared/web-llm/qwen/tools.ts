@@ -1,0 +1,45 @@
+import { ModelError, type ToolSpec, type ToolChoice } from '../types.js'
+import type { ChatCompletionTool } from '@mlc-ai/web-llm'
+
+function formatTools(tools: ToolSpec[]): ChatCompletionTool[] {
+  return tools.map((tool) => ({
+    type: 'function',
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: { ...(tool.inputSchema ?? { type: 'object', properties: {} }) },
+    },
+  }))
+}
+
+// Keep Hermes JSON compact: spacing changes Qwen3 tool-loop behavior in WebLLM.
+export function formatCall(name: string, input: unknown) {
+  return `<tool_call>\n{"name": ${JSON.stringify(name)}, "arguments": ${JSON.stringify(input)}}\n</tool_call>`
+}
+
+export function toolPrompt(tools: ToolSpec[], choice?: ToolChoice) {
+  if (!tools.length) return ''
+  if (choice && 'any' in choice) {
+    // Qwen can choose any declared tool; its prompt format has no native choice field.
+  } else if (choice && 'tool' in choice && !tools.some((tool) => tool.name === choice.tool.name)) {
+    throw new ModelError('The chosen Qwen tool is not registered.')
+  }
+  const rules = [
+    '# Tools',
+    '',
+    'You may call one or more functions to assist with the user query.',
+    '',
+    'You are provided with function signatures within <tools></tools> XML tags:',
+    '<tools>',
+    ...formatTools(tools).map((tool) => JSON.stringify(tool)),
+    '</tools>',
+    '',
+    'For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:',
+    '<tool_call>',
+    '{"name": <function-name>, "arguments": <args-json-object>}',
+    '</tool_call>',
+  ]
+  if (choice && 'any' in choice) rules.push('You must call at least one function.')
+  if (choice && 'tool' in choice) rules.push(`Call only the ${choice.tool.name} function.`)
+  return rules.join('\n')
+}

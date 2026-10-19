@@ -1,7 +1,7 @@
 import type { ToolSpec } from '@strands-agents/sdk'
 import { expect, it, vi } from 'vitest'
 import { chunk, chunks, collect } from '../../fixtures/engine.js'
-import { qwenChunks } from '../../src/qwen/stream.js'
+import { qwenChunks } from '../../../../shared/web-llm/qwen/stream.js'
 
 it('rejects an unregistered function wrapper without changing the model output', async () => {
   const raw = chunk(

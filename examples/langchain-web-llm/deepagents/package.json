@@ -1,0 +1,14 @@
+{
+  "name": "@web-llm-adapters/langchain-deepagents",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node run.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "deepagents": "1.15.1",
+    "langchain-web-llm": "*",
+    "playwright": "1.64.1"
+  }
+}

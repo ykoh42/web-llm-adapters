@@ -4,7 +4,7 @@ import type { WebLLMModelConfig, WebLLMModelOptions } from '../types.js'
 import { streamCall } from '../engine/call.js'
 import { readStream } from '../stream/read.js'
 import { gemmaRequest } from './request.js'
-import { gemmaChunks } from './stream.js'
+import { gemmaChunks } from '../../../../shared/web-llm/gemma/stream.js'
 
 /** Gemma's native thinking and tool protocol through raw completions. */
 export function gemmaStream(
@@ -20,9 +20,17 @@ export function gemmaStream(
     () => engine.completions.create(request),
     (chunks) =>
       readStream(
-        gemmaChunks(chunks, options.toolSpecs ?? [], onChunk, prefix),
+        gemmaChunks(
+          chunks,
+          options.toolSpecs ?? [],
+          onChunk,
+          prefix,
+          Boolean(request.stop?.length),
+        ),
         (chunk) => chunk,
         options.cancelSignal,
+        undefined,
+        options.toolChoice ?? config.request?.tool_choice,
       ),
     options.cancelSignal,
   )

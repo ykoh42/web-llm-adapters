@@ -10,36 +10,25 @@
   "type": "module",
   "files": [
     "CHANGELOG.md",
-    "dist",
-    "runtime/gemma-4-e2b.wasm",
-    "runtime/manifest.json",
-    "runtime/model.json",
-    "runtime/cache.patch",
-    "runtime/projection.patch",
-    "runtime/build.py",
-    "runtime/check-cache.cc",
-    "runtime/requirements.txt",
-    "runtime/README.md",
-    "runtime/NOTICE.txt",
-    "runtime/licenses/*.txt"
+    "dist"
   ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./runtime/gemma-4-e2b.wasm": "./runtime/gemma-4-e2b.wasm",
-    "./runtime/manifest.json": "./runtime/manifest.json"
+    "./runtime/gemma-4-e2b.wasm": "./dist/runtime/gemma-4-e2b.wasm",
+    "./runtime/manifest.json": "./dist/runtime/manifest.json"
   },
   "sideEffects": false,
   "engines": {
     "node": ">=22.12.0"
   },
   "scripts": {
-    "build": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",
+    "build": "tsdown",
     "typecheck": "tsc --noEmit",
     "check:package": "publint --strict && attw --pack --profile esm-only --exclude-entrypoints ./runtime/gemma-4-e2b.wasm",
-    "prepack": "npm run build"
+    "prepack": "tsdown --logLevel error"
   },
   "peerDependencies": {
     "@strands-agents/sdk": "~1.21.0",

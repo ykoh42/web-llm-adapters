@@ -1,3 +1,5 @@
+import { isQwen35 } from '../../../../shared/web-llm/qwen35/models.js'
+import { toolPrompt, formatCall } from '../../../../shared/web-llm/qwen35/tools.js'
 import {
   ModelError,
   type Message,
@@ -11,21 +13,13 @@ import {
   formatAssistant,
   formatMessages,
   formatSystemPrompt,
-  formatTools,
   formatUser,
 } from '../chat/messages.js'
 import { generationOptions, hasStructuredResponse } from '../request.js'
 import { appendQwenTurns, lastQwenQuery } from '../qwen/history.js'
 
-const modelIds = new Set([
-  'Qwen3.5-0.8B-q4f16_1-MLC',
-  'Qwen3.5-2B-q4f16_1-MLC',
-  'Qwen3.5-4B-q4f16_1-MLC',
-  'Qwen3.5-9B-q4f16_1-MLC',
-])
-
 export function usesQwen35Protocol(config: WebLLMModelConfig) {
-  return modelIds.has(config.modelId)
+  return isQwen35(config.modelId)
 }
 
 export function qwen35Request(
@@ -101,65 +95,4 @@ function qwen35Messages(
     )
   }
   return output
-}
-
-function toolPrompt(tools: ToolSpec[], choice?: ToolChoice) {
-  if (!tools.length) return ''
-  if (choice && 'tool' in choice && !tools.some((tool) => tool.name === choice.tool.name))
-    throw new ModelError('The chosen Qwen3.5 tool is not registered.')
-  const rules = [
-    '# Tools',
-    '',
-    'You have access to the following functions:',
-    '',
-    '<tools>',
-    ...formatTools(tools).map(templateJson),
-    '</tools>',
-    '',
-    'If you choose to call a function ONLY reply in the following format with NO suffix:',
-    '',
-    '<tool_call>',
-    '<function=example_function_name>',
-    '<parameter=example_parameter_1>',
-    'value_1',
-    '</parameter>',
-    '<parameter=example_parameter_2>',
-    'This is the value for the second parameter',
-    'that can span',
-    'multiple lines',
-    '</parameter>',
-    '</function>',
-    '</tool_call>',
-    '',
-    '<IMPORTANT>',
-    'Reminder:',
-    '- Function calls MUST follow the specified format: an inner <function=...></function> block must be nested within <tool_call></tool_call> XML tags',
-    '- Required parameters MUST be specified',
-    '- You may provide optional reasoning for your function call in natural language BEFORE the function call, but NOT after',
-    '- If there is no function call available, answer the question like normal with your current knowledge and do not tell the user about function calls',
-    '</IMPORTANT>',
-  ]
-  if (choice && 'any' in choice) rules.push('You must call at least one function.')
-  if (choice && 'tool' in choice) rules.push(`Call only the ${choice.tool.name} function.`)
-  return rules.join('\n')
-}
-
-/** Match the template's JSON separators without changing strings. */
-function templateJson(value: unknown) {
-  return JSON.stringify(value).replace(/"(?:\\.|[^"\\])*"|[:,]/g, (token) =>
-    token === ',' || token === ':' ? `${token} ` : token,
-  )
-}
-
-function formatCall(name: string, input: unknown) {
-  if (!isRecord(input)) throw new ModelError('Qwen3.5 tool arguments must be an object.')
-  const parameters = Object.entries(input).map(([key, value]) => {
-    const text = typeof value === 'string' ? value : templateJson(value)
-    return `<parameter=${key}>\n${text}\n</parameter>`
-  })
-  return `<tool_call>\n<function=${name}>\n${parameters.join('\n')}${parameters.length ? '\n' : ''}</function>\n</tool_call>`
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

@@ -7,7 +7,7 @@
     "examples/*/*"
   ],
   "engines": {
-    "node": ">=22.12.0"
+    "node": "^22.18.0 || ^24.11.0 || >=26.0.0"
   },
   "scripts": {
     "build": "npm run build --workspaces --if-present",
@@ -21,12 +21,17 @@
     "format:check": "prettier --check .",
     "check:unused": "knip",
     "check:packages": "npm run check:package --workspaces --if-present",
-    "check": "npm run format:check && npm run lint && npm run build && npm run typecheck && npm run test:coverage && npm run check:unused && npm run check:packages",
+    "check": "npm run format:check && npm run lint && npm run build && npm run typecheck && npm run test:coverage && npm run test:standard && npm run check:unused && npm run check:packages",
     "test:extensions": "node examples/strands-web-llm/browser/scripts/setup-extension.ts && playwright test --config playwright.extension.config.ts",
     "test:install": "npm run test:install --workspaces --if-present",
-    "check:release": "npm run check && npm run test:install && npm run test:browser && npm run test:extensions",
+    "check:release": "npm run check && npm run test:install && npm run test:browser && npm run test:extensions && npm run test:langchain",
     "dev:strands": "npm run build --workspace strands-web-llm && npm run dev --workspace @web-llm-adapters/strands-browser",
-    "preview:strands": "npm run preview --workspace @web-llm-adapters/strands-browser"
+    "preview:strands": "npm run preview --workspace @web-llm-adapters/strands-browser",
+    "test:standard": "npm run test:standard --workspace langchain-web-llm",
+    "test:langchain": "npm run build && playwright test --config playwright.langchain.config.ts",
+    "dev:langchain": "npm run build --workspace langchain-web-llm && npm run dev --workspace @web-llm-adapters/langchain-browser",
+    "test:langchain:standard": "node packages/langchain-web-llm/scripts/standard.ts && REAL_MODELS=1 vitest run --config vitest.standard.config.ts",
+    "check:release:langchain": "npm run check && npm run test:install --workspace langchain-web-llm && playwright test --config playwright.langchain.config.ts && npm run test:langchain:standard"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
@@ -34,14 +39,17 @@
     "@playwright/test": "^1.64.1",
     "@strands-agents/sdk": "1.21.0",
     "@types/chrome": "^0.3.5",
+    "@types/json-schema": "^7.0.15",
     "@types/node": "^24.19.2",
     "@vitest/coverage-v8": "^5.0.5",
     "eslint": "^10.12.0",
     "knip": "^6.41.0",
     "prettier": "^3.9.10",
     "publint": "^0.3.25",
+    "tsdown": "^0.23.1",
     "typescript": "~6.0.0",
     "typescript-eslint": "^8.71.2",
-    "vitest": "^5.0.5"
+    "vitest": "^5.0.5",
+    "@mlc-ai/web-llm": "0.2.86"
   }
 }

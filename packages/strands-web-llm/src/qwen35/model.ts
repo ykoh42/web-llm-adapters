@@ -5,7 +5,7 @@ import { streamCall } from '../engine/call.js'
 import { readStream } from '../stream/read.js'
 import { hasStructuredResponse } from '../request.js'
 import { qwen35Request } from './request.js'
-import { qwen35Chunks } from './stream.js'
+import { qwen35Chunks } from '../../../../shared/web-llm/qwen35/stream.js'
 
 /** Qwen3.5 uses its native XML function format through WebLLM chat completions. */
 export function qwen35Stream(
@@ -24,6 +24,8 @@ export function qwen35Stream(
         qwen35Chunks(chunks, options.toolSpecs ?? [], onChunk, !hasStructuredResponse(config)),
         (chunk) => chunk,
         options.cancelSignal,
+        undefined,
+        options.toolChoice ?? config.request?.tool_choice,
       ),
     options.cancelSignal,
   )

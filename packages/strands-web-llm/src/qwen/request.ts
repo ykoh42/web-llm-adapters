@@ -1,3 +1,5 @@
+import { isQwen } from '../../../../shared/web-llm/qwen/models.js'
+import { toolPrompt, formatCall } from '../../../../shared/web-llm/qwen/tools.js'
 import {
   ModelError,
   type Message,
@@ -11,7 +13,6 @@ import {
   formatAssistant,
   formatMessages,
   formatSystemPrompt,
-  formatTools,
   formatUser,
 } from '../chat/messages.js'
 import { generationOptions, hasStructuredResponse } from '../request.js'
@@ -19,19 +20,8 @@ import { appendQwenTurns, lastQwenQuery } from './history.js'
 
 const qwen25SystemPrompt = 'You are Qwen, created by Alibaba Cloud. You are a helpful assistant.'
 
-const modelIds = new Set([
-  'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
-  'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
-  'Qwen2.5-3B-Instruct-q4f16_1-MLC',
-  'Qwen2.5-7B-Instruct-q4f16_1-MLC',
-  'Qwen3-0.6B-q4f16_1-MLC',
-  'Qwen3-1.7B-q4f16_1-MLC',
-  'Qwen3-4B-q4f16_1-MLC',
-  'Qwen3-8B-q4f16_1-MLC',
-])
-
 export function usesQwenProtocol(config: WebLLMModelConfig) {
-  return modelIds.has(config.modelId)
+  return isQwen(config.modelId)
 }
 
 export function qwenRequest(
@@ -121,36 +111,4 @@ function qwenMessages(
     )
   }
   return output
-}
-
-// Keep Hermes JSON compact: spacing changes Qwen3 tool-loop behavior in WebLLM.
-function formatCall(name: string, input: unknown) {
-  return `<tool_call>\n{"name": ${JSON.stringify(name)}, "arguments": ${JSON.stringify(input)}}\n</tool_call>`
-}
-
-function toolPrompt(tools: ToolSpec[], choice?: ToolChoice) {
-  if (!tools.length) return ''
-  if (choice && 'any' in choice) {
-    // Qwen can choose any declared tool; its prompt format has no native choice field.
-  } else if (choice && 'tool' in choice && !tools.some((tool) => tool.name === choice.tool.name)) {
-    throw new ModelError('The chosen Qwen tool is not registered.')
-  }
-  const rules = [
-    '# Tools',
-    '',
-    'You may call one or more functions to assist with the user query.',
-    '',
-    'You are provided with function signatures within <tools></tools> XML tags:',
-    '<tools>',
-    ...formatTools(tools).map((tool) => JSON.stringify(tool)),
-    '</tools>',
-    '',
-    'For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:',
-    '<tool_call>',
-    '{"name": <function-name>, "arguments": <args-json-object>}',
-    '</tool_call>',
-  ]
-  if (choice && 'any' in choice) rules.push('You must call at least one function.')
-  if (choice && 'tool' in choice) rules.push(`Call only the ${choice.tool.name} function.`)
-  return rules.join('\n')
 }

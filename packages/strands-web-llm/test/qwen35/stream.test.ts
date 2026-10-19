@@ -1,7 +1,7 @@
 import type { JSONSchema, ToolSpec } from '@strands-agents/sdk'
 import { expect, it } from 'vitest'
 import { chunk, chunks, collect } from '../../fixtures/engine.js'
-import { qwen35Chunks } from '../../src/qwen35/stream.js'
+import { qwen35Chunks } from '../../../../shared/web-llm/qwen35/stream.js'
 
 const nullableStringSchemas: JSONSchema[] = [
   { type: ['string', 'null'] },

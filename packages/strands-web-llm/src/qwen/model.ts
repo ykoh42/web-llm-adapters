@@ -5,7 +5,7 @@ import { streamCall } from '../engine/call.js'
 import { readStream } from '../stream/read.js'
 import { hasStructuredResponse } from '../request.js'
 import { qwenRequest } from './request.js'
-import { qwenChunks } from './stream.js'
+import { qwenChunks } from '../../../../shared/web-llm/qwen/stream.js'
 
 /** Qwen uses its documented tool tags because WebLLM exposes no tool API for these IDs. */
 export function qwenStream(
@@ -24,6 +24,8 @@ export function qwenStream(
         qwenChunks(chunks, options.toolSpecs ?? [], onChunk, !hasStructuredResponse(config)),
         (chunk) => chunk,
         options.cancelSignal,
+        undefined,
+        options.toolChoice ?? config.request?.tool_choice,
       ),
     options.cancelSignal,
   )

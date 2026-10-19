@@ -1,0 +1,14 @@
+{
+  "repository": "langchain-ai/langchainjs",
+  "revision": "3f2abb9f76b0b28c39ca3ed0cb11f27307b8a467",
+  "files": {
+    "base.ts": "a8f828efed169f5ee30a834456068b0917b0ffb6a427a92b8680b55cb78fd167",
+    "utils.ts": "11d7f8f61c0c444e67a47c2f80134a2b6e7c614e31e66dd1a8ce641c3f43b193",
+    "utils/types.ts": "6de53e4e165d83856cb183837cff83d3bd82a57db743ea1c9dca0358dc149253",
+    "unit_tests/chat_models.ts": "1cdbe1f26e9252c9489ad3bb402592bccb09ae139af0fe2a0e0fbb09b14bd101",
+    "unit_tests/vitest.ts": "e72f48df2f775b0b6df23f8758c3093aafa19409c8c274a327c8f267704692b0",
+    "integration_tests/chat_models.ts": "1f718629c39c20646d59b3d76d0cb9d389bc6d2cc47ee7222b3053ad99ffd12b",
+    "integration_tests/vitest.ts": "20109098052bfb6b79379dccd5b21621a1cc809cc9e1672d08a8119b4d194553",
+    "vitest.ts": "211859f6bd9a6cb835afe45ec54d805824c589209e37a0308b0388ee7e6666c3"
+  }
+}

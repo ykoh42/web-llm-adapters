@@ -9,7 +9,7 @@ import { generationOptions } from '../request.js'
 import { formatMessages, formatTools, formatToolChoice } from './messages.js'
 import { streamCall } from '../engine/call.js'
 import { readStream } from '../stream/read.js'
-import { stopReason, type StreamChunk } from '../stream/chunks.js'
+import { stopReason, type StreamChunk } from '../../../../shared/web-llm/stream/chunks.js'
 
 /** Native WebLLM chat, including its Hermes tool format. */
 export function chatStream(
@@ -34,6 +34,7 @@ export function chatStream(
         (chunk) => chatChunk(chunk, Boolean(request.tools)),
         options.cancelSignal,
         onChunk,
+        options.toolChoice ?? config.request?.tool_choice,
       ),
     options.cancelSignal,
   )

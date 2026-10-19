@@ -285,6 +285,18 @@ it('forwards tool choices and trailing context without sharing per-call options'
   const start = vi.spyOn(bridge, 'start')
   const toolSpecs = [{ name: 'read', description: 'Read a file' }]
   const toolChoice = { tool: { name: 'read' } }
+  create.mockResolvedValueOnce(
+    chunks(
+      chunk(
+        {
+          tool_calls: [
+            { index: 0, id: 'call', type: 'function', function: { name: 'read', arguments: '{}' } },
+          ],
+        },
+        'tool_calls',
+      ),
+    ),
+  )
   await collect(model.stream(messages, { toolSpecs, toolChoice, dynamicTrailingBlocks: 2 }))
   expect(start.mock.calls[0]?.[0].options).toEqual({
     toolSpecs,

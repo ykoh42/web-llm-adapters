@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest'
-import { startCall } from '../../src/engine/call.js'
+import { startCall } from '../../../../shared/web-llm/engine/call.js'
 import { setup, chunks, chunk, pause } from '../../fixtures/engine.js'
 
 it.each(['throw', 'reject'] as const)(

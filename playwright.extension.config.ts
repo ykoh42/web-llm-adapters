@@ -1,6 +1,7 @@
 import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
+  outputDir: './test-results/strands-web-llm/extensions',
   testDir: './examples/strands-web-llm/browser/test/extensions',
   timeout: 15 * 60 * 1000,
   workers: 1,

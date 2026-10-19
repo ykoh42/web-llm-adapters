@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { writeValue, readArguments } from '../../src/gemma/value.js'
+import { writeValue, readArguments } from '../../../../shared/web-llm/gemma/value.js'
 
 const quote = '<|"|>'
 

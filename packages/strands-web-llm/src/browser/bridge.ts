@@ -1,7 +1,7 @@
 import { Message } from '@strands-agents/sdk'
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
 import { WebLLMModel } from '../model.js'
-import { withEngine } from '../engine/access.js'
+import { withEngine } from '../../../../shared/web-llm/engine/access.js'
 import type { WebLLMChunk } from '../types.js'
 import type { BrowserBridge, BrowserRequest, BrowserResult, BrowserCountRequest } from './types.js'
 

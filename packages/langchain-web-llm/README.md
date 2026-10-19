@@ -1,0 +1,105 @@
+# LangChain WebLLM
+
+Run [WebLLM](https://github.com/mlc-ai/web-llm) models locally with WebGPU through LangChain, LangGraph, and Deep Agents.
+
+Not published yet. Try the [repository examples](https://github.com/ykoh42/web-llm-adapters/tree/main/examples/langchain-web-llm). After publication:
+
+```sh
+npm install langchain-web-llm @langchain/core @mlc-ai/web-llm
+```
+
+## Use
+
+Load a model with WebLLM, then pass its engine to the provider:
+
+```ts
+import { CreateMLCEngine } from '@mlc-ai/web-llm'
+import { ChatWebLLM } from 'langchain-web-llm'
+
+const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
+const engine = await CreateMLCEngine(modelId)
+const model = new ChatWebLLM({ engine, modelId })
+
+console.log((await model.invoke('Hello')).text)
+```
+
+Use LangChain's usual `bindTools`, `stream`, `batch`, and `withStructuredOutput` APIs. Thinking is returned as standard `reasoning` content blocks; `.text` contains the answer. Enable it with `request.extra_body.enable_thinking` on a model that supports it.
+
+## Deep Agents
+
+Keep the agent and its tools in Node.js, and WebLLM in a private browser page:
+
+```ts
+// Browser: after loading the engine
+import { createBrowserBridge } from 'langchain-web-llm'
+window.webllmLangChainBridge = createBrowserBridge(engine)
+```
+
+```ts
+// Node.js: page is a caller-owned Playwright Page
+import { createDeepAgent } from 'deepagents'
+import { BrowserChatWebLLM } from 'langchain-web-llm'
+
+const model = new BrowserChatWebLLM(page, {
+  modelId: 'Qwen3.5-4B-q4f16_1-MLC',
+  profile: { maxInputTokens: 32768 }, // Match the loaded engine's context window.
+  request: { extra_body: { enable_thinking: true } },
+})
+const agent = createDeepAgent({ model })
+const result = await agent.invoke({
+  messages: [{ role: 'user', content: 'Write a short greeting to /greeting.txt, then read it.' }],
+})
+```
+
+Load the browser engine with `context_window_size: 32768` for this example. The page must already contain the loaded model and bridge. [Runnable examples](https://github.com/ykoh42/web-llm-adapters/tree/main/examples/langchain-web-llm) show the full setup.
+
+## Support
+
+| Feature                              | Support                                                               |
+| ------------------------------------ | --------------------------------------------------------------------- |
+| Chat, streaming, tools, reasoning    | Model-dependent                                                       |
+| Cancellation and shared-engine calls | Yes                                                                   |
+| Structured output                    | `withStructuredOutput()` through tools or native JSON                 |
+| Images and WAV audio                 | Passed through to models that accept them                             |
+| Video and generic files              | No native WebLLM input                                                |
+| Embeddings                           | `WebLLMEmbeddings` and `BrowserWebLLMEmbeddings` for LangGraph memory |
+| Strict tool schemas                  | No                                                                    |
+
+## Models
+
+These exact WebLLM IDs passed real-model checks. Tools includes default Deep Agents → tool result → final answer. `O` = verified; `—` = unavailable for this artifact.
+
+| WebLLM model ID                         | Tools | Thinking | Images | Embeddings |
+| --------------------------------------- | ----- | -------- | ------ | ---------- |
+| `Qwen3.5-4B-q4f16_1-MLC`                | O     | O        | —      | —          |
+| `Qwen3-8B-q4f16_1-MLC`                  | O     | O        | —      | —          |
+| `gemma-4-E2B-it-q4f16_1-MLC`            | O     | O        | —      | —          |
+| `Qwen2.5-3B-Instruct-q4f16_1-MLC`       | O     | —        | —      | —          |
+| `Phi-3.5-vision-instruct-q4f16_1-MLC`   | —     | —        | O      | —          |
+| `snowflake-arctic-embed-s-q0f32-MLC-b4` | —     | —        | —      | O          |
+
+Gemma 4 E2B needs the bundled [runtime setup and protocol limits](https://github.com/ykoh42/web-llm-adapters/blob/main/shared/runtime/README.md). Its tools and thinking accept text and tool results only. Model-selected tools and arguments still need validation.
+
+## Embeddings
+
+Load an embedding model, then use LangChain's standard interface:
+
+```ts
+import { WebLLMEmbeddings } from 'langchain-web-llm'
+
+const embeddings = new WebLLMEmbeddings({
+  engine,
+  modelId: 'snowflake-arctic-embed-s-q0f32-MLC-b4',
+})
+const vector = await embeddings.embedQuery('a flower')
+```
+
+Snowflake's query prefix is applied automatically; documents stay unprefixed. Use `BrowserWebLLMEmbeddings(page, options)` for Node.js and LangGraph semantic memory.
+
+## Native options
+
+Pass WebLLM generation settings through `request`, either at construction or per call. `onChunk` receives unchanged native chunks, including log probabilities and timing. Use `model.engine` and `withEngine(engine, callback)` for other native APIs. Consume native streams inside the callback.
+
+You own the engine, model loading, workers, and browser page. Calls sharing one engine run in order. Cancellation interrupts the active generation; it does not unload the engine.
+
+[MIT](LICENSE). The bundled runtime includes its upstream licenses and notices.

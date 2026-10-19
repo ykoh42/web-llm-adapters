@@ -1,6 +1,8 @@
-import { ModelError, type ModelStreamEvent, type StopReason } from '@strands-agents/sdk'
+import { checkToolChoice } from '../../../../shared/web-llm/stream/choice.js'
+import type { ToolChoice } from '../../../../shared/web-llm/types.js'
+import { ModelError, type ModelStreamEvent } from '@strands-agents/sdk'
 import type { CompletionUsage } from '@mlc-ai/web-llm'
-import type { StreamChunk } from './chunks.js'
+import type { StreamChunk } from '../../../../shared/web-llm/stream/chunks.js'
 
 type ToolCall = { id: string; name: string; input: string }
 
@@ -9,10 +11,11 @@ export async function* readStream<T>(
   decode: (chunk: T) => StreamChunk,
   signal?: AbortSignal,
   onChunk?: (chunk: T) => void,
+  choice?: ToolChoice | 'none',
 ): AsyncGenerator<ModelStreamEvent> {
   let block: 'textDelta' | 'reasoningContentDelta' | undefined
   let toolText = ''
-  let stopReason: StopReason | undefined
+  let stopReason: StreamChunk['stop']
   let usage: CompletionUsage | undefined
   const calls = new Map<number, ToolCall>()
 
@@ -53,6 +56,11 @@ export async function* readStream<T>(
   if (!stopReason) throw new ModelError('WebLLM ended the stream without a stop reason.')
   if (block) yield { type: 'modelContentBlockStopEvent' }
 
+  checkToolChoice(
+    Array.from(calls.values(), (call) => call.name),
+    choice,
+    stopReason,
+  )
   const useTools = stopReason !== 'maxTokens' && stopReason !== 'cancelled' && calls.size > 0
   if (useTools) {
     for (const call of calls.values()) yield* toolEvents(call)

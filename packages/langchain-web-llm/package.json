@@ -1,0 +1,50 @@
+{
+  "name": "langchain-web-llm",
+  "version": "0.1.0",
+  "description": "WebLLM chat models and embeddings for LangChain, LangGraph, and Deep Agents.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ykoh42/web-llm-adapters.git",
+    "directory": "packages/langchain-web-llm"
+  },
+  "files": [
+    "CHANGELOG.md",
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./runtime/gemma-4-e2b.wasm": "./dist/runtime/gemma-4-e2b.wasm",
+    "./runtime/manifest.json": "./dist/runtime/manifest.json"
+  },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "check:package": "publint --strict && attw --pack --profile esm-only --exclude-entrypoints ./runtime/gemma-4-e2b.wasm",
+    "prepack": "tsdown --logLevel error",
+    "test:standard": "node scripts/standard.ts && vitest run --config ../../vitest.standard.config.ts",
+    "test:install": "node test/install.ts"
+  },
+  "peerDependencies": {
+    "@langchain/core": "^1.2.18",
+    "@mlc-ai/web-llm": "~0.2.86"
+  },
+  "devDependencies": {
+    "@langchain/core": "1.2.18",
+    "@mlc-ai/web-llm": "0.2.86",
+    "deepagents": "^1.15.1",
+    "langchain": "^1.5.18",
+    "@langchain/langgraph": "^1.5.1",
+    "zod": "^4.6.7",
+    "playwright": "1.64.1",
+    "@strands-agents/sdk": "1.21.0"
+  }
+}
