@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { describe, expect, it } from 'vitest'
 import {
   AIMessage,
@@ -493,40 +494,50 @@ it('accepts LangChain standard base64 image and WAV blocks', () => {
   ])
 })
 
-it.each(['current', 'legacy'])('encodes image and WAV byte views in %s runtimes', (runtime) => {
-  const descriptor = Object.getOwnPropertyDescriptor(Uint8Array.prototype, 'toBase64')
-  if (runtime === 'legacy')
-    Object.defineProperty(Uint8Array.prototype, 'toBase64', {
-      configurable: true,
-      value: undefined,
-    })
-  try {
-    for (const length of [0, 1, 2, 3, 24_575, 24_576, 24_577, 24_578]) {
-      const buffer = Uint8Array.from({ length: length + 2 }, (_, index) => index % 256)
-      const bytes = buffer.subarray(1, length + 1)
-      const original = [...bytes]
-      Object.defineProperty(bytes, 'toBase64', { value: () => 'changed by caller' })
-      const data = Buffer.from(bytes).toString('base64')
-      const output = formatMessages([
-        new HumanMessage({
-          content: [
-            { type: 'image', source_type: 'base64', data: bytes, mime_type: 'image/png' },
-            { type: 'audio', source_type: 'base64', data: bytes, mime_type: 'audio/wav' },
-          ],
-        }),
-      ])
+it.each(['current', 'legacy', 'browser'])(
+  'encodes image and WAV byte views in %s runtimes',
+  (runtime) => {
+    const descriptor = Object.getOwnPropertyDescriptor(Uint8Array.prototype, 'toBase64')
+    const bufferDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'Buffer')
+    if (runtime !== 'current')
+      Object.defineProperty(Uint8Array.prototype, 'toBase64', {
+        configurable: true,
+        value: undefined,
+      })
+    if (runtime === 'browser')
+      Object.defineProperty(globalThis, 'Buffer', { configurable: true, value: undefined })
+    try {
+      const views = [0, 1, 2, 3, 24_575, 24_576, 24_577, 24_578].flatMap((length) => {
+        const buffer = Uint8Array.from({ length: length + 2 }, (_, index) => index % 256)
+        return [buffer.subarray(1, length + 1), Buffer.from(buffer).subarray(1, length + 1)]
+      })
+      for (const bytes of views) {
+        const original = [...bytes]
+        Object.defineProperty(bytes, 'toBase64', { value: () => 'changed by caller' })
+        const data = Buffer.from(bytes).toString('base64')
+        const output = formatMessages([
+          new HumanMessage({
+            content: [
+              { type: 'image', source_type: 'base64', data: bytes, mime_type: 'image/png' },
+              { type: 'audio', source_type: 'base64', data: bytes, mime_type: 'audio/wav' },
+            ],
+          }),
+        ])
 
-      expect(output[0]?.content).toEqual([
-        { type: 'image_url', image_url: { url: `data:image/png;base64,${data}` } },
-        { type: 'input_audio', input_audio: { format: 'wav', data } },
-      ])
-      expect([...bytes]).toEqual(original)
+        expect(output[0]?.content).toEqual([
+          { type: 'image_url', image_url: { url: `data:image/png;base64,${data}` } },
+          { type: 'input_audio', input_audio: { format: 'wav', data } },
+        ])
+        expect([...bytes]).toEqual(original)
+      }
+    } finally {
+      if (descriptor) Object.defineProperty(Uint8Array.prototype, 'toBase64', descriptor)
+      else Reflect.deleteProperty(Uint8Array.prototype, 'toBase64')
+      if (bufferDescriptor) Object.defineProperty(globalThis, 'Buffer', bufferDescriptor)
+      else Reflect.deleteProperty(globalThis, 'Buffer')
     }
-  } finally {
-    if (descriptor) Object.defineProperty(Uint8Array.prototype, 'toBase64', descriptor)
-    else Reflect.deleteProperty(Uint8Array.prototype, 'toBase64')
-  }
-})
+  },
+)
 
 it('preserves empty media bytes after their buffer is transferred', () => {
   const bytes = new Uint8Array([1, 2, 3])

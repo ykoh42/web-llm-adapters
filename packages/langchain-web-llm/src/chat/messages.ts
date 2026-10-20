@@ -178,6 +178,10 @@ function base64Data(value: unknown): string | undefined {
   if (!value.length) return ''
   const prototype: Uint8Array & { toBase64?: () => string } = Uint8Array.prototype
   if (typeof prototype.toBase64 === 'function') return prototype.toBase64.call(value)
+  if (typeof globalThis.Buffer === 'function')
+    return globalThis.Buffer.from(value.buffer, value.byteOffset, value.byteLength).toString(
+      'base64',
+    )
 
   const parts: string[] = []
   for (let index = 0; index < value.length; index += 0x6000)
