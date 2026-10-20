@@ -21,4 +21,5 @@
 - Support image URLs, image/WAV bytes, and custom profiles; reject media forms WebLLM cannot preserve.
 - Retry only failed embedding batches; reject malformed vectors without retrying them.
 - Keep embedding results stable when the engine reuses its output arrays.
+- Accept whitespace embedding inputs without changing the text; reject invalid native vectors.
 - Keep examples within the selected model's context window.

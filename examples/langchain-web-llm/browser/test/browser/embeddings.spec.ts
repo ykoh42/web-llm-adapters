@@ -1,6 +1,81 @@
 import { BrowserWebLLMEmbeddings } from 'langchain-web-llm'
 import { test, expect } from '../../../fixtures/browser.js'
 
+test('whitespace embedding inputs keep native values through local and browser adapters', async ({
+  page,
+}) => {
+  const modelId = 'snowflake-arctic-embed-s-q0f32-MLC-b4'
+  const documents = [' ', '\t', '\n', '\r\n', '\u00a0', '\u2003', ' \tflower\n'].flatMap((text) => [
+    text,
+    'A flower.',
+  ])
+  const queries = [' ', '\t', '\n', ' \u00a0 ']
+  await page.evaluate((id) => window.checks.load(id), modelId)
+  const expected = await page.evaluate(
+    async ({ modelId, documents, queries }) => {
+      const engine = window.checks.engine()
+      const original = engine.embeddings.create.bind(engine.embeddings)
+      const response = await original({
+        model: modelId,
+        input: documents,
+        encoding_format: 'float',
+      })
+      const expectedDocuments = response.data.map((item) => [...item.embedding])
+      const expectedQueries: number[][] = []
+      for (const query of queries) {
+        const response = await original({
+          model: modelId,
+          input: ['Represent this sentence for searching relevant passages: ' + query],
+          encoding_format: 'float',
+        })
+        expectedQueries.push([...response.data[0]!.embedding])
+      }
+      window.embeddingAttempts = []
+      engine.embeddings.create = new Proxy(original, {
+        apply(target, self, args) {
+          const input: unknown = args[0].input
+          if (!Array.isArray(input) || !input.every((text) => typeof text === 'string'))
+            throw new Error('This test needs string embedding batches.')
+          window.embeddingAttempts.push([...input])
+          return Reflect.apply(target, self, args)
+        },
+      })
+      return { documents: expectedDocuments, queries: expectedQueries }
+    },
+    { modelId, documents, queries },
+  )
+  expect(expected.documents).toHaveLength(documents.length)
+  expect(
+    [...expected.documents, ...expected.queries].every(
+      (vector) => vector.length === 384 && vector.every(Number.isFinite),
+    ),
+  ).toBe(true)
+
+  const local = await page.evaluate(
+    async ({ documents, queries }) => {
+      const embeddings = window.checks.embeddings()
+      const vectors = await embeddings.embedDocuments(documents)
+      const queryVectors: number[][] = []
+      for (const query of queries) queryVectors.push(await embeddings.embedQuery(query))
+      return { documents: vectors, queries: queryVectors }
+    },
+    { documents, queries },
+  )
+  expect(local).toEqual(expected)
+
+  const embeddings = new BrowserWebLLMEmbeddings(page, { modelId })
+  expect(await embeddings.embedDocuments(documents)).toEqual(expected.documents)
+  for (const [index, query] of queries.entries())
+    expect(await embeddings.embedQuery(query)).toEqual(expected.queries[index])
+  const requests = [
+    documents,
+    ...queries.map((query) => [
+      'Represent this sentence for searching relevant passages: ' + query,
+    ]),
+  ]
+  expect(await page.evaluate(() => window.embeddingAttempts)).toEqual([...requests, ...requests])
+})
+
 test('local embeddings preserve real vectors when engine output arrays are reused', async ({
   page,
 }) => {

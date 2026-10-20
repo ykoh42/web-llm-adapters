@@ -271,10 +271,29 @@ describe('LangChain embeddings', () => {
     const { model, create } = vectors([])
     expect(await model.embedDocuments([])).toEqual([])
     expect(create).not.toHaveBeenCalled()
-    await expect(model.embedDocuments([' '])).rejects.toThrow('empty')
-    await expect(model.embedQuery(' \t')).rejects.toThrow('empty')
+    await expect(model.embedDocuments([''])).rejects.toThrow('empty')
+    await expect(model.embedQuery('')).rejects.toThrow('empty')
     expect(create).not.toHaveBeenCalled()
   })
+  it('preserves whitespace in documents and prefixed queries', async () => {
+    const { model, create } = vectors([[1, 0]])
+    for (const text of [' ', '\t', '\n', '\r\n', '\u00a0', '\u2003', ' \tflower\n']) {
+      await expect(model.embedDocuments([text])).resolves.toEqual([[1, 0]])
+      await expect(model.embedQuery(text)).resolves.toEqual([1, 0])
+      expect(create.mock.calls.at(-2)?.[0].input).toEqual([text])
+      expect(create.mock.calls.at(-1)?.[0].input).toEqual([
+        'Represent this sentence for searching relevant passages: ' + text,
+      ])
+    }
+  })
+  it.each([null, undefined, 42, [], {}])(
+    'rejects non-string embedding inputs: %s',
+    async (text) => {
+      const { model, create } = vectors([])
+      await expect(Reflect.apply(model.embedQuery, model, [text])).rejects.toBeInstanceOf(TypeError)
+      expect(create).not.toHaveBeenCalled()
+    },
+  )
   it('keeps local retries off when maxRetries is undefined', async () => {
     const { engine } = setup()
     const create = vi.spyOn(engine.embeddings, 'create').mockRejectedValue(new Error('GPU lost'))

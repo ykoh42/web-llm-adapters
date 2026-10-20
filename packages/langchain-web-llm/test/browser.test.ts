@@ -838,10 +838,31 @@ it('handles empty embedding inputs before crossing the browser boundary', async 
   const embeddings = new BrowserWebLLMEmbeddings(page, { modelId: 'embedding-model' })
 
   await expect(embeddings.embedDocuments([])).resolves.toEqual([])
-  await expect(embeddings.embedDocuments(['  '])).rejects.toThrow('WebLLM cannot embed empty text.')
-  await expect(embeddings.embedQuery(' \t')).rejects.toThrow('WebLLM cannot embed empty text.')
+  await expect(embeddings.embedDocuments([''])).rejects.toThrow('WebLLM cannot embed empty text.')
+  await expect(embeddings.embedQuery('')).rejects.toThrow('WebLLM cannot embed empty text.')
   expect(evaluate).not.toHaveBeenCalled()
   await bridge.close()
+})
+
+it('preserves embedding whitespace across the browser boundary', async () => {
+  const { page, bridge, engine } = browser()
+  const create = vi.spyOn(engine.embeddings, 'create').mockResolvedValue({
+    object: 'list',
+    model: 'embedding-model',
+    data: [{ object: 'embedding', index: 0, embedding: [1, 0] }],
+    usage: { prompt_tokens: 1, total_tokens: 1, extra: { prefill_tokens_per_s: 1 } },
+  })
+  const embeddings = new BrowserWebLLMEmbeddings(page, { modelId: 'embedding-model' })
+  try {
+    for (const text of [' ', '\t', '\n', '\r\n', '\u00a0', '\u2003', ' \tflower\n']) {
+      await expect(embeddings.embedDocuments([text])).resolves.toEqual([[1, 0]])
+      await expect(embeddings.embedQuery(text)).resolves.toEqual([1, 0])
+      expect(create.mock.calls.at(-2)?.[0].input).toEqual([text])
+      expect(create.mock.calls.at(-1)?.[0].input).toEqual([text])
+    }
+  } finally {
+    await bridge.close()
+  }
 })
 
 it('snapshots chat content and options before a delayed page transfer', async () => {
