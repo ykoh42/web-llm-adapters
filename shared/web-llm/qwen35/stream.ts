@@ -1,6 +1,7 @@
 import { ModelError, type ToolSpec } from '../types.js'
 import type { ChatCompletionChunk } from '@mlc-ai/web-llm'
 import {
+  singleChoice,
   stopReason,
   type StreamChunk,
   type ToolDelta,
@@ -39,9 +40,7 @@ export async function* qwen35Chunks(
       if (signal?.aborted) return
       onChunk?.(chunk)
       if (signal?.aborted) return
-      const choice = chunk.choices[0]
-      if (chunk.choices.length > 1 || (choice && choice.index !== 0))
-        throw new ModelError('WebLLM adapters need one response per request.')
+      const choice = singleChoice(chunk.choices)
       pending += choice?.delta.content ?? ''
       const calls: ToolDelta[] = []
 

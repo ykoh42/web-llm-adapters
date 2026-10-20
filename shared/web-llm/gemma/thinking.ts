@@ -1,6 +1,6 @@
 import { ModelError } from '../types.js'
 import type { Completion } from '@mlc-ai/web-llm'
-import { stopReason, type StreamChunk, type ChunkOptions } from '../stream/chunks.js'
+import { singleChoice, stopReason, type StreamChunk, type ChunkOptions } from '../stream/chunks.js'
 
 export interface GemmaStreamOptions extends ChunkOptions<Completion> {
   prefix?: string
@@ -36,9 +36,7 @@ export async function* splitThinking(
       if (signal?.aborted) return
       onChunk?.(chunk)
       if (signal?.aborted) return
-      const choice = chunk.choices[0]
-      if (chunk.choices.length > 1 || (choice && choice.index !== 0))
-        throw new ModelError('WebLLM adapters need one response per request.')
+      const choice = singleChoice(chunk.choices)
       received ||= Boolean(choice?.text)
       if (!choice || tool || (!choice.text && !choice.finish_reason)) {
         yield {

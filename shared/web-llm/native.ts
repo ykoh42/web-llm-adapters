@@ -1,7 +1,7 @@
 import type { ChatCompletionChunk, ChatCompletionMessageParam } from '@mlc-ai/web-llm'
 import { ModelError } from './types.js'
 import { stringifyJSON } from './json.js'
-import { stopReason, type StreamChunk, type ChunkOptions } from './stream/chunks.js'
+import { singleChoice, stopReason, type StreamChunk, type ChunkOptions } from './stream/chunks.js'
 
 interface NativeCall {
   id?: string
@@ -20,9 +20,7 @@ export async function* nativeChunks(
   let mode: 'start' | 'json' | 'text' = hasTools ? 'start' : 'text'
 
   function decode(chunk: ChatCompletionChunk): StreamChunk {
-    const choice = chunk.choices[0]
-    if (chunk.choices.length > 1 || (choice && choice.index !== 0))
-      throw new ModelError('WebLLM adapters need one response per request.')
+    const choice = singleChoice(chunk.choices)
 
     const deltas = choice?.delta.tool_calls ?? []
     for (const delta of deltas) {

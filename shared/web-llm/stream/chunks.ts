@@ -1,4 +1,4 @@
-import type { StopReason } from '../types.js'
+import { ModelError, type StopReason } from '../types.js'
 import type { CompletionUsage } from '@mlc-ai/web-llm'
 
 export interface ChunkOptions<T> {
@@ -20,6 +20,13 @@ export interface ToolDelta {
   id: string | undefined
   name: string | undefined
   input: string | undefined
+}
+
+export function singleChoice<T extends { index: number }>(choices: readonly T[]): T | undefined {
+  const choice = choices[0]
+  if (choices.length > 1 || (choice && choice.index !== 0))
+    throw new ModelError('WebLLM adapters need one response per request.')
+  return choice
 }
 
 export function stopReason(reason: string | null | undefined): StopReason | undefined {
