@@ -221,25 +221,7 @@ export async function* readChunks(
   )
   if (ordered.length && stop !== 'maxTokens') {
     for (const call of ordered) {
-      if (!call.name) throw new Error('WebLLM returned a tool call without a name.')
-      const input = parseJSON(call.input ?? '')
-      if (typeof input !== 'object' || input === null || Array.isArray(input))
-        throw new Error('WebLLM tool arguments must be an object.')
-      yield new ChatGenerationChunk({
-        text: '',
-        message: new AIMessageChunk({
-          content: '',
-          tool_call_chunks: [
-            {
-              type: 'tool_call_chunk',
-              index: call.index,
-              id: call.id ?? crypto.randomUUID(),
-              name: call.name,
-              args: call.input!,
-            },
-          ],
-        }),
-      })
+      yield toolCallChunk(call)
       signal?.throwIfAborted()
     }
     stop = 'toolUse'
@@ -265,5 +247,27 @@ export async function* readChunks(
       }),
     }),
     generationInfo: { finish_reason },
+  })
+}
+
+function toolCallChunk(call: ToolDelta): ChatGenerationChunk {
+  if (!call.name) throw new Error('WebLLM returned a tool call without a name.')
+  const input = parseJSON(call.input ?? '')
+  if (typeof input !== 'object' || input === null || Array.isArray(input))
+    throw new Error('WebLLM tool arguments must be an object.')
+  return new ChatGenerationChunk({
+    text: '',
+    message: new AIMessageChunk({
+      content: '',
+      tool_call_chunks: [
+        {
+          type: 'tool_call_chunk',
+          index: call.index,
+          id: call.id ?? crypto.randomUUID(),
+          name: call.name,
+          args: call.input!,
+        },
+      ],
+    }),
   })
 }
