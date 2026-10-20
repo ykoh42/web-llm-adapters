@@ -30,7 +30,10 @@ createServer(async (request, response) => {
     const adapter = prefix === '/pi/' ? 'pi-ai' : prefix === '/langchain/' ? 'langchain' : 'strands'
     const directory = resolve(root, `examples/${adapter}-web-llm/browser/dist`)
     const relative = pathname.slice(prefix?.length ?? 1)
-    const file = resolve(directory, relative || 'index.html')
+    const file = resolve(
+      directory,
+      relative.endsWith('/') ? relative + 'index.html' : relative || 'index.html',
+    )
     if (!file.startsWith(directory + sep)) {
       response.writeHead(403).end()
       return

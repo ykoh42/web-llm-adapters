@@ -11,13 +11,7 @@ let modelId = ''
 export async function load(id: string, useWorker = true, onProgress?: (text: string) => void) {
   const { CreateMLCEngine, CreateWebWorkerMLCEngine, prebuiltAppConfig } =
     await import('@mlc-ai/web-llm')
-  try {
-    await engine?.unload()
-  } finally {
-    worker?.terminate()
-    engine = undefined
-    worker = undefined
-  }
+  await unload()
   modelId = id
   const options = {
     appConfig: {
@@ -65,4 +59,14 @@ export async function provider(enabled: boolean) {
   })
   models.setProvider(source)
   return { models, model: source.getModels()[0]! }
+}
+
+export async function unload() {
+  try {
+    await engine?.unload()
+  } finally {
+    worker?.terminate()
+    engine = undefined
+    worker = undefined
+  }
 }

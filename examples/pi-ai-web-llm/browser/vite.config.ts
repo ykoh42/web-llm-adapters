@@ -12,6 +12,7 @@ export default defineConfig({
     rolldownOptions: {
       input: {
         main: fileURLToPath(new URL('./index.html', import.meta.url)),
+        durable: fileURLToPath(new URL('./durable/index.html', import.meta.url)),
         checks: fileURLToPath(new URL('./test/checks.html', import.meta.url)),
       },
     },

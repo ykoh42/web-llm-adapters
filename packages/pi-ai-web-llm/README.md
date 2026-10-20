@@ -1,8 +1,8 @@
 # Pi AI WebLLM
 
-Use a loaded [WebLLM](https://github.com/mlc-ai/web-llm) engine as a custom provider for Pi AI and Pi Agent Core, entirely inside the browser.
+Use a loaded [WebLLM](https://github.com/mlc-ai/web-llm) engine as a custom provider for Pi AI, Pi Agent Core, and Pi Durable, entirely inside the browser.
 
-Install the package, or run the [browser example](../../examples/pi-ai-web-llm/README.md) from this repository:
+Install the package, or run the [Agent Core and Durable browser examples](../../examples/pi-ai-web-llm/README.md) from this repository:
 
 ```sh
 npm install pi-ai-web-llm @earendil-works/pi-ai @mlc-ai/web-llm
@@ -85,6 +85,32 @@ await agent.prompt('What is 2 + 2?')
 
 Install `@earendil-works/pi-agent-core` separately if you use this example. Pi executes and validates tools; the provider translates their definitions, calls, and results. The [runnable browser example](../../examples/pi-ai-web-llm/README.md) includes a complete `lookup` tool loop.
 
+## Pi Durable
+
+Pass the registered model collection to Durable's Harness:
+
+```ts
+import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context'
+import { createRegistry, Harness, MemoryStorage } from '@earendil-works/pi-durable'
+
+const harness = await Harness.open(
+  new MemoryStorage(),
+  { models, registry: createRegistry() },
+  context,
+)
+try {
+  const root = await harness.root(context, {
+    agent: { model: { provider: model.provider, modelId: model.id } },
+  })
+  const submission = await root.submit({ type: 'input', content: 'What is 2 + 2?' }, context)
+  await submission.wait(context)
+} finally {
+  await harness.close(context)
+}
+```
+
+Install `@earendil-works/pi-durable` and `@earendil-works/chord` separately. `MemoryStorage` keeps state in memory. The [runnable Durable example](../../examples/pi-ai-web-llm/README.md) adds a tool, browser persistence, and recovery after a page reload. Its storage belongs to the application; the provider still owns neither the engine nor the conversation.
+
 ## Support
 
 | Feature                                      | Behavior                                                                                        |
@@ -114,7 +140,7 @@ Qwen tools cannot be combined with native JSON output. Gemma 4 tool/thinking mod
 
 ## Verified models
 
-Real WebLLM Worker checks exercise Pi Agent Core → tool call → tool result → final answer, native usage, cancellation, and recovery:
+Real WebLLM Worker checks exercise Pi Agent Core and Pi Durable → tool call → tool result → final answer. Checks also cover native usage, cancellation and recovery, and Durable persistence across page reloads:
 
 | WebLLM model ID                   | Tools | Thinking |
 | --------------------------------- | ----- | -------- |
@@ -123,4 +149,4 @@ Real WebLLM Worker checks exercise Pi Agent Core → tool call → tool result �
 | `gemma-4-E2B-it-q4f16_1-MLC`      | Yes   | Yes      |
 | `Qwen2.5-3B-Instruct-q4f16_1-MLC` | Yes   | No       |
 
-Tested against `@earendil-works/pi-ai` and `@earendil-works/pi-agent-core` 1.3.0, and WebLLM 0.2.86. Model-selected arguments still require validation. Run `npm run test:pi` from the repository root to repeat the browser checks.
+Tested against `@earendil-works/pi-ai`, `@earendil-works/pi-agent-core`, and `@earendil-works/pi-durable` 1.3.0, and WebLLM 0.2.86. Model-selected arguments still require validation. Run `npm run test:pi` from the repository root to repeat the browser checks.

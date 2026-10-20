@@ -1,19 +1,5 @@
-import { test as base, expect } from '@playwright/test'
+import { test, expect } from './browser.js'
 import type {} from './checks.js'
-
-const test = base.extend({
-  context: async ({ playwright }, use) => {
-    const context = await playwright.chromium.launchPersistentContext('.cache/chrome', {
-      channel: 'chrome',
-      headless: process.env.HEADLESS === '1',
-    })
-    try {
-      await use(context)
-    } finally {
-      await context.close()
-    }
-  },
-})
 
 test('the example UI loads a Worker and runs the Pi tool loop without test globals', async ({
   page,
