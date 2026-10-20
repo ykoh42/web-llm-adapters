@@ -34,7 +34,7 @@ function properties(values: NonNullable<JSONSchema['properties']>) {
 function arrayItems(items: NonNullable<JSONSchema['items']>): unknown {
   if (Array.isArray(items)) return items.map(arrayItems)
   if (typeof items === 'boolean') return items
-  const fields: Record<string, unknown> = {}
+  const fields = Object.create(null) as Record<string, unknown>
   for (const [key, value] of Object.entries(items).sort(([a], [b]) => a.localeCompare(b))) {
     if (value == null) continue
     if (key === 'properties') {

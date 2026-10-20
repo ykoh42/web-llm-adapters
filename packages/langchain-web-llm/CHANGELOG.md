@@ -13,6 +13,7 @@
 - Preserve Qwen3.5 argument names and types through enums, constants, patterns, JSON Pointers, and schema unions.
 - Avoid repeated expansion of shared Qwen3.5 tool schemas.
 - Preserve empty system prompts; allow WebLLM to supply native Hermes tool instructions.
+- Keep reserved keys in Gemma array item schemas.
 - Preserve response schemas across sampling overrides; forward per-call retries and native metadata.
 - Type usage metadata for invoke, stream, and bound tools under strict TypeScript settings.
 - Keep queued and browser inputs stable, tool calls in native order, and error types and causes intact.

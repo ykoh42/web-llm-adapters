@@ -99,6 +99,23 @@ describe('Gemma tool prompts', () => {
     expect(JSON.stringify(tool)).toBe(snapshot)
   })
 
+  it('keeps own reserved keys in array item schemas', () => {
+    const items = { type: 'string' as const, ['__proto__']: { note: 'literal' } }
+    const tool: ToolSpec = {
+      name: 'lookup',
+      description: 'Find records.',
+      inputSchema: { type: 'object', properties: { rows: { type: 'array', items } } },
+    }
+    const snapshot = JSON.stringify(tool)
+
+    expect(toolPrompt([user('Find records.')], [tool], {})).toContain(
+      'rows:{items:{__proto__:{note:<|"|>literal<|"|>},type:<|"|>STRING<|"|>},type:<|"|>ARRAY<|"|>}',
+    )
+    expect(JSON.stringify(tool)).toBe(snapshot)
+    expect(Object.hasOwn(items, '__proto__')).toBe(true)
+    expect(Object.getPrototypeOf(items)).toBe(Object.prototype)
+  })
+
   it('ignores trailing cache hints without inventing a new user turn', () => {
     const hints = new Message({
       role: 'user',

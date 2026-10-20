@@ -9,6 +9,7 @@
 - Preserve Qwen3.5 argument names and types through enums, constants, patterns, JSON Pointers, and schema unions.
 - Avoid repeated expansion of shared Qwen3.5 tool schemas.
 - Preserve empty system prompts; allow WebLLM to supply native Hermes tool instructions.
+- Keep reserved keys in Gemma array item schemas.
 - Preserve protocol text and interrupted output; reject malformed calls, invalid JSON, and signed history.
 - Keep tool-result image groups without added narration; model support remains unverified.
 - Snapshot queued inputs; preserve JSON keys, error causes, and usage across browser transport.
