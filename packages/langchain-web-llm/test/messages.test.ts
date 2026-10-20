@@ -135,6 +135,40 @@ describe('message and option boundaries', () => {
     },
   )
 
+  it.each(['success', 'error'] as const)(
+    'preserves tool text blocks, image order, and %s status',
+    (status) => {
+      const message = new ToolMessage({
+        tool_call_id: 'call',
+        status,
+        content: [
+          { type: 'text', text: '' },
+          { type: 'text', text: '  First\n' },
+          { type: 'image_url', image_url: { url: 'https://example.test/one.png' } },
+          { type: 'text', text: 'Last ' },
+          { type: 'image_url', image_url: { url: 'https://example.test/two.png' } },
+        ],
+      })
+      const original = structuredClone(message.toDict())
+
+      expect(formatMessages([message])).toEqual([
+        {
+          role: 'tool',
+          tool_call_id: 'call',
+          content: (status === 'error' ? '[ERROR] ' : '') + '  First\nLast ',
+        },
+        {
+          role: 'user',
+          content: [
+            { type: 'image_url', image_url: { url: 'https://example.test/one.png' } },
+            { type: 'image_url', image_url: { url: 'https://example.test/two.png' } },
+          ],
+        },
+      ])
+      expect(message.toDict()).toEqual(original)
+    },
+  )
+
   it.each([
     { type: 'image', url: 'https://example.test/pic.png' },
     { type: 'image', data: 'AA==', mimeType: 'image/png' },

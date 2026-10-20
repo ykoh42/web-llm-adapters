@@ -1,5 +1,10 @@
 import { deepCompareStrict } from '@langchain/core/utils/json_schema'
-import { AIMessage, type BaseMessage, type ToolCall } from '@langchain/core/messages'
+import {
+  AIMessage,
+  type BaseMessage,
+  type ContentBlock,
+  type ToolCall,
+} from '@langchain/core/messages'
 import type { ChatCompletionContentPart, ChatCompletionMessageParam } from '@mlc-ai/web-llm'
 import type { GemmaMessage } from '../../../../shared/web-llm/gemma/prompt.js'
 import { formatUserContent } from '../../../../shared/web-llm/content.js'
@@ -53,7 +58,7 @@ export function formatMessages(messages: BaseMessage[]): GemmaMessage[] {
         for (const block of message.content) {
           if (block.type === 'image' || block.type === 'image_url')
             toolImages.push(formatPart(block))
-          else content += textContent([block])
+          else content += textBlock(block)
         }
       if ('status' in message && message.status === 'error')
         content = content ? `[ERROR] ${content}` : '[ERROR]'
@@ -94,13 +99,13 @@ export function formatMessages(messages: BaseMessage[]): GemmaMessage[] {
 
 function textContent(content: BaseMessage['content'], allowReasoning = false): string {
   if (typeof content === 'string') return content
-  return content
-    .map((block) => {
-      if (block.type === 'text' && typeof block.text === 'string') return block.text
-      if (allowReasoning && ['reasoning', 'tool_use', 'tool_call'].includes(block.type)) return ''
-      throw new Error(`WebLLM cannot use ${block.type} in this message.`)
-    })
-    .join('')
+  return content.map((block) => textBlock(block, allowReasoning)).join('')
+}
+
+function textBlock(block: ContentBlock, allowReasoning = false): string {
+  if (block.type === 'text' && typeof block.text === 'string') return block.text
+  if (allowReasoning && ['reasoning', 'tool_use', 'tool_call'].includes(block.type)) return ''
+  throw new Error(`WebLLM cannot use ${block.type} in this message.`)
 }
 
 function reasoningContent(message: BaseMessage): string {
