@@ -1,9 +1,8 @@
 import { stat, readFile } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { stdout } from 'node:process'
-import { fileURLToPath } from 'node:url'
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const root = resolve(import.meta.dirname, '..')
 const limit = 40_000
 const examples = [
   ['LangChain', 'examples/langchain-web-llm/browser/dist'],
