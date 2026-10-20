@@ -2,20 +2,22 @@
 
 ## 0.1.0 (unreleased)
 
-- Run token callbacks before yielding stream chunks.
-- Forward reasoning, tool calls, and metadata through standard callbacks and agent streams.
-- Forward agent JSON schemas and per-call retry settings to WebLLM.
-- Map tool-result images to user turns and let custom profiles declare model support.
-- Keep Deep Agents tool images when custom profiles support vision.
-- Accept byte-backed image and WAV content blocks.
-- Bound embedding request batches with a configurable `batchSize`.
-- Reject required Qwen tool choices before inference when no tools are registered.
-- Match the browser example's input limit to WebLLM's selected model config.
-- Keep reasoning and tool call indices distinct in LangChain content streams.
-- Reject unsupported image detail and text/media order that cannot be preserved.
-- Keep overlapping browser stream reads in order without duplicate chunks.
-- Preserve literal tool tags inside Qwen JSON arguments.
-- Reject overflowing tool numbers in native and model-specific formats.
-- Add WebLLM chat, tools, reasoning, and embeddings for LangChain and LangGraph.
-- Add a browser bridge for Node.js agents, including Deep Agents.
-- Share model protocol parsers and engine scheduling with the Strands adapter.
+- Add WebLLM chat, tools, thinking, and embeddings for LangChain, LangGraph, and Deep Agents.
+- Keep Node.js tools and private artifacts local; stream browser responses through standard callbacks.
+- Deliver native browser chunks while tool arguments are still being generated.
+- Preserve input text, JSON keys, media bytes, and output order without filler.
+- Normalize bare JSON mode and model protocols; preserve interrupted output and reject malformed calls and invalid JSON.
+- Avoid duplicate Hermes calls after JSON keys are reordered.
+- Reject changed tool call IDs while streaming.
+- Preserve Qwen3.5 argument names and types through enums, constants, patterns, JSON Pointers, and schema unions.
+- Avoid repeated expansion of shared Qwen3.5 tool schemas.
+- Preserve empty system prompts; allow WebLLM to supply native Hermes tool instructions.
+- Preserve response schemas across sampling overrides; forward per-call retries and native metadata.
+- Type usage metadata for invoke, stream, and bound tools under strict TypeScript settings.
+- Keep queued and browser inputs stable, tool calls in native order, and error types and causes intact.
+- Stop callbacks and pending output on cancellation; close streams before reusing the engine.
+- Expose context-limit errors as LangChain's non-retryable `ContextOverflowError` for agent recovery.
+- Support image URLs, image/WAV bytes, and custom profiles; reject media forms WebLLM cannot preserve.
+- Retry only failed embedding batches; reject malformed vectors without retrying them.
+- Keep embedding results stable when the engine reuses its output arrays.
+- Keep examples within the selected model's context window.

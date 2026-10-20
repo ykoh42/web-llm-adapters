@@ -1,3 +1,6 @@
+import { restoreError } from '../../../../shared/web-llm/errors.js'
+import { modelError } from '../error.js'
+import { appendVectors } from '../embeddings/vectors.js'
 import { Embeddings } from '@langchain/core/embeddings'
 import type { WebLLMEmbeddingsOptions } from '../embeddings/model.js'
 import {
@@ -11,7 +14,9 @@ export type BrowserWebLLMEmbeddingsOptions = Omit<WebLLMEmbeddingsOptions, 'engi
 
 /** LangChain and LangGraph embeddings from a caller-controlled browser. */
 export class BrowserWebLLMEmbeddings extends Embeddings {
-  private readonly config: Pick<WebLLMEmbeddingsOptions, 'modelId' | 'queryPrefix' | 'batchSize'>
+  private readonly config: Pick<WebLLMEmbeddingsOptions, 'modelId' | 'queryPrefix'> & {
+    batchSize: number
+  }
   constructor(
     private readonly page: BrowserPage,
     {
@@ -41,16 +46,27 @@ export class BrowserWebLLMEmbeddings extends Embeddings {
     const input = [...texts]
     if (!input.length) return []
     validateEmbeddingTexts(input)
-    const request = { config: this.config, texts: input, type }
-    return this.caller.call(() =>
-      this.page.evaluate((request) => {
-        const bridge = window.webllmLangChainBridge
-        if (!bridge)
-          throw new Error(
-            'Expose createBrowserBridge(engine) as window.webllmLangChainBridge before using BrowserWebLLMEmbeddings.',
-          )
-        return bridge.embed(request)
-      }, request),
-    )
+    const vectors: number[][] = []
+    for (let offset = 0; offset < input.length; offset += this.config.batchSize) {
+      const request = {
+        config: this.config,
+        texts: input.slice(offset, offset + this.config.batchSize),
+        type,
+      }
+      const batch = await this.caller.call(async () => {
+        const result = await this.page.evaluate((request) => {
+          const bridge = window.webllmLangChainBridge
+          if (!bridge)
+            throw new Error(
+              'Expose createBrowserBridge(engine) as window.webllmLangChainBridge before using BrowserWebLLMEmbeddings.',
+            )
+          return bridge.embed(request)
+        }, request)
+        if (!Array.isArray(result)) throw modelError(restoreError(result.error))
+        return result
+      })
+      appendVectors(vectors, batch)
+    }
+    return vectors
   }
 }

@@ -28,6 +28,12 @@ export function gemmaPrompt(history: GemmaMessage[], tools: ToolSpec[], thinking
   const pending = new Map<string, string>()
   let modelOpen = false
   for (const [index, message] of history.entries()) {
+    if (
+      'name' in message &&
+      message.name !== undefined &&
+      (message.role !== 'assistant' || message.name !== 'model')
+    )
+      throw new ModelError('Gemma protocol mode cannot preserve message names.')
     if (message.role === 'tool') {
       const name = pending.get(message.tool_call_id)
       if (!name || !modelOpen)

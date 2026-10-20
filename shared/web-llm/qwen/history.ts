@@ -1,5 +1,21 @@
 import type { ChatCompletionMessageParam } from '@mlc-ai/web-llm'
 
+/** Replay thinking with the separators used by Qwen's chat templates. */
+export function formatQwenAssistant(
+  text: string,
+  thought: string,
+  calls: readonly string[],
+  xml = false,
+) {
+  const reasoning = xml ? thought.trim() : thought.replace(/^\n+|\n+$/g, '')
+  let answer = text
+  if (reasoning) answer = xml ? text.trim() : text.replace(/^\n+/, '')
+  const prefix = reasoning ? `<think>\n${reasoning}\n</think>\n\n` : ''
+  const separator = xml ? '\n\n' : '\n'
+  const gap = answer && calls.length ? separator : ''
+  return prefix + answer + gap + calls.join('\n')
+}
+
 /** Keep adjacent tool replies in one user turn, as Qwen's templates do. */
 export function appendQwenTurns(
   output: ChatCompletionMessageParam[],

@@ -1,5 +1,5 @@
 import type { AsyncCaller } from '@langchain/core/utils/async_caller'
-import { qwenHistory, trimThoughts } from './history.js'
+import { trimThoughts, qwenHistory } from './history.js'
 import type { ChatCompletionRequestStreaming, MLCEngineInterface } from '@mlc-ai/web-llm'
 import { gemmaPrompt, type GemmaMessage } from '../../../../shared/web-llm/gemma/prompt.js'
 import { gemmaChunks } from '../../../../shared/web-llm/gemma/stream.js'
@@ -7,9 +7,12 @@ import { qwenChunks } from '../../../../shared/web-llm/qwen/stream.js'
 import { qwen35Chunks } from '../../../../shared/web-llm/qwen35/stream.js'
 import { isQwen } from '../../../../shared/web-llm/qwen/models.js'
 import { isQwen35 } from '../../../../shared/web-llm/qwen35/models.js'
+import { isTextFormat } from '../../../../shared/web-llm/response.js'
 import { streamCall } from '../../../../shared/web-llm/engine/call.js'
-import { stopReason, type StreamChunk } from '../../../../shared/web-llm/stream/chunks.js'
+import type { StreamChunk } from '../../../../shared/web-llm/stream/chunks.js'
+import { nativeChunks, nativeHistory } from '../../../../shared/web-llm/native.js'
 import type { ToolSpec, ToolChoice } from '../../../../shared/web-llm/types.js'
+import { modelError } from '../error.js'
 import { nativeMessages } from '../chat/messages.js'
 import type { ChatWebLLMOptions, WebLLMRequest } from '../types.js'
 
@@ -45,21 +48,24 @@ export function protocolStream({
         ...(maxRetries !== undefined && { maxRetries }),
         ...(signal && { signal }),
       },
-      () => {
+      async () => {
         signal?.throwIfAborted()
-        attempt = run()
-        return attempt
+        try {
+          attempt = run()
+          return await attempt
+        } catch (error) {
+          throw modelError(error)
+        }
       },
     )
     if (!signal) return pending
     return pending.catch(async (error) => {
-      if (signal.aborted && attempt) await closeUnclaimedStream(attempt)
+      if (signal.aborted && attempt) await closeUnclaimedStream(attempt).catch(() => {})
       throw error
     })
   }
   const gemma = /^gemma-4-/i.test(modelId)
-  const structured =
-    request.response_format?.type !== undefined && request.response_format.type !== 'text'
+  const structured = !isTextFormat(request.response_format)
   if (choice === 'none') tools = []
   const thinking = request.extra_body?.enable_thinking === true
   if (gemma) history = trimThoughts(history)
@@ -80,8 +86,6 @@ export function protocolStream({
     delete sampling.extra_body.enable_thinking
   }
   if (gemma && (tools.length || thinking || hasHistory)) {
-    if (history.some((message) => 'name' in message && message.name !== undefined))
-      throw new Error('Gemma protocol mode cannot preserve message names.')
     if (structured || request.extra_body?.resumable?.enabled || request.ignore_eos)
       throw new Error(
         'Gemma protocol mode does not support constrained response_format, resume, or ignore_eos.',
@@ -111,13 +115,21 @@ export function protocolStream({
             }),
           }),
         ),
-      (chunks) => gemmaChunks(chunks, tools, onChunk, prefix, Boolean(request.stop?.length)),
+      (chunks) =>
+        gemmaChunks(chunks, tools, {
+          onChunk,
+          prefix,
+          stopRequested: Boolean(request.stop?.length),
+          signal,
+        }),
       signal,
     )
   }
   if (isQwen(modelId) || isQwen35(modelId)) {
     if (tools.length && structured)
-      throw new Error('Qwen tool calls cannot use a structured response format.')
+      throw new Error(
+        'Qwen tool calls cannot use a structured response format. For agents, use responseFormat: toolStrategy(schema).',
+      )
     if (
       modelId === 'Qwen3-1.7B-q4f16_1-MLC' &&
       (tools.length ||
@@ -125,7 +137,7 @@ export function protocolStream({
           (message) =>
             message.role === 'tool' || (message.role === 'assistant' && message.tool_calls?.length),
         ) ||
-        (choice && choice !== 'none'))
+        (choice && choice !== 'none' && !('auto' in choice)))
     )
       throw new Error('Tool calling is not supported for Qwen3-1.7B-q4f16_1-MLC.')
     const xml = isQwen35(modelId)
@@ -141,8 +153,13 @@ export function protocolStream({
       () => open(() => engine.chat.completions.create({ ...sampling, messages })),
       (chunks) =>
         xml
-          ? qwen35Chunks(chunks, tools, onChunk, !structured)
-          : qwenChunks(chunks, tools, onChunk, !structured),
+          ? qwen35Chunks(chunks, tools, { onChunk, parseProtocol: !structured, signal })
+          : qwenChunks(chunks, tools, {
+              onChunk,
+              parseProtocol: !structured,
+              parseThinking: modelId.startsWith('Qwen3-'),
+              signal,
+            }),
       signal,
     )
   }
@@ -153,7 +170,10 @@ export function protocolStream({
     !tools.some((tool) => tool.name === choice.tool.name)
   )
     throw new Error('The chosen WebLLM tool is not registered.')
-  const native: ChatCompletionRequestStreaming = { ...sampling, messages: nativeMessages(history) }
+  const native: ChatCompletionRequestStreaming = {
+    ...sampling,
+    messages: nativeHistory(nativeMessages(history), modelId, Boolean(tools.length)),
+  }
   if (tools.length)
     native.tools = tools.map((tool) => ({
       type: 'function',
@@ -170,28 +190,9 @@ export function protocolStream({
     native.tool_choice = { type: 'function', function: { name: choice.tool.name } }
   return streamCall(
     engine,
-    () => open(() => engine.chat.completions.create(native)),
-    async function* (chunks) {
-      for await (const chunk of chunks) {
-        onChunk?.(chunk)
-        const first = chunk.choices[0]
-        if (chunk.choices.length > 1 || (first && first.index !== 0))
-          throw new Error('WebLLM adapters need one response per request.')
-        yield {
-          text: first?.delta.content ?? '',
-          reasoning: '',
-          toolText: '',
-          calls: (first?.delta.tool_calls ?? []).map((call) => ({
-            index: call.index,
-            id: call.id,
-            name: call.function?.name,
-            input: call.function?.arguments,
-          })),
-          stop: stopReason(first?.finish_reason),
-          usage: chunk.usage,
-        }
-      }
-    },
+    // Hermes adds its system prompt and response format while opening a request.
+    () => open(() => engine.chat.completions.create({ ...native, messages: [...native.messages] })),
+    (chunks) => nativeChunks(chunks, Boolean(native.tools), { onChunk, signal }),
     signal,
   )
 }

@@ -1,11 +1,15 @@
 import type { StopReason } from '../types.js'
 import type { CompletionUsage } from '@mlc-ai/web-llm'
 
-/** Only the fields needed to write Strands events. Native chunks stay available via onChunk. */
+export interface ChunkOptions<T> {
+  onChunk?: ((chunk: T) => void) | undefined
+  signal?: AbortSignal | undefined
+}
+
+/** Common output for framework adapters. Native chunks stay available via onChunk. */
 export interface StreamChunk {
   text: string
   reasoning: string
-  toolText: string
   calls: ToolDelta[]
   stop: StopReason | undefined
   usage: CompletionUsage | undefined

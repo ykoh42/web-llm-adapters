@@ -1,5 +1,6 @@
 import type { Message, ModelStreamEvent, StreamOptions } from '@strands-agents/sdk'
 import { fromBrowserError } from './errors.js'
+import { stringifyJSON } from '../../../../shared/web-llm/json.js'
 import { WebLLMModelBase } from '../model-base.js'
 import type { WebLLMModelConfig } from '../types.js'
 import { formatSystemPrompt } from '../chat/messages.js'
@@ -23,7 +24,8 @@ export class BrowserModel extends WebLLMModelBase {
     const { cancelSignal } = options
     cancelSignal?.throwIfAborted()
     const id = await this.page.evaluate(
-      (request) => {
+      (input) => {
+        const request: BrowserRequest = JSON.parse(input)
         const bridge = window.webllmBridge
         if (!bridge)
           throw new Error(
@@ -46,8 +48,11 @@ export class BrowserModel extends WebLLMModelBase {
       cancelSignal?.throwIfAborted()
       while (true) {
         const result = await this.page.evaluate((id) => window.webllmBridge.next(id), id)
+        for (const chunk of result.chunks ?? []) {
+          cancelSignal?.throwIfAborted()
+          this.onChunk?.(chunk)
+        }
         cancelSignal?.throwIfAborted()
-        for (const chunk of result.chunks ?? []) this.onChunk?.(chunk)
         if ('error' in result) {
           complete = true
           throw fromBrowserError(result.error)
@@ -56,6 +61,7 @@ export class BrowserModel extends WebLLMModelBase {
           complete = true
           return
         }
+        if ('native' in result) continue
         yield result.value
       }
     } catch (error) {
@@ -82,7 +88,10 @@ function encodeRequest(
   const prompt = formatSystemPrompt(systemPrompt)
   const request: BrowserRequest = {
     ...(includeChunks && { includeChunks }),
-    messages: messages.map((message) => message.toJSON()),
+    messages: messages.map((message) => {
+      const { role, content } = message.toJSON()
+      return { role, content }
+    }),
     config,
     options: {
       ...(prompt !== undefined && { systemPrompt: prompt }),
@@ -91,5 +100,6 @@ function encodeRequest(
       ...(dynamicTrailingBlocks !== undefined && { dynamicTrailingBlocks }),
     },
   }
-  return request
+  // Browser transports may discard reserved object keys; JSON preserves their literal values.
+  return stringifyJSON(request)
 }

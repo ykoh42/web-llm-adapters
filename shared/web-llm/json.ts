@@ -8,3 +8,14 @@ export function parseJSON(source: string): JSONValue {
     return value
   })
 }
+
+/** Keep invalid JSON numbers from silently becoming null. */
+export function stringifyJSON(input: unknown): string {
+  const text = JSON.stringify(input, (_key, value: unknown) => {
+    if (typeof value === 'number' && !Number.isFinite(value))
+      throw new TypeError('JSON values must contain finite numbers.')
+    return value
+  })
+  if (text === undefined) throw new TypeError('JSON values must be serializable.')
+  return text
+}

@@ -20,16 +20,13 @@ export function gemmaStream(
     () => engine.completions.create(request),
     (chunks) =>
       readStream(
-        gemmaChunks(
-          chunks,
-          options.toolSpecs ?? [],
+        gemmaChunks(chunks, options.toolSpecs ?? [], {
           onChunk,
           prefix,
-          Boolean(request.stop?.length),
-        ),
-        (chunk) => chunk,
+          stopRequested: Boolean(request.stop?.length),
+          signal: options.cancelSignal,
+        }),
         options.cancelSignal,
-        undefined,
         options.toolChoice ?? config.request?.tool_choice,
       ),
     options.cancelSignal,

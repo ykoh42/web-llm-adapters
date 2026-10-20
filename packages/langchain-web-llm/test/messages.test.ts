@@ -12,6 +12,129 @@ import { ChatWebLLM } from '../src/index.js'
 import { chunk, setup } from '../fixtures/engine.js'
 
 describe('message and option boundaries', () => {
+  it.each(['invocationParams', '_identifyingParams'] as const)(
+    '%s returns settings that cannot change later model calls',
+    async (method) => {
+      const { engine, create } = setup(chunk({ content: 'Done' }, 'stop'))
+      const model = new ChatWebLLM({
+        engine,
+        modelId: 'test-model',
+        stop: ['END'],
+        request: { extra_body: { enable_thinking: false } },
+      })
+      const settings = model[method]()
+      if (Array.isArray(settings.stop)) settings.stop.push('CHANGED')
+      settings.extra_body!.enable_thinking = true
+
+      await model.invoke('Hi')
+
+      expect(create.mock.calls[0]?.[0]).toMatchObject({
+        stop: ['END'],
+        extra_body: { enable_thinking: false },
+      })
+    },
+  )
+
+  it.each([
+    'test-model',
+    'gemma-4-E2B-it-q4f16_1-MLC',
+    'Qwen3-4B-q4f16_1-MLC',
+    'Qwen3.5-4B-q4f16_1-MLC',
+  ])('%s sends an open schema for native JSON mode', async (modelId) => {
+    const { engine, create } = setup(chunk({ content: '{}' }, 'stop'))
+    const format = { type: 'json_object' as const }
+    const model = new ChatWebLLM({ engine, modelId, request: { response_format: format } })
+
+    await model.invoke('Return an object.')
+
+    expect(JSON.parse(create.mock.calls[0]?.[0].response_format?.schema ?? 'null')).toEqual({})
+    expect(format).toEqual({ type: 'json_object' })
+  })
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    'rejects invalid numeric history before encoding tool arguments: %s',
+    async (value) => {
+      const { model, create } = setup(chunk({ content: 'Done' }, 'stop'))
+      const history = [
+        new HumanMessage('Look up the value.'),
+        new AIMessage({
+          content: '',
+          tool_calls: [{ id: 'call', name: 'lookup', args: { values: [{ value }] } }],
+        }),
+        new ToolMessage({ tool_call_id: 'call', content: 'Done' }),
+      ]
+
+      await expect(model.invoke(history)).rejects.toThrow('finite numbers')
+      expect(create).not.toHaveBeenCalled()
+    },
+  )
+
+  it('keeps finite JSON history byte-for-byte unchanged', async () => {
+    const input = {
+      tiny: 1e-300,
+      large: 1e300,
+      integer: Number.MAX_SAFE_INTEGER,
+      values: [null, 'NaN', 'Infinity', '-Infinity', '<tool_call>'],
+    }
+    const { model, create } = setup(chunk({ content: 'Done' }, 'stop'))
+
+    await model.invoke([
+      new HumanMessage('Look up the value.'),
+      new AIMessage({ content: '', tool_calls: [{ id: 'call', name: 'lookup', args: input }] }),
+      new ToolMessage({ tool_call_id: 'call', content: 'Done' }),
+    ])
+
+    const assistant = create.mock.calls[0]?.[0].messages[1]
+    if (assistant?.role !== 'assistant') throw new Error('Missing assistant history.')
+    expect(assistant.tool_calls?.[0]?.function.arguments).toBe(JSON.stringify(input))
+  })
+
+  it('rejects missing tool argument objects instead of sending undefined', async () => {
+    const { model, create } = setup(chunk({ content: 'Done' }, 'stop'))
+    const call = { id: 'call', name: 'lookup', args: {} }
+    Object.assign(call, { args: undefined })
+
+    await expect(
+      model.invoke([
+        new HumanMessage('Look up the value.'),
+        new AIMessage({ content: '', tool_calls: [call] }),
+        new ToolMessage({ tool_call_id: 'call', content: 'Done' }),
+      ]),
+    ).rejects.toThrow('serializable')
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('snapshots per-call stop strings', () => {
+    const { model } = setup()
+    const stop = ['END']
+    const settings = model.invocationParams({ stop })
+    stop[0] = 'CHANGED'
+
+    expect(settings.stop).toEqual(['END'])
+  })
+
+  it.each([
+    { status: 'success', text: '  result\n', expected: '  result\n' },
+    { status: 'error', text: '  result\n', expected: '[ERROR]   result\n' },
+    { status: 'error', text: '', expected: '[ERROR]' },
+  ] as const)(
+    'preserves tool status $status with content "$text"',
+    ({ status, text, expected }) => {
+      const message = new ToolMessage({
+        tool_call_id: 'call',
+        content: text,
+        status,
+        artifact: { internal: 'Keep out of the model input.' },
+      })
+      const original = message.toDict()
+
+      expect(formatMessages([message])).toEqual([
+        { role: 'tool', tool_call_id: 'call', content: expected },
+      ])
+      expect(message.toDict()).toEqual(original)
+    },
+  )
+
   it.each([
     { type: 'image', url: 'https://example.test/pic.png' },
     { type: 'image', data: 'AA==', mimeType: 'image/png' },
@@ -278,7 +401,7 @@ it('hoists images after every tool result without changing IDs, text, or history
   expect(output[1]?.content).toBe('')
   expect(output.slice(2, 5)).toEqual([
     { role: 'tool', tool_call_id: 'one', content: 'First picture.' },
-    { role: 'tool', tool_call_id: 'two', content: '[Image attached]' },
+    { role: 'tool', tool_call_id: 'two', content: '' },
     {
       role: 'user',
       content: [
@@ -289,6 +412,9 @@ it('hoists images after every tool result without changing IDs, text, or history
   ])
   expect(history.map((message) => message.toDict())).toEqual(original)
   expect(formatMessages(history.slice(0, -1)).at(-1)).toEqual(output[4])
+  expect(() =>
+    postInitAndCheckFieldsChatCompletion({ messages: output }, 'test-model', ModelType.VLM),
+  ).not.toThrow()
 })
 
 it('passes tool images to native vision input and preserves Gemma protocol limits', async () => {
@@ -307,7 +433,7 @@ it('passes tool images to native vision input and preserves Gemma protocol limit
   expect(create.mock.calls[0]?.[0].messages.at(-2)).toEqual({
     role: 'tool',
     tool_call_id: 'picture',
-    content: '[Image attached]',
+    content: '',
   })
   expect(create.mock.calls[0]?.[0].messages.at(-1)).toEqual({
     role: 'user',

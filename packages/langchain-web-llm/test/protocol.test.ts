@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages'
 import { ChatWebLLM } from '../src/index.js'
+import { tool } from '@langchain/core/tools'
 import { chunk, chunks, setup } from '../fixtures/engine.js'
 
 const definition = {
@@ -24,6 +25,153 @@ function raw(text: string, finish: 'stop' | 'length' = 'stop') {
 }
 
 describe('model protocols', () => {
+  it('keeps encoded references unchanged before LangChain tool validation', async () => {
+    const $ref = '#/properties/code/definitions/value%7E1text'
+    const callback = vi.fn()
+    const lookup = tool(callback, {
+      name: 'lookup',
+      description: 'Look up a code.',
+      schema: {
+        type: 'object',
+        properties: {
+          code: { $ref, definitions: { 'value/text': { type: 'string' } } },
+        },
+        required: ['code'],
+      },
+    })
+    const { engine, create } = setup(
+      chunk(
+        {
+          content:
+            '<tool_call><function=lookup><parameter=code>123</parameter></function></tool_call>',
+        },
+        'stop',
+      ),
+    )
+    const model = new ChatWebLLM({ engine, modelId: 'Qwen3.5-4B-q4f16_1-MLC' })
+    const response = await model.bindTools([lookup]).invoke('Find code 123.')
+    expect(response.tool_calls).toMatchObject([{ name: 'lookup', args: { code: '123' } }])
+    expect(create.mock.calls[0]?.[0].messages[0]?.content).toContain($ref)
+    await expect(lookup.invoke({ code: '123' })).rejects.toThrow('Unresolved $ref')
+    expect(callback).not.toHaveBeenCalled()
+  })
+
+  it('preserves a truncated Gemma tool call as text without exposing it as a tool', async () => {
+    const source = '<|tool_call>call:lookup{code:<|"|>A7'
+    const { engine } = setup()
+    vi.spyOn(engine.completions, 'create').mockResolvedValue(
+      (async function* () {
+        yield raw(source, 'length')
+      })(),
+    )
+    const model = new ChatWebLLM({ engine, modelId: gemmaId })
+
+    const result = await model.bindTools([definition]).invoke('Find A7')
+
+    expect(result.text).toBe(source)
+    expect(result.tool_calls).toEqual([])
+    expect(result.response_metadata.finish_reason).toBe('length')
+  })
+
+  it.each(['Qwen2.5-3B-Instruct-q4f16_1-MLC', qwen, 'Qwen3.5-4B-q4f16_1-MLC'])(
+    '%s keeps tool syntax as text when no tools are bound',
+    async (modelId) => {
+      const thinking = !modelId.startsWith('Qwen2.5-')
+      const reply = 'Example: <tool_call>{"name":"lookup","arguments":{}}</tool_call>'
+      const text = thinking ? reply : '<think>Literal text.</think>' + reply
+      const source = (thinking ? '<think>Plan.</think>' : '') + text
+      const parts = source.match(/[\s\S]{1,3}/g)!
+      const { engine } = setup(
+        ...parts.map((content, index) =>
+          chunk({ content }, index === parts.length - 1 ? 'stop' : null),
+        ),
+      )
+      const model = new ChatWebLLM({ engine, modelId })
+
+      const result = await model.invoke('Show the tool syntax.')
+
+      expect(result.text).toBe(text)
+      expect(result.tool_calls).toEqual([])
+      expect(result.contentBlocks.filter((block) => block.type === 'reasoning')).toEqual(
+        thinking ? [expect.objectContaining({ reasoning: 'Plan.' })] : [],
+      )
+    },
+  )
+
+  it.each(['Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC'])(
+    '%s preserves text and thinking order regardless of chunk size',
+    async (modelId) => {
+      const source = 'Intro<think>First</think>Middle<think>Second</think>End'
+      for (const size of [1, 3, source.length]) {
+        const parts = Array.from({ length: Math.ceil(source.length / size) }, (_, index) =>
+          source.slice(index * size, (index + 1) * size),
+        )
+        const { engine } = setup(
+          ...parts.map((content, index) =>
+            chunk({ content }, index === parts.length - 1 ? 'stop' : null),
+          ),
+        )
+        const model = new ChatWebLLM({ engine, modelId })
+
+        const result = await model.invoke('Continue')
+
+        expect(result.contentBlocks).toEqual([
+          expect.objectContaining({ type: 'text', text: 'Intro' }),
+          expect.objectContaining({ type: 'reasoning', reasoning: 'First' }),
+          expect.objectContaining({ type: 'text', text: 'Middle' }),
+          expect.objectContaining({ type: 'reasoning', reasoning: 'Second' }),
+          expect.objectContaining({ type: 'text', text: 'End' }),
+        ])
+      }
+    },
+  )
+
+  it.each(['Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC'])(
+    '%s preserves text and thinking after tool calls on stop or truncation',
+    async (modelId) => {
+      const call = modelId.startsWith('Qwen3.5-')
+        ? '<tool_call><function=lookup><parameter=code>A7</parameter></function></tool_call>'
+        : '<tool_call>{"name":"lookup","arguments":{"code":"A7"}}</tool_call>'
+      const source = call + 'After<think>Later</think>End'
+      for (const finish of ['stop', 'length'] as const) {
+        for (const size of [1, 3, source.length]) {
+          const parts = Array.from({ length: Math.ceil(source.length / size) }, (_, index) =>
+            source.slice(index * size, (index + 1) * size),
+          )
+          const { engine } = setup(
+            ...parts.map((content, index) =>
+              chunk({ content }, index === parts.length - 1 ? finish : null),
+            ),
+          )
+          const model = new ChatWebLLM({ engine, modelId })
+
+          const result = await model.bindTools([definition]).invoke('Continue')
+
+          expect(result.contentBlocks.filter((block) => block.type !== 'tool_call')).toEqual([
+            expect.objectContaining({
+              type: 'text',
+              text: (finish === 'length' ? call : '') + 'After',
+            }),
+            expect.objectContaining({ type: 'reasoning', reasoning: 'Later' }),
+            expect.objectContaining({ type: 'text', text: 'End' }),
+          ])
+          expect(result.tool_calls).toHaveLength(finish === 'stop' ? 1 : 0)
+        }
+      }
+    },
+  )
+
+  it.each(['test-model', gemmaId, qwen, 'Qwen3.5-4B-q4f16_1-MLC'])(
+    '%s preserves empty assistant history as text WebLLM can use',
+    async (modelId) => {
+      const { engine, create } = setup(chunk({ content: 'Done' }, 'stop'))
+      const model = new ChatWebLLM({ engine, modelId })
+      await model.invoke([new HumanMessage('Hi'), new AIMessage(''), new HumanMessage('Continue')])
+
+      expect(create.mock.calls[0]?.[0].messages[1]).toEqual({ role: 'assistant', content: '' })
+    },
+  )
+
   it('uses the canonical Gemma prompt, thoughts and named-tool prefix', async () => {
     const { engine, create } = setup()
     const complete = vi.spyOn(engine.completions, 'create').mockResolvedValue(
@@ -80,12 +228,44 @@ describe('model protocols', () => {
 
   it.each([
     { response_format: { type: 'json_object' as const } },
+    { response_format: { schema: '{}' } },
+    { response_format: { type: 'text' as const, schema: '{}' } },
+    { response_format: { type: 'text' as const, grammar: 'root ::= "x"' } },
+    { response_format: { type: 'text' as const, structural_tag: '{}' } },
     { extra_body: { resumable: { enabled: true } } },
     { ignore_eos: true },
   ])('rejects incompatible Gemma raw options %j', async (request) => {
-    const { engine } = setup()
+    const { engine, create } = setup()
+    const complete = vi.spyOn(engine.completions, 'create')
     const model = new ChatWebLLM({ engine, modelId: gemmaId, request })
     await expect(model.bindTools([definition]).invoke('Hi')).rejects.toThrow('does not support')
+    expect(create).not.toHaveBeenCalled()
+    expect(complete).not.toHaveBeenCalled()
+  })
+
+  it.each([{}, { type: 'text' as const }])(
+    'allows plain Gemma response format %j in protocol mode',
+    async (response_format) => {
+      const { engine } = setup()
+      const complete = vi.spyOn(engine.completions, 'create').mockResolvedValue(
+        (async function* () {
+          yield raw('Done')
+        })(),
+      )
+      const model = new ChatWebLLM({ engine, modelId: gemmaId, request: { response_format } })
+
+      expect((await model.bindTools([definition]).invoke('Hi')).text).toBe('Done')
+      expect(complete.mock.calls[0]?.[0]).not.toHaveProperty('response_format')
+    },
+  )
+
+  it('allows automatic Qwen3 1.7B chat when no tools are registered', async () => {
+    const { engine, create } = setup(chunk({ content: 'Done' }, 'stop'))
+    const model = new ChatWebLLM({ engine, modelId: 'Qwen3-1.7B-q4f16_1-MLC' })
+
+    expect((await model.bindTools([], { tool_choice: 'auto' }).invoke('Hi')).text).toBe('Done')
+    expect(create.mock.calls[0]?.[0]).not.toHaveProperty('tools')
+    expect(create.mock.calls[0]?.[0]).not.toHaveProperty('tool_choice')
   })
 
   it('does not send WebLLM’s Qwen-specific false prefix to Gemma chat', async () => {
@@ -99,9 +279,9 @@ describe('model protocols', () => {
     expect(create.mock.calls[0]?.[0].extra_body).not.toHaveProperty('enable_thinking')
   })
 
-  it('sends named user and assistant messages through the native WebLLM protocol', async () => {
+  it.each(['test-model', gemmaId])('preserves native message names for %s', async (modelId) => {
     const { engine, create } = setup(chunk({ content: 'Done' }, 'stop'))
-    const model = new ChatWebLLM({ engine, modelId: 'test-model' })
+    const model = new ChatWebLLM({ engine, modelId })
 
     await model.invoke([
       new HumanMessage({ content: 'Hi', name: 'Ada' }),
@@ -116,28 +296,59 @@ describe('model protocols', () => {
     ])
   })
 
-  it('keeps Qwen tool replies together and preserves current-turn reasoning', async () => {
-    const { engine, create } = setup(chunk({ content: '42' }, 'stop'))
+  it.each([qwen, 'Qwen3.5-4B-q4f16_1-MLC'])(
+    '%s replays thinking with canonical boundaries and keeps tool replies together',
+    async (modelId) => {
+      const { engine, create } = setup(chunk({ content: '42' }, 'stop'))
+      const model = new ChatWebLLM({ engine, modelId })
+      await model.bindTools([definition]).invoke([
+        new SystemMessage('Custom system'),
+        new HumanMessage('Hi'),
+        new AIMessage({
+          content: [
+            { type: 'reasoning', reasoning: '\n  Thought  \n' },
+            { type: 'text', text: '\n\nChecking.  \n' },
+          ],
+          tool_calls: [
+            { id: 'a', name: 'lookup', args: { code: 'A7' } },
+            { id: 'b', name: 'lookup', args: { code: 'B8' } },
+          ],
+        }),
+        new ToolMessage({ content: '42', tool_call_id: 'a' }),
+        new ToolMessage({ content: '43', tool_call_id: 'b' }),
+      ])
+      const messages = create.mock.calls[0]?.[0].messages
+      expect(messages?.[0]?.content).toContain('Custom system')
+      expect(
+        String(messages?.[2]?.content).startsWith(
+          modelId === qwen
+            ? '<think>\n  Thought  \n</think>\n\nChecking.  \n'
+            : '<think>\nThought\n</think>\n\nChecking.\n\n<tool_call>',
+        ),
+      ).toBe(true)
+      expect(messages?.at(-1)?.content).toBe(
+        '<tool_response>\n42\n</tool_response>\n<tool_response>\n43\n</tool_response>',
+      )
+    },
+  )
+
+  it('omits LangGraph’s default model name from Qwen tool history', async () => {
+    const { engine, create } = setup(chunk({ content: 'Done' }, 'stop'))
     const model = new ChatWebLLM({ engine, modelId: qwen })
+
     await model.bindTools([definition]).invoke([
-      new SystemMessage('Custom system'),
-      new HumanMessage('Hi'),
+      new HumanMessage('Find A7'),
       new AIMessage({
-        content: [{ type: 'reasoning', reasoning: 'Thought' }],
-        tool_calls: [
-          { id: 'a', name: 'lookup', args: { code: 'A7' } },
-          { id: 'b', name: 'lookup', args: { code: 'B8' } },
-        ],
+        name: 'model',
+        content: '',
+        tool_calls: [{ id: 'call', name: 'lookup', args: { code: 'A7' } }],
       }),
-      new ToolMessage({ content: '42', tool_call_id: 'a' }),
-      new ToolMessage({ content: '43', tool_call_id: 'b' }),
+      new ToolMessage({ name: 'lookup', content: '42', tool_call_id: 'call' }),
     ])
+
     const messages = create.mock.calls[0]?.[0].messages
-    expect(messages?.[0]?.content).toMatch(/^Custom system\n\n# Tools/)
-    expect(messages?.[2]?.content).toContain('<think>\nThought\n</think>')
-    expect(messages?.at(-1)?.content).toBe(
-      '<tool_response>\n42\n</tool_response>\n<tool_response>\n43\n</tool_response>',
-    )
+    expect(messages?.some((message) => 'name' in message && message.name === 'model')).toBe(false)
+    expect(messages?.at(-1)?.content).toContain('<tool_response>\n42\n</tool_response>')
   })
 
   it('preserves user and assistant names in Qwen history', async () => {
@@ -180,6 +391,29 @@ describe('model protocols', () => {
     ).rejects.toThrow('cannot preserve message names')
     expect(create).not.toHaveBeenCalled()
     expect(complete).not.toHaveBeenCalled()
+  })
+
+  it('uses the call ID for LangGraph tool names in Gemma history', async () => {
+    const { engine } = setup()
+    const complete = vi.spyOn(engine.completions, 'create').mockResolvedValue(
+      (async function* () {
+        yield raw('42')
+      })(),
+    )
+    const model = new ChatWebLLM({ engine, modelId: gemmaId })
+
+    await model.bindTools([definition]).invoke([
+      new HumanMessage('Find A7'),
+      new AIMessage({
+        name: 'model',
+        content: '',
+        tool_calls: [{ id: 'call', name: 'lookup', args: { code: 'A7' } }],
+      }),
+      new ToolMessage({ name: 'lookup', content: '42', tool_call_id: 'call' }),
+    ])
+
+    expect(complete.mock.calls[0]?.[0].prompt).toContain('<|tool_response>response:lookup{value:')
+    expect(complete.mock.calls[0]?.[0].prompt).toContain('42<|"|>}<tool_response|>')
   })
 
   it('keeps literal tool tags in native constrained text instead of parsing them', async () => {

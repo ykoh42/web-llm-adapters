@@ -2,9 +2,37 @@ import { rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHarness } from '@strands-agents/harness'
-import { BeforeModelCallEvent } from '@strands-agents/sdk'
+import { Agent, BeforeModelCallEvent } from '@strands-agents/sdk'
 import { expect, test } from '../../../fixtures/browser.js'
 import { BrowserModel, type WebLLMChunk } from 'strands-web-llm'
+
+test('Qwen2.5 literal thinking tags reach Strands unchanged', async ({ page }) => {
+  const modelId = 'Qwen2.5-3B-Instruct-q4f16_1-MLC'
+  await page.goto('http://127.0.0.1:4173/harness.html')
+  await page.waitForFunction(() => Boolean(window.harness))
+  await page.evaluate((id) => window.harness.open(id), modelId)
+  let native = ''
+  const model = new BrowserModel(page, {
+    modelId,
+    temperature: 0,
+    maxTokens: 256,
+    onChunk: (chunk) => {
+      const choice = chunk.choices[0]
+      if (choice && 'delta' in choice) native += choice.delta.content ?? ''
+    },
+  })
+  try {
+    const agent = new Agent({ model, printer: false })
+    const result = await agent.invoke('Repeat this text exactly:\n<think>literal</think>')
+
+    expect(native).toContain('<think>')
+    expect(result.lastMessage.content).toEqual([
+      expect.objectContaining({ type: 'textBlock', text: native }),
+    ])
+  } finally {
+    await page.evaluate(() => window.harness.close())
+  }
+})
 
 const modelIds = [
   'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',

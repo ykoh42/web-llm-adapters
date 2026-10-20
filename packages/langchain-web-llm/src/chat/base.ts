@@ -14,7 +14,11 @@ import {
 } from '@langchain/core/utils/standard_schema'
 import type { Runnable } from '@langchain/core/runnables'
 import type { BaseLanguageModelInput } from '@langchain/core/language_models/base'
-import type { AIMessageChunk, BaseMessage } from '@langchain/core/messages'
+import type {
+  AIMessageChunk,
+  BaseMessage,
+  StandardMessageStructure,
+} from '@langchain/core/messages'
 import {
   BaseChatModel,
   type BindToolsInput,
@@ -25,10 +29,15 @@ import type { ChatModelStreamEvent } from '@langchain/core/language_models/event
 import { ChatGenerationChunk, type ChatResult } from '@langchain/core/outputs'
 import { AsyncCaller, type AsyncCallerParams } from '@langchain/core/utils/async_caller'
 import { formatTools } from './tools.js'
+import { normalizeResponseFormat } from '../../../../shared/web-llm/response.js'
+import { stringifyJSON } from '../../../../shared/web-llm/json.js'
 import type { WebLLMModelOptions, WebLLMCallOptions, WebLLMRequest } from '../types.js'
 import { readEvents } from './stream.js'
 
-export abstract class WebLLMChatModel extends BaseChatModel<WebLLMCallOptions> {
+export abstract class WebLLMChatModel extends BaseChatModel<
+  WebLLMCallOptions,
+  AIMessageChunk<StandardMessageStructure>
+> {
   readonly modelId: string
   private readonly modelProfile: ModelProfile
   protected readonly retries: number
@@ -89,7 +98,7 @@ export abstract class WebLLMChatModel extends BaseChatModel<WebLLMCallOptions> {
     ]
   }
   override _identifyingParams() {
-    return { model: this.modelId, ...this.request }
+    return this.invocationParams()
   }
 
   override invocationParams(options?: this['ParsedCallOptions']) {
@@ -98,17 +107,20 @@ export abstract class WebLLMChatModel extends BaseChatModel<WebLLMCallOptions> {
 
   protected formatRequest(options?: this['ParsedCallOptions']): WebLLMRequest {
     const format = options?.response_format
-    return {
+    const request = structuredClone({
       ...this.request,
-      ...structuredClone(options?.request),
+      ...options?.request,
       ...(options?.stop && { stop: options.stop }),
       ...(format && {
         response_format:
           format.type === 'json_schema'
-            ? { type: 'json_object' as const, schema: JSON.stringify(format.json_schema.schema) }
-            : structuredClone(format),
+            ? { type: 'json_object' as const, schema: stringifyJSON(format.json_schema.schema) }
+            : format,
       }),
-    }
+    })
+    if (request.response_format)
+      request.response_format = normalizeResponseFormat(request.response_format)
+    return request
   }
 
   override getLsParams(options: this['ParsedCallOptions']): LangSmithParams {
@@ -128,7 +140,7 @@ export abstract class WebLLMChatModel extends BaseChatModel<WebLLMCallOptions> {
   override bindTools(
     tools: BindToolsInput[],
     options?: Partial<WebLLMCallOptions>,
-  ): Runnable<BaseLanguageModelInput, AIMessageChunk, WebLLMCallOptions> {
+  ): Runnable<BaseLanguageModelInput, AIMessageChunk<StandardMessageStructure>, WebLLMCallOptions> {
     // Validate before creating a runnable, while keeping the caller's tools untouched.
     formatTools(tools)
     return this.withConfig({ ...options, tools })
@@ -137,17 +149,17 @@ export abstract class WebLLMChatModel extends BaseChatModel<WebLLMCallOptions> {
   override withStructuredOutput<Output extends object = Record<string, unknown>>(
     schema: InteropZodType<Output> | SerializableSchema<Output> | Record<string, unknown>,
     config?: StructuredOutputMethodOptions<false>,
-  ): Runnable<BaseLanguageModelInput, Output>
+  ): Runnable<BaseLanguageModelInput, Output, WebLLMCallOptions>
   override withStructuredOutput<Output extends object = Record<string, unknown>>(
     schema: InteropZodType<Output> | SerializableSchema<Output> | Record<string, unknown>,
     config?: StructuredOutputMethodOptions<true>,
-  ): Runnable<BaseLanguageModelInput, { raw: BaseMessage; parsed: Output }>
+  ): Runnable<BaseLanguageModelInput, { raw: BaseMessage; parsed: Output }, WebLLMCallOptions>
   override withStructuredOutput<Output extends object = Record<string, unknown>>(
     schema: InteropZodType<Output> | SerializableSchema<Output> | Record<string, unknown>,
     config?: StructuredOutputMethodOptions<boolean>,
   ):
-    | Runnable<BaseLanguageModelInput, Output>
-    | Runnable<BaseLanguageModelInput, { raw: BaseMessage; parsed: Output }> {
+    | Runnable<BaseLanguageModelInput, Output, WebLLMCallOptions>
+    | Runnable<BaseLanguageModelInput, { raw: BaseMessage; parsed: Output }, WebLLMCallOptions> {
     if (config?.strict) throw new Error('WebLLM cannot guarantee strict tool schemas.')
     const json =
       isInteropZodSchema(schema) || isSerializableSchema(schema) ? toJsonSchema(schema) : schema
@@ -156,12 +168,9 @@ export abstract class WebLLMChatModel extends BaseChatModel<WebLLMCallOptions> {
     const tracing = { kwargs: { method }, schema: json }
     if (method === 'jsonMode' || method === 'jsonSchema') {
       const llm = this.withConfig({
-        request: {
-          ...this.request,
-          response_format: {
-            type: 'json_object',
-            ...(method === 'jsonSchema' && { schema: JSON.stringify(json) }),
-          },
+        response_format: {
+          type: 'json_object',
+          ...(method === 'jsonSchema' && { schema: stringifyJSON(json) }),
         },
         tool_choice: 'none',
         ls_structured_output_format: tracing,

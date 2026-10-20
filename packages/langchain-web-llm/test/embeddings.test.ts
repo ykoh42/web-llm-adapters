@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { ContextOverflowError, getRetryable } from '@langchain/core/errors'
 import { InMemoryStore } from '@langchain/langgraph'
 import { WebLLMEmbeddings, withEngine } from '../src/index.js'
 import { pause, setup } from '../fixtures/engine.js'
@@ -72,6 +73,55 @@ describe('LangChain embeddings', () => {
       [3, 4],
     ])
   })
+  it('keeps earlier batches when the engine reuses its output vector', async () => {
+    const { model, create } = vectors([], 1)
+    const vector = [0, 1]
+    create.mockImplementation(async (request) => {
+      vector[0] = Number((request.input as string[])[0])
+      return embedding([vector])
+    })
+
+    const result = await model.embedDocuments(['1', '2'])
+
+    expect(result).toEqual([
+      [1, 1],
+      [2, 1],
+    ])
+    expect(vector).toEqual([2, 1])
+  })
+  it('does not let a caller change the engine output through a returned vector', async () => {
+    const vector = [1, 0]
+    const { model } = vectors([vector])
+    const result = await model.embedQuery('Orchid')
+    result[0] = 99
+
+    expect(vector).toEqual([1, 0])
+    expect(await model.embedQuery('Orchid')).toEqual([1, 0])
+  })
+  it('copies vectors before queued engine work can change them', async () => {
+    const vector = [1, 0]
+    const { model, create } = vectors([vector])
+    const entered = pause()
+    const hold = pause()
+    create.mockImplementation(async () => {
+      entered.resume()
+      await hold.wait
+      return embedding([vector])
+    })
+    const pending = model.embedQuery('Orchid')
+    try {
+      await entered.wait
+      const queued = withEngine(model.engine, () => vector.fill(99))
+      hold.resume()
+      const [result] = await Promise.all([pending, queued])
+
+      expect(result).toEqual([1, 0])
+      expect(vector).toEqual([99, 99])
+    } finally {
+      hold.resume()
+      await pending
+    }
+  })
   it('batches document requests by default', async () => {
     const { model, create } = vectors([])
     create.mockImplementation(async (request) => {
@@ -114,6 +164,53 @@ describe('LangChain embeddings', () => {
     ])
     expect(result).toEqual(documents.map((_, index) => [index, 1]))
   })
+  it('retries only the failed embedding batch', async () => {
+    const { engine } = setup()
+    const attempts: string[][] = []
+    let failed = false
+    const create = vi.spyOn(engine.embeddings, 'create').mockImplementation(async (request) => {
+      const texts = request.input as string[]
+      attempts.push([...texts])
+      if (texts[0] === 'Two' && !failed) {
+        failed = true
+        throw new Error('Temporary failure')
+      }
+      return embedding(texts.map((text) => [text.length, 1]))
+    })
+    const model = new WebLLMEmbeddings({
+      engine,
+      modelId: 'embedding-model',
+      batchSize: 1,
+      maxRetries: 1,
+    })
+    expect(await model.embedDocuments(['One', 'Two', 'Three'])).toEqual([
+      [3, 1],
+      [3, 1],
+      [5, 1],
+    ])
+    expect(attempts).toEqual([['One'], ['Two'], ['Two'], ['Three']])
+    expect(create).toHaveBeenCalledTimes(4)
+  })
+
+  it.each(
+    [
+      Object.assign(new Error('The input is too long.'), {
+        name: 'EmbeddingExceedContextWindowSizeError',
+      }),
+      'EmbeddingExceedContextWindowSizeError: the input is too long.',
+      new Error('EmbeddingExceedContextWindowSizeError: the input is too long.'),
+    ].map((error) => ({ error })),
+  )('does not retry an embedding context overflow: $error', async ({ error }) => {
+    const { engine } = setup()
+    const create = vi.spyOn(engine.embeddings, 'create').mockRejectedValue(error)
+    const model = new WebLLMEmbeddings({ engine, modelId: 'embedding-model', maxRetries: 1 })
+    const failure = await model.embedQuery('Orchid').catch((error: unknown) => error)
+    expect(ContextOverflowError.isInstance(failure)).toBe(true)
+    expect(getRetryable(failure)).toBe(false)
+    expect(failure).toHaveProperty('cause')
+    expect(create).toHaveBeenCalledOnce()
+  })
+
   it('checks vector dimensions across document batches', async () => {
     const { model, create } = vectors([], 1)
     create.mockResolvedValueOnce(embedding([[1, 0]])).mockResolvedValueOnce(embedding([[1]]))
@@ -129,6 +226,33 @@ describe('LangChain embeddings', () => {
       )
     },
   )
+  it('lets queued engine work run between document batches', async () => {
+    const { model, create } = vectors([], 1)
+    const entered = pause()
+    const hold = pause()
+    const order: string[] = []
+    create.mockImplementation(async (request) => {
+      const text = (request.input as string[])[0]!
+      order.push(text)
+      if (text === 'One') {
+        entered.resume()
+        await hold.wait
+      }
+      return embedding([[text.length, 1]])
+    })
+    const job = model.embedDocuments(['One', 'Two'])
+    try {
+      await entered.wait
+      const waiting = withEngine(model.engine, () => order.push('queued'))
+      hold.resume()
+      await Promise.all([job, waiting])
+      expect(order).toEqual(['One', 'queued', 'Two'])
+    } finally {
+      hold.resume()
+      await job
+    }
+  })
+
   it('snapshots documents before waiting for its engine turn', async () => {
     const { model, create } = vectors([[1, 0]])
     const hold = pause()
@@ -170,6 +294,26 @@ describe('LangChain embeddings', () => {
       )
     },
   )
+  it('reports malformed native embedding output without retrying it', async () => {
+    const { engine } = setup()
+    const create = vi
+      .spyOn(engine.embeddings, 'create')
+      .mockResolvedValue(embedding([[Number.NaN]]))
+    const model = new WebLLMEmbeddings({ engine, modelId: 'embedding-model', maxRetries: 1 })
+    await expect(model.embedDocuments(['One'])).rejects.toBeInstanceOf(TypeError)
+    expect(create).toHaveBeenCalledOnce()
+  })
+  it.each([null, undefined])('does not retry a missing native vector: %s', async (value) => {
+    const { engine } = setup()
+    const response = embedding([[1]])
+    Object.assign(response.data[0]!, { embedding: value })
+    const create = vi.spyOn(engine.embeddings, 'create').mockResolvedValue(response)
+    const model = new WebLLMEmbeddings({ engine, modelId: 'embedding-model', maxRetries: 1 })
+
+    await expect(model.embedQuery('Orchid')).rejects.toBeInstanceOf(TypeError)
+    expect(create).toHaveBeenCalledOnce()
+  })
+
   it('rejects missing and duplicate indices', async () => {
     const { model, create } = vectors([[1]])
     await expect(model.embedDocuments(['One', 'Two'])).rejects.toThrow('number')

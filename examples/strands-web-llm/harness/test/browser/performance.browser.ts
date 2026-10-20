@@ -118,6 +118,7 @@ test('performance: compare native, in-page provider, and Node.js bridge on ident
               const result = await window.webllmBridge.next(id)
               if ('error' in result) throw new Error(result.error.message)
               if (result.done) break
+              if ('native' in result) continue
               const event = result.value
               if (
                 event.type === 'modelContentBlockDeltaEvent' &&

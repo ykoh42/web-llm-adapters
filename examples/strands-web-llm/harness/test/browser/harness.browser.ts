@@ -2,7 +2,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHarness, type HarnessAgentOptions } from '@strands-agents/harness'
-import { AfterToolsEvent, BeforeModelCallEvent, FunctionTool } from '@strands-agents/sdk'
+import { AfterToolsEvent, BeforeModelCallEvent, FunctionTool, TextBlock } from '@strands-agents/sdk'
 import { test, expect } from '../../../fixtures/browser.js'
 import { BrowserModel } from 'strands-web-llm'
 
@@ -151,9 +151,7 @@ for (const thinking of [false, true]) {
   })
 }
 
-test('Harness reads a Node.js file using its built-in tool selected by WebLLM', async ({
-  page,
-}) => {
+test('Hermes runs one Harness read batch without an assistant answer', async ({ page }) => {
   const modelId = 'Hermes-3-Llama-3.1-8B-q4f16_1-MLC'
   await page.goto('http://127.0.0.1:4173/harness.html')
   await page.waitForFunction(() => Boolean(window.harness))
@@ -169,14 +167,14 @@ test('Harness reads a Node.js file using its built-in tool selected by WebLLM', 
       builtinTools: ['read'],
     })
     agent.addHook(AfterToolsEvent, (event) => {
-      event.endTurn = 'Read finished.'
+      event.endTurn = [new TextBlock('')]
     })
-    expect(String(await agent.invoke(`Use the read tool to read ${path}.`))).toContain(
-      'Read finished.',
-    )
+    const result = await agent.invoke(`Use the read tool to read ${path}.`)
+    expect(String(result)).toBe('')
     const results = agent.messages
       .flatMap((message) => message.content)
       .filter((block) => block.type === 'toolResultBlock')
+    expect(results).toHaveLength(1)
     expect(JSON.stringify(results)).toContain('pineapple-42')
   } finally {
     await page.evaluate(() => window.harness.close())

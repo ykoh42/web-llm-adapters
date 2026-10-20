@@ -48,10 +48,10 @@ export class WebLLMEmbeddingSearchStrategy implements SearchStrategy {
   }
 
   index(storage: Storage, key: string, data: Uint8Array): Promise<void> {
-    const content = decoder.decode(data).trim()
+    const content = decoder.decode(data)
     return this.#run(storage, async () => {
       const vectors = this.#vectors(storage)
-      if (!content) {
+      if (!content.trim()) {
         vectors.delete(key)
         return
       }
@@ -86,18 +86,29 @@ export class WebLLMEmbeddingSearchStrategy implements SearchStrategy {
         return []
       }
 
-      const [queryVector] = this.#readVectors(await this.#embed([query.trim()], 'query'), 1)
-      const queryMetrics = vectorMetrics(queryVector!)
-      const normalizedQuery = queryVector!.map((value) =>
+      const queryVector = this.#readVectors(await this.#embed([query], 'query'), 1)[0]!
+      const queryMetrics = vectorMetrics(queryVector)
+      const normalizedQuery = queryVector.map((value) =>
         queryMetrics.scale ? value / queryMetrics.scale : 0,
       )
       const missing = new Map<string, string[]>()
 
       for (const { key, content } of documents) {
-        if (cached.get(key)?.content === content) continue
+        const previous = cached.get(key)
+        if (previous?.content === content && previous.vector.length === queryVector.length) continue
         const keys = missing.get(content)
         if (keys) keys.push(key)
         else missing.set(content, [key])
+      }
+
+      // Keep all old entries available when document contents swap between keys.
+      const previousTexts = missing.size ? [...cached.values()] : []
+      for (const previous of previousTexts) {
+        if (!missing.size) break
+        const keys = missing.get(previous.content)
+        if (!keys || previous.vector.length !== queryVector.length) continue
+        for (const key of keys) cached.set(key, previous)
+        missing.delete(previous.content)
       }
 
       const entries = [...missing]
@@ -109,6 +120,7 @@ export class WebLLMEmbeddingSearchStrategy implements SearchStrategy {
             'document',
           ),
           batch.length,
+          queryVector.length,
         )
         batch.forEach(([content, keys], index) => {
           const vector = vectors[index]!
@@ -142,7 +154,7 @@ export class WebLLMEmbeddingSearchStrategy implements SearchStrategy {
     return vectors
   }
 
-  #readVectors(vectors: readonly (readonly number[])[], count: number) {
+  #readVectors(vectors: readonly (readonly number[])[], count: number, dimensions?: number) {
     if (vectors.length !== count)
       throw new TypeError(`Expected ${count} embeddings; received ${vectors.length}.`)
 
@@ -155,11 +167,14 @@ export class WebLLMEmbeddingSearchStrategy implements SearchStrategy {
       }
     }
 
-    const dimensions = vectors[0]!.length
-    if (vectors.some((vector) => vector.length !== dimensions))
+    const size = vectors[0]!.length
+    if (vectors.some((vector) => vector.length !== size))
       throw new TypeError('Embeddings in one batch must have the same dimensions.')
+    if (dimensions !== undefined && size !== dimensions)
+      throw new TypeError('Query and document embeddings must have the same dimensions.')
 
-    return vectors
+    // The embedder may reuse its arrays on the next request.
+    return vectors.map((vector) => [...vector])
   }
 
   #run<T>(storage: Storage, operation: () => Promise<T>): Promise<T> {
@@ -179,8 +194,8 @@ export class WebLLMEmbeddingSearchStrategy implements SearchStrategy {
 async function readText(storage: Storage, key: string, includeData: boolean) {
   const data = await storage.read(key)
   if (!data) return undefined
-  const content = decoder.decode(data).trim()
-  if (!content) return undefined
+  const content = decoder.decode(data)
+  if (!content.trim()) return undefined
   return { key, content, ...(includeData && { data }) }
 }
 

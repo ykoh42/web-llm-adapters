@@ -14,7 +14,10 @@ export async function startCall<T>(
   }
 
   const source = Promise.resolve()
-    .then(open)
+    .then(() => {
+      signal?.throwIfAborted()
+      return open()
+    })
     .then((chunks) => chunks[Symbol.asyncIterator]())
   let closing: Promise<void> | undefined
   function close(interrupt: boolean) {
@@ -72,10 +75,15 @@ export async function* streamCall<T, R>(
 ): AsyncGenerator<R> {
   const call = await startCall(engine, open, signal)
   let done = false
+  let failed = false
   try {
     yield* read(call.chunks)
     done = true
+  } catch (error) {
+    failed = true
+    throw error
   } finally {
-    await call.close(!done)
+    if (failed) await call.close(true).catch(() => {})
+    else await call.close(!done)
   }
 }

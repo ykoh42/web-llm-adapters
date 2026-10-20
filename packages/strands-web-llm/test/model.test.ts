@@ -97,7 +97,7 @@ describe('WebLLMModel', () => {
 
     expect(create.mock.calls[0]?.[0].messages).toContainEqual({
       role: 'assistant',
-      content: 'Plan.\nFirst answer.',
+      content: 'Plan.First answer.',
     })
     expect(history[1]?.content[0]).toEqual(new ReasoningBlock({ text: 'Plan.' }))
   })
@@ -381,6 +381,28 @@ describe('WebLLMModel', () => {
     }
   })
 
+  it('keeps a split tool name distinct from another registered name with the same prefix', async () => {
+    const { model } = setup(
+      chunk({
+        tool_calls: [
+          { index: 0, id: 'call-1', function: { name: 'weather', arguments: '{"city":' } },
+        ],
+      }),
+      chunk(
+        { tool_calls: [{ index: 0, function: { name: '_report', arguments: '"Seoul"}' } }] },
+        'tool_calls',
+      ),
+    )
+    const blocks = await collect(
+      model.streamAggregated(messages, {
+        toolSpecs: [...tools, { name: 'weather_report', description: 'Get a weather report.' }],
+      }),
+    )
+    expect(blocks.filter((block) => block instanceof ToolUseBlock)).toEqual([
+      new ToolUseBlock({ name: 'weather_report', toolUseId: 'call-1', input: { city: 'Seoul' } }),
+    ])
+  })
+
   it('flushes the final native input fragment before closing a truncated tool block', async () => {
     const { model } = setup(
       chunk({
@@ -399,104 +421,6 @@ describe('WebLLMModel', () => {
     })
     expect(events).toContainEqual({ type: 'modelContentBlockStopEvent' })
     expect(events.at(-1)).toEqual({ type: 'modelMessageStopEvent', stopReason: 'maxTokens' })
-  })
-
-  it('closes a started native tool block when cancelled', async () => {
-    const { model, create, stop } = setup()
-    const hold = pause()
-    const waiting = pause()
-    create.mockResolvedValueOnce(
-      (async function* () {
-        try {
-          yield chunk({
-            tool_calls: [
-              { index: 0, id: 'call-1', function: { name: 'weather', arguments: '{"city":' } },
-            ],
-          })
-          waiting.resume()
-          await hold.wait
-        } finally {
-          hold.resume()
-        }
-      })(),
-    )
-    stop.mockImplementation(async () => hold.resume())
-
-    const controller = new AbortController()
-    const stream = model.stream(messages, { toolSpecs: tools, cancelSignal: controller.signal })
-    try {
-      await stream.next()
-      await stream.next()
-      await stream.next()
-      const rest = collect(stream)
-      await waiting.wait
-      controller.abort()
-      const events = await rest
-
-      expect(events).toContainEqual({ type: 'modelContentBlockStopEvent' })
-      expect(events.at(-1)).toEqual({ type: 'modelMessageStopEvent', stopReason: 'cancelled' })
-    } finally {
-      hold.resume()
-      await stream.return(undefined)
-    }
-  })
-
-  it('keeps assistant commentary beside a native tool call', async () => {
-    const { model } = setup(
-      chunk(
-        {
-          content: 'Checking the weather now.',
-          tool_calls: [
-            {
-              index: 0,
-              id: 'call-1',
-              function: { name: 'weather', arguments: '{"city":"Seoul"}' },
-            },
-          ],
-        },
-        'tool_calls',
-      ),
-    )
-
-    const events = await collect(model.stream(messages, { toolSpecs: tools }))
-    expect(events).toContainEqual({
-      type: 'modelContentBlockDeltaEvent',
-      delta: { type: 'textDelta', text: 'Checking the weather now.' },
-    })
-    expect(events).toContainEqual({
-      type: 'modelContentBlockStartEvent',
-      start: { type: 'toolUseStart', name: 'weather', toolUseId: 'call-1' },
-    })
-    expect(events).toContainEqual({
-      type: 'modelContentBlockDeltaEvent',
-      delta: { type: 'toolUseInputDelta', input: '{"city":"Seoul"}' },
-    })
-  })
-
-  it('suppresses serialized tool JSON when parsed calls arrive with it', async () => {
-    const { model } = setup(
-      chunk(
-        {
-          content: '[{"name":"weather","arguments":{"city":"Seoul"}}]',
-          tool_calls: [
-            {
-              index: 0,
-              id: 'call-1',
-              function: { name: 'weather', arguments: '{"city":"Seoul"}' },
-            },
-          ],
-        },
-        'tool_calls',
-      ),
-    )
-
-    const events = await collect(model.stream(messages, { toolSpecs: tools }))
-    expect(
-      events.some(
-        (event) => event.type === 'modelContentBlockDeltaEvent' && event.delta.type === 'textDelta',
-      ),
-    ).toBe(false)
-    expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'toolUse' })
   })
 
   it('never turns a truncated tool call into executable tool use', async () => {
@@ -564,11 +488,11 @@ describe('WebLLMModel', () => {
     expect(events).toContainEqual({ type: 'modelContentBlockStopEvent' })
   })
 
-  it('closes a started native tool block before rejecting a tool-choice violation', async () => {
+  it('rejects a tool-choice violation before publishing a native tool block', async () => {
     const registeredTools = [...tools, { name: 'time', description: 'Get the time.' }]
     const { model } = setup(
       chunk({
-        tool_calls: [{ index: 0, id: 'call-1', function: { name: 'time', arguments: '{' } }],
+        tool_calls: [{ index: 0, id: 'call-1', function: { name: 'time', arguments: '{"zone":' } }],
       }),
       chunk({ tool_calls: [{ index: 0, function: { arguments: '"UTC"}' } }] }, 'tool_calls'),
     )
@@ -582,7 +506,27 @@ describe('WebLLMModel', () => {
         events.push(event)
       }
     }).rejects.toThrow('outside tool_choice')
-    expect(events).toContainEqual({ type: 'modelContentBlockStopEvent' })
+    expect(events).toEqual([{ type: 'modelMessageStartEvent', role: 'assistant' }])
+  })
+
+  it('preserves a valid named tool call across native input chunks', async () => {
+    const { model } = setup(
+      chunk({
+        tool_calls: [
+          { index: 0, id: 'call-1', function: { name: 'weather', arguments: '{"city":' } },
+        ],
+      }),
+      chunk({ tool_calls: [{ index: 0, function: { arguments: '"Seoul"}' } }] }, 'tool_calls'),
+    )
+    const blocks = await collect(
+      model.streamAggregated(messages, {
+        toolSpecs: tools,
+        toolChoice: { tool: { name: 'weather' } },
+      }),
+    )
+    expect(blocks.filter((block) => block instanceof ToolUseBlock)).toEqual([
+      new ToolUseBlock({ name: 'weather', toolUseId: 'call-1', input: { city: 'Seoul' } }),
+    ])
   })
 
   it.each(['[]', 'null', '42', '"text"'])(
@@ -672,141 +616,6 @@ describe('WebLLMModel', () => {
     expect(create).not.toHaveBeenCalled()
   })
 
-  it('does not start an already cancelled call', async () => {
-    const { model, create, stop } = setup()
-    await expect(
-      collect(model.stream(messages, { cancelSignal: AbortSignal.abort() })),
-    ).rejects.toThrow()
-    expect(create).not.toHaveBeenCalled()
-    expect(stop).not.toHaveBeenCalled()
-  })
-
-  it('interrupts active generation and closes its stream when cancelled', async () => {
-    const { model, create, stop } = setup()
-    const hold = pause()
-    const waiting = pause()
-    let closed = false
-    create.mockResolvedValueOnce(
-      (async function* () {
-        try {
-          yield chunk({ content: 'Hi' })
-          waiting.resume()
-          await hold.wait
-          yield chunk({}, 'abort')
-        } finally {
-          closed = true
-        }
-      })(),
-    )
-    stop.mockImplementation(async () => {
-      hold.resume()
-    })
-    const controller = new AbortController()
-    const stream = model.stream(messages, { cancelSignal: controller.signal })
-    await stream.next()
-    await stream.next()
-    expect((await stream.next()).value).toMatchObject({ delta: { text: 'Hi' } })
-    const rest = collect(stream)
-    await waiting.wait
-    controller.abort()
-    try {
-      expect(stop).toHaveBeenCalledTimes(1)
-      const events = await rest
-      expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'cancelled' })
-      expect(closed).toBe(true)
-    } finally {
-      hold.resume()
-      await stream.return(undefined)
-    }
-  })
-
-  it('removes the cancel listener after a completed call', async () => {
-    const { model, stop } = setup(chunk({ content: 'Hi' }, 'stop'))
-    const controller = new AbortController()
-    await collect(model.stream(messages, { cancelSignal: controller.signal }))
-    controller.abort()
-    expect(stop).not.toHaveBeenCalled()
-  })
-
-  it('releases a cancelled stream even when the Agent leaves its iterator suspended', async () => {
-    const { model, create } = setup()
-    let closed = false
-    create.mockResolvedValueOnce(
-      (async function* () {
-        try {
-          yield chunk({ content: 'Partial' })
-        } finally {
-          closed = true
-        }
-      })(),
-    )
-    const controller = new AbortController()
-    const agent = new Agent({ model, printer: false })
-    for await (const update of agent.stream('Hi', { cancelSignal: controller.signal })) {
-      if (
-        update.type === 'modelStreamUpdateEvent' &&
-        update.event.type === 'modelContentBlockDeltaEvent'
-      )
-        controller.abort()
-    }
-    create.mockResolvedValueOnce(chunks(chunk({ content: 'Recovered' }, 'stop')))
-    const next = await new Agent({ model, printer: false }).invoke('Try again')
-    expect(next.lastMessage.content).toEqual([new TextBlock('Recovered')])
-    expect(closed).toBe(true)
-  })
-
-  it('waits for native cleanup before reusing an abandoned cancelled stream', async () => {
-    const { model, create } = setup()
-    const closing = pause()
-    create.mockResolvedValueOnce(
-      (async function* () {
-        try {
-          yield chunk({ content: 'Partial' })
-        } finally {
-          await closing.wait
-        }
-      })(),
-    )
-    const controller = new AbortController()
-    const first = model.stream(messages, { cancelSignal: controller.signal })
-    await first.next()
-    await first.next()
-    await first.next()
-    controller.abort()
-    create.mockResolvedValueOnce(chunks(chunk({ content: 'Recovered' }, 'stop')))
-    const next = aggregate(model)
-    expect(create).toHaveBeenCalledTimes(1)
-    closing.resume()
-    await expect(next).resolves.toMatchObject({ stopReason: 'endTurn' })
-    await first.return(undefined)
-  })
-
-  it('closes a stream cancelled while the backend is still opening it', async () => {
-    const { model, create } = setup()
-    const opening = pause()
-    const started = pause()
-    const close = vi.fn(async () => ({ done: true as const, value: undefined }))
-    create.mockImplementationOnce(async () => {
-      started.resume()
-      await opening.wait
-      return {
-        [Symbol.asyncIterator]: () => ({
-          next: async () => ({ done: false as const, value: chunk({}, 'stop') }),
-          return: close,
-        }),
-      }
-    })
-    const controller = new AbortController()
-    const response = collect(model.stream(messages, { cancelSignal: controller.signal }))
-    await started.wait
-    controller.abort()
-    opening.resume()
-    await expect(response).rejects.toThrow()
-    expect(close).toHaveBeenCalledTimes(1)
-    create.mockResolvedValueOnce(chunks(chunk({ content: 'Hi' }, 'stop')))
-    await expect(aggregate(model)).resolves.toMatchObject({ stopReason: 'endTurn' })
-  })
-
   it('closes the native stream when a chunk callback fails', async () => {
     const { engine, create } = setup()
     let closed = false
@@ -833,18 +642,6 @@ describe('WebLLMModel', () => {
     await expect(aggregate(next)).resolves.toMatchObject({ stopReason: 'endTurn' })
   })
 
-  it('does not start generation when cancelled after the message start', async () => {
-    const { model, stop } = setup(chunk({ content: 'Hi' }), chunk({}, 'stop'))
-    const controller = new AbortController()
-    const stream = model.stream(messages, { cancelSignal: controller.signal })
-    await stream.next()
-    controller.abort()
-    expect(await collect(stream)).toEqual([
-      { type: 'modelMessageStopEvent', stopReason: 'cancelled' },
-    ])
-    expect(stop).toHaveBeenCalledTimes(1)
-  })
-
   it('stops and releases the engine when a consumer leaves early', async () => {
     const { model, stop, create } = setup(chunk({ content: 'Hi' }), chunk({}, 'stop'))
     const stream = model.stream(messages)
@@ -868,25 +665,6 @@ describe('WebLLMModel', () => {
     await collect(first)
     expect((await next).message.content).toEqual([new TextBlock('Second')])
     expect((await last).message.content).toEqual([new TextBlock('Third')])
-    expect(stop).not.toHaveBeenCalled()
-  })
-
-  it('cancels a queued call without interrupting active work or letting later calls overtake it', async () => {
-    const { model, create, stop } = setup(chunk({ content: 'First' }, 'stop'))
-    const first = model.stream(messages)
-    await first.next()
-    const controller = new AbortController()
-    const waiting = collect(model.stream(messages, { cancelSignal: controller.signal }))
-    const cancelled = expect(waiting).rejects.toThrow()
-    controller.abort()
-    await cancelled
-    expect(stop).not.toHaveBeenCalled()
-    create.mockResolvedValueOnce(chunks(chunk({ content: 'Last' }, 'stop')))
-    const last = aggregate(model)
-    expect(create).toHaveBeenCalledTimes(1)
-    await collect(first)
-    expect((await last).message.content).toEqual([new TextBlock('Last')])
-    expect(create).toHaveBeenCalledTimes(2)
     expect(stop).not.toHaveBeenCalled()
   })
 

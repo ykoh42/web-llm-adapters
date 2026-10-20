@@ -1,5 +1,7 @@
 import { Embeddings, type EmbeddingsParams } from '@langchain/core/embeddings'
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
+import { modelError } from '../error.js'
+import { readVectors, appendVectors } from './vectors.js'
 import { withEngine } from '../../../../shared/web-llm/engine/access.js'
 import {
   defaultEmbeddingBatchSize,
@@ -57,45 +59,29 @@ export class WebLLMEmbeddings extends Embeddings {
     const texts = [...input]
     if (!texts.length) return []
     validateEmbeddingTexts(texts)
-    return this.caller.call(() =>
-      withEngine(this.engine, async (engine) => {
-        const vectors: number[][] = []
-        let dimensions: number | undefined
-
-        for (let offset = 0; offset < texts.length; offset += this.batchSize) {
-          const batch = texts.slice(offset, offset + this.batchSize)
-          const response = await engine.embeddings.create({
-            model: this.modelId,
-            input: batch,
-            encoding_format: 'float',
+    const vectors: number[][] = []
+    for (let offset = 0; offset < texts.length; offset += this.batchSize) {
+      const batch = texts.slice(offset, offset + this.batchSize)
+      const response = await this.caller.call(async () => {
+        try {
+          return await withEngine(this.engine, async (engine) => {
+            const response = await engine.embeddings.create({
+              model: this.modelId,
+              input: batch,
+              encoding_format: 'float',
+            })
+            // Copy vectors before another engine request can reuse them.
+            return {
+              ...response,
+              data: response.data.map((item) => ({ ...item, embedding: [...item.embedding] })),
+            }
           })
-          if (response.data.length !== batch.length)
-            throw new Error('WebLLM returned the wrong number of embeddings.')
-
-          const batchVectors: (number[] | undefined)[] = new Array(batch.length)
-          for (const item of response.data) {
-            if (
-              !Number.isInteger(item.index) ||
-              item.index < 0 ||
-              item.index >= batch.length ||
-              batchVectors[item.index] !== undefined
-            )
-              throw new Error('WebLLM returned invalid embedding indices.')
-            if (!item.embedding.length || !item.embedding.every(Number.isFinite))
-              throw new Error('WebLLM embeddings must contain finite numbers.')
-            batchVectors[item.index] = item.embedding
-          }
-
-          for (const vector of batchVectors) {
-            if (!vector) throw new Error('WebLLM returned invalid embedding indices.')
-            if (dimensions !== undefined && vector.length !== dimensions)
-              throw new Error('WebLLM embeddings must have matching dimensions.')
-            dimensions = vector.length
-            vectors.push(vector)
-          }
+        } catch (error) {
+          throw modelError(error)
         }
-        return vectors
-      }),
-    )
+      })
+      appendVectors(vectors, readVectors(response, batch.length))
+    }
+    return vectors
   }
 }

@@ -3,6 +3,64 @@ import { expect, it } from 'vitest'
 import { chunk, chunks, collect } from '../../fixtures/engine.js'
 import { qwen35Chunks } from '../../../../shared/web-llm/qwen35/stream.js'
 
+it('reads current schemas when tool definitions are reused across streams', async () => {
+  const code: JSONSchema = { type: 'string' }
+  const tools: ToolSpec[] = [
+    {
+      name: 'lookup',
+      description: 'Look up a code.',
+      inputSchema: { type: 'object', properties: { code } },
+    },
+  ]
+  const content =
+    '<tool_call><function=lookup><parameter=code>123</parameter></function></tool_call>'
+  for (const type of ['string', 'number'] as const) {
+    code.type = type
+    const output = await collect(qwen35Chunks(chunks(chunk({ content }, 'stop')), tools))
+    expect(output.flatMap((item) => item.calls)).toMatchObject([
+      { input: type === 'string' ? '{"code":"123"}' : '{"code":123}' },
+    ])
+  }
+})
+
+it.each([
+  { enum: ['123', 'false', 'null'] },
+  { const: '123' },
+  { type: ['string', 'integer'], enum: ['123'] },
+  { anyOf: [{ enum: ['123'] }, { type: 'null' }] },
+  { allOf: [{ type: ['string', 'integer'] }, { const: '123' }] },
+  { $ref: '#/definitions/code' },
+] satisfies JSONSchema[])('keeps string values from enum and const schemas: %j', async (schema) => {
+  const tools: ToolSpec[] = [
+    {
+      name: 'lookup',
+      description: 'Look up a code.',
+      inputSchema: {
+        type: 'object',
+        properties: { code: schema },
+        definitions: { code: { enum: ['123'] } },
+      },
+    },
+  ]
+  const output = await collect(
+    qwen35Chunks(
+      chunks(
+        chunk(
+          {
+            content:
+              '<tool_call><function=lookup><parameter=code>123</parameter></function></tool_call>',
+          },
+          'stop',
+        ),
+      ),
+      tools,
+    ),
+  )
+  expect(output.flatMap((item) => item.calls)).toMatchObject([
+    { name: 'lookup', input: '{"code":"123"}' },
+  ])
+})
+
 it.each([undefined, { type: 'number' }, { type: 'object' }] as const)(
   'rejects overflowing tool numbers without replacing them with null: %j',
   async (schema) => {
@@ -278,14 +336,17 @@ it('keeps null as null for a nullable string argument', async () => {
   ])
 })
 
-it('rejects a schema union when the XML value could be text or a number', async () => {
+it.each([
+  { anyOf: [{ type: 'string' }, { type: 'number' }] },
+  { enum: ['123', 123] },
+] satisfies JSONSchema[])('rejects an ambiguous string or number argument: %j', async (city) => {
   const tools: ToolSpec[] = [
     {
       name: 'lookup',
       description: 'Look up a city.',
       inputSchema: {
         type: 'object',
-        properties: { city: { anyOf: [{ type: 'string' }, { type: 'number' }] } },
+        properties: { city },
       },
     },
   ]

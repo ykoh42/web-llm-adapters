@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   AudioBlock,
   CachePointBlock,
@@ -49,6 +49,25 @@ const result = new Message({
 })
 
 describe('Gemma tool prompts', () => {
+  it('concatenates text-only tool blocks without adding SDK field names', () => {
+    const reply = new Message({
+      role: 'user',
+      content: [
+        new ToolResultBlock({
+          toolUseId: 'a',
+          status: 'success',
+          content: [new TextBlock('  First'), new TextBlock('Second\n')],
+        }),
+      ],
+    })
+    const original = JSON.stringify(reply)
+
+    expect(toolPrompt([user('Find x'), call, reply], tools, {})).toContain(
+      '<|tool_response>response:lookup{value:<|"|>  FirstSecond\n<|"|>}<tool_response|>',
+    )
+    expect(JSON.stringify(reply)).toBe(original)
+  })
+
   it('matches the canonical Gemma declaration without changing the SDK schema', () => {
     const tool: ToolSpec = {
       name: 'lookup',
@@ -166,9 +185,7 @@ describe('Gemma tool prompts', () => {
     })
     const snapshot = JSON.stringify(message)
     const prompt = toolPrompt([message], tools, { dynamicTrailingBlocks: 2 })
-    expect(prompt).toContain(
-      '<|turn>user\nRead the note.\nEnvironment context\nMemory context<turn|>',
-    )
+    expect(prompt).toContain('<|turn>user\nRead the note.Environment contextMemory context<turn|>')
     expect(JSON.stringify(message)).toBe(snapshot)
   })
 
@@ -235,6 +252,33 @@ describe('Gemma tool prompts', () => {
     expect(prompt.match(/<\|turn>model/g)).toHaveLength(1)
   })
 
+  it.each([false, true])('serializes structured tool results (mixed=%s)', (mixed) => {
+    const rows = [1]
+    rows.length = 3
+    const json = { rows }
+    const date = new Date('2026-10-20T00:00:00.000Z')
+    const serialize = vi.fn(() => 'label')
+    Object.assign(json, { date, custom: { toJSON: serialize } })
+    const reply = new Message({
+      role: 'user',
+      content: [
+        new ToolResultBlock({
+          toolUseId: 'a',
+          status: 'success',
+          content: [new JsonBlock({ json }), ...(mixed ? [new TextBlock('Report it.')] : [])],
+        }),
+      ],
+    })
+
+    const value =
+      '{custom:<|"|>label<|"|>,date:<|"|>2026-10-20T00:00:00.000Z<|"|>,rows:[1,null,null]}'
+    const response = mixed ? `value:[{json:${value}},{text:<|"|>Report it.<|"|>}]` : value
+    expect(toolPrompt([user('Find x'), call, reply], tools, {})).toContain(response)
+    expect(json).toHaveProperty('date', date)
+    expect(Object.hasOwn(rows, 1)).toBe(false)
+    if (!mixed) expect(serialize).toHaveBeenCalledOnce()
+  })
+
   it('closes old turns, continues after tools and preserves later user input', () => {
     const final = new Message({ role: 'assistant', content: [new TextBlock('42')] })
     const prompt = toolPrompt([user('Find x'), call, result, final, user('Thanks')], tools, {})
@@ -266,7 +310,7 @@ describe('Gemma tool prompts', () => {
       {},
     )
     expect(prompt).toContain('parameters:{type:<|"|>OBJECT<|"|>}')
-    expect(prompt).toContain('Tool error: Missing key')
+    expect(prompt).toContain('[ERROR] Missing key')
   })
 
   it('rejects missing, unmatched, and duplicate tool results', () => {

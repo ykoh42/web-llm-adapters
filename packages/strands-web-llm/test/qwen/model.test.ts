@@ -2,6 +2,69 @@ import { Agent, FunctionTool, Message, TextBlock } from '@strands-agents/sdk'
 import { expect, it, vi } from 'vitest'
 import { chunk, chunks, collect, setup } from '../../fixtures/engine.js'
 
+it.each(['Qwen2.5-3B-Instruct-q4f16_1-MLC', 'Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC'])(
+  '%s keeps tool syntax as text when no tools are registered',
+  async (modelId) => {
+    const thinking = !modelId.startsWith('Qwen2.5-')
+    const reply = 'Example: <tool_call>{"name":"lookup","arguments":{}}</tool_call>'
+    const text = thinking ? reply : '<think>Literal text.</think>' + reply
+    const source = (thinking ? '<think>Plan.</think>' : '') + text
+    const parts = source.match(/[\s\S]{1,3}/g)!
+    const { model, create } = setup()
+    model.updateConfig({ modelId })
+    create.mockResolvedValueOnce(
+      chunks(
+        ...parts.map((content, index) =>
+          chunk({ content }, index === parts.length - 1 ? 'stop' : null),
+        ),
+      ),
+    )
+    const agent = new Agent({ model, printer: false })
+
+    const result = await agent.invoke('Show the tool syntax.')
+
+    expect(
+      result.lastMessage.content
+        .filter((block) => block.type === 'textBlock')
+        .map((block) => block.text)
+        .join(''),
+    ).toBe(text)
+    expect(result.lastMessage.content.filter((block) => block.type === 'toolUseBlock')).toEqual([])
+    expect(result.lastMessage.content.filter((block) => block.type === 'reasoningBlock')).toEqual(
+      thinking ? [expect.objectContaining({ text: 'Plan.' })] : [],
+    )
+  },
+)
+
+it.each(['Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC'])(
+  '%s preserves text and thinking order regardless of chunk size',
+  async (modelId) => {
+    const source = 'Intro<think>First</think>Middle<think>Second</think>End'
+    for (const size of [1, 3, source.length]) {
+      const parts = Array.from({ length: Math.ceil(source.length / size) }, (_, index) =>
+        source.slice(index * size, (index + 1) * size),
+      )
+      const { model } = setup(
+        ...parts.map((content, index) =>
+          chunk({ content }, index === parts.length - 1 ? 'stop' : null),
+        ),
+      )
+      model.updateConfig({ modelId })
+      const agent = new Agent({ model, printer: false })
+
+      const result = await agent.invoke('Continue')
+
+      expect(result.lastMessage.content).toEqual([
+        expect.objectContaining({ type: 'textBlock', text: 'Intro' }),
+        expect.objectContaining({ type: 'reasoningBlock', text: 'First' }),
+        expect.objectContaining({ type: 'textBlock', text: 'Middle' }),
+        expect.objectContaining({ type: 'reasoningBlock', text: 'Second' }),
+        expect.objectContaining({ type: 'textBlock', text: 'End' }),
+      ])
+    }
+  },
+)
+
 it('rejects a required tool choice before generating without registered tools', async () => {
   const { model, create } = setup()
   model.updateConfig({ modelId: 'Qwen3-4B-q4f16_1-MLC' })

@@ -14,35 +14,26 @@ type ToolCall = {
   closed: boolean
 }
 
-export async function* readStream<T>(
-  chunks: AsyncIterable<T>,
-  decode: (chunk: T) => StreamChunk,
+export async function* readStream(
+  chunks: AsyncIterable<StreamChunk>,
   signal?: AbortSignal,
-  onChunk?: (chunk: T) => void,
   choice?: ToolChoice | 'none',
   toolNames?: readonly string[],
   progressiveTools = false,
 ): AsyncGenerator<ModelStreamEvent> {
+  // Restricted calls must pass validation before any tool block is published.
+  if (choice === 'none' || (choice && 'tool' in choice)) progressiveTools = false
   let block: 'textDelta' | 'reasoningContentDelta' | undefined
-  let toolText = ''
   let stopReason: StreamChunk['stop']
   let usage: CompletionUsage | undefined
   const calls = new Map<number, ToolCall>()
-  let activeToolIndex: number | undefined
 
   yield { type: 'modelMessageStartEvent', role: 'assistant' }
-  if (signal?.aborted) {
-    yield { type: 'modelMessageStopEvent', stopReason: 'cancelled' }
-    return
-  }
-
   try {
-    for await (const raw of chunks) {
-      if (signal?.aborted) break
-      onChunk?.(raw)
-      const chunk = decode(raw)
+    signal?.throwIfAborted()
+    for await (const chunk of chunks) {
+      signal?.throwIfAborted()
       if (chunk.usage) usage = chunk.usage
-      toolText += chunk.toolText
 
       for (const [type, value] of [
         ['reasoningContentDelta', chunk.reasoning],
@@ -50,11 +41,17 @@ export async function* readStream<T>(
       ] as const) {
         if (!value) continue
         if (block !== type) {
-          if (block) yield { type: 'modelContentBlockStopEvent' }
-          yield { type: 'modelContentBlockStartEvent' }
+          if (block) {
+            block = undefined
+            yield { type: 'modelContentBlockStopEvent' }
+            signal?.throwIfAborted()
+          }
           block = type
+          yield { type: 'modelContentBlockStartEvent' }
+          signal?.throwIfAborted()
         }
         yield { type: 'modelContentBlockDeltaEvent', delta: { type, text: value } }
+        signal?.throwIfAborted()
       }
 
       for (const delta of chunk.calls) {
@@ -65,6 +62,8 @@ export async function* readStream<T>(
           started: false,
           closed: false,
         }
+        if (call.started && delta.name)
+          throw new ModelError('WebLLM changed a tool name after streaming began.')
         if (delta.id && !call.started) call.id = delta.id
         if (delta.name) call.name += delta.name
         if (delta.input) call.input += delta.input
@@ -74,46 +73,51 @@ export async function* readStream<T>(
       // Only stream native, non-terminal deltas. WebLLM 0.2.86 exposes parsed
       // tool calls at generation end, so those are emitted by finishTool below.
       if (progressiveTools && !chunk.stop && !signal?.aborted) {
+        const firstCall = calls.get(0)
         if (
-          activeToolIndex === undefined &&
           calls.size === 1 &&
-          calls.has(0) &&
-          calls.get(0)!.id &&
-          toolNames?.includes(calls.get(0)!.name)
+          firstCall?.id &&
+          firstCall.name &&
+          !firstCall.started &&
+          toolNames?.includes(firstCall.name) &&
+          !toolNames.some((name) => name !== firstCall.name && name.startsWith(firstCall.name))
         ) {
-          const call = calls.get(0)!
-          if (call.name) {
-            if (block) {
-              yield { type: 'modelContentBlockStopEvent' }
-              block = undefined
-            }
-            yield {
-              type: 'modelContentBlockStartEvent',
-              start: { type: 'toolUseStart', toolUseId: call.id!, name: call.name },
-            }
-            call.started = true
-            activeToolIndex = 0
+          if (block) {
+            block = undefined
+            yield { type: 'modelContentBlockStopEvent' }
+            signal?.throwIfAborted()
           }
+          firstCall.started = true
+          yield {
+            type: 'modelContentBlockStartEvent',
+            start: { type: 'toolUseStart', toolUseId: firstCall.id, name: firstCall.name },
+          }
+          signal?.throwIfAborted()
         }
 
-        const activeCall = activeToolIndex === undefined ? undefined : calls.get(activeToolIndex)
-        if (activeCall?.started && activeCall.input.length > activeCall.sentInput) {
+        if (firstCall?.started && firstCall.input.length > firstCall.sentInput) {
+          const input = firstCall.input.slice(firstCall.sentInput)
+          firstCall.sentInput = firstCall.input.length
           yield {
             type: 'modelContentBlockDeltaEvent',
             delta: {
               type: 'toolUseInputDelta',
-              input: activeCall.input.slice(activeCall.sentInput),
+              input,
             },
           }
-          activeCall.sentInput = activeCall.input.length
+          signal?.throwIfAborted()
         }
       }
       if (chunk.stop) stopReason = chunk.stop
     }
 
-    if (signal?.aborted) stopReason = 'cancelled'
+    signal?.throwIfAborted()
     if (!stopReason) throw new ModelError('WebLLM ended the stream without a stop reason.')
-    if (block) yield { type: 'modelContentBlockStopEvent' }
+    if (block) {
+      block = undefined
+      yield { type: 'modelContentBlockStopEvent' }
+      signal?.throwIfAborted()
+    }
 
     const orderedCalls = [...calls.entries()]
       .sort(([left], [right]) => left - right)
@@ -125,17 +129,16 @@ export async function* readStream<T>(
     )
     const useTools = stopReason !== 'maxTokens' && stopReason !== 'cancelled' && calls.size > 0
     if (useTools) {
-      for (const call of orderedCalls) yield* finishTool(call)
+      for (const call of orderedCalls) {
+        signal?.throwIfAborted()
+        yield* finishTool(call, signal)
+      }
       stopReason = 'toolUse'
     } else {
       yield* closeStartedTools(calls, true)
       if (stopReason === 'toolUse') throw new ModelError('WebLLM returned no tool calls.')
-      if (toolText) {
-        yield { type: 'modelContentBlockStartEvent' }
-        yield { type: 'modelContentBlockDeltaEvent', delta: { type: 'textDelta', text: toolText } }
-        yield { type: 'modelContentBlockStopEvent' }
-      }
     }
+    signal?.throwIfAborted()
     if (usage) {
       yield {
         type: 'modelMetadataEvent',
@@ -147,14 +150,20 @@ export async function* readStream<T>(
         trace: usage.extra,
       }
     }
+    signal?.throwIfAborted()
     yield { type: 'modelMessageStopEvent', stopReason }
   } catch (error) {
-    yield* closeStartedTools(calls, true)
+    if (block) yield { type: 'modelContentBlockStopEvent' }
+    yield* closeStartedTools(calls, !signal?.aborted)
+    if (signal?.aborted) {
+      yield { type: 'modelMessageStopEvent', stopReason: 'cancelled' }
+      return
+    }
     throw error
   }
 }
 
-function* finishTool(call: ToolCall): Generator<ModelStreamEvent> {
+function* finishTool(call: ToolCall, signal?: AbortSignal): Generator<ModelStreamEvent> {
   if (!call.name) throw new ModelError('WebLLM returned a tool call without a name.')
   let input: ReturnType<typeof parseJSON>
   try {
@@ -170,18 +179,21 @@ function* finishTool(call: ToolCall): Generator<ModelStreamEvent> {
   }
   const id = (call.id ??= crypto.randomUUID())
   if (!call.started) {
+    call.started = true
     yield {
       type: 'modelContentBlockStartEvent',
       start: { type: 'toolUseStart', toolUseId: id, name: call.name },
     }
-    call.started = true
+    signal?.throwIfAborted()
   }
   if (call.input.length > call.sentInput) {
+    const input = call.input.slice(call.sentInput)
+    call.sentInput = call.input.length
     yield {
       type: 'modelContentBlockDeltaEvent',
-      delta: { type: 'toolUseInputDelta', input: call.input.slice(call.sentInput) },
+      delta: { type: 'toolUseInputDelta', input },
     }
-    call.sentInput = call.input.length
+    signal?.throwIfAborted()
   }
   yield* closeTool(call)
 }

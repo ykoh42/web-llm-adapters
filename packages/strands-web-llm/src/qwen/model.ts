@@ -21,10 +21,13 @@ export function qwenStream(
     () => engine.chat.completions.create(request),
     (chunks) =>
       readStream(
-        qwenChunks(chunks, options.toolSpecs ?? [], onChunk, !hasStructuredResponse(config)),
-        (chunk) => chunk,
+        qwenChunks(chunks, options.toolSpecs ?? [], {
+          onChunk,
+          parseProtocol: !hasStructuredResponse(config),
+          parseThinking: config.modelId.startsWith('Qwen3-'),
+          signal: options.cancelSignal,
+        }),
         options.cancelSignal,
-        undefined,
         options.toolChoice ?? config.request?.tool_choice,
       ),
     options.cancelSignal,

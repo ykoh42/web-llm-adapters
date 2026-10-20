@@ -1,10 +1,139 @@
 import { MemoryManager } from '@strands-agents/sdk'
-import { LocalFileStorage } from '@strands-agents/sdk/storage'
+import { InMemoryStorage, LocalFileStorage } from '@strands-agents/sdk/storage'
+import { FileMemoryStore } from '@strands-agents/sdk/vended-memory-stores/file-memory-store'
 import { BrowserModel, WebLLMEmbeddingSearchStrategy, type WebLLMChunk } from 'strands-web-llm'
 import { writeFile } from 'node:fs/promises'
 import { expect, test } from '../../../fixtures/browser.js'
 import { createEmbeddingMemory, embeddingModelId } from '../../src/memory.js'
 import { finalText, openHarness } from '../../fixtures/harness.js'
+
+test('FileMemoryStore reuses real WebLLM vectors after copies and renames', async ({ page }) => {
+  await page.goto('http://127.0.0.1:4173/harness.html')
+  await page.waitForFunction(() => Boolean(window.harness))
+  await page.evaluate((id) => window.harness.open(id, 512), embeddingModelId)
+  try {
+    let documents = 0
+    let queries = 0
+    const strategy = new WebLLMEmbeddingSearchStrategy({
+      includeData: false,
+      embed: async (texts, type) => {
+        if (type === 'document') documents += texts.length
+        else queries += texts.length
+        return page.evaluate(
+          ({ input, model }) =>
+            window.webllmBridge.withEngine(async (engine) => {
+              const result = await engine.embeddings.create({
+                model,
+                input,
+                encoding_format: 'float',
+              })
+              return [...result.data]
+                .sort((a, b) => a.index - b.index)
+                .map(({ embedding }) => embedding)
+            }),
+          {
+            model: embeddingModelId,
+            input: texts.map((text) =>
+              type === 'query'
+                ? `Represent this sentence for searching relevant passages: ${text}`
+                : text,
+            ),
+          },
+        )
+      },
+    })
+    const root = new InMemoryStorage()
+    const memory = new FileMemoryStore({ name: 'notes', storage: root, search: strategy })
+    const storage = root.namespace('memory/notes')
+    const content = 'A basket of fresh apples.'
+    const key = await memory.add(content)
+    expect(await root.list('')).toEqual([`memory/notes/${key}`])
+    const first = await memory.search('fruit')
+    expect(first).toHaveLength(1)
+    const score = Number(first[0]!.metadata?.score)
+    expect(score).toBeGreaterThan(0)
+    const data = new TextEncoder().encode(content)
+    await storage.write('copy.md', data)
+    expect(await memory.search('fruit')).toEqual(
+      [key, 'copy.md'].map((path) => ({ content, metadata: { path, score } })),
+    )
+    await storage.delete(key)
+    await storage.delete('copy.md')
+    await storage.write('moved.md', data)
+    expect(await memory.search('fruit')).toEqual([
+      { content, metadata: { path: 'moved.md', score } },
+    ])
+    expect(documents).toBe(1)
+    expect(queries).toBe(3)
+  } finally {
+    await page.evaluate(() => window.harness.close())
+  }
+})
+
+test('Strands search recovers after a dimension error and owns cached vectors', async ({
+  page,
+}) => {
+  await page.goto('http://127.0.0.1:4173/harness.html')
+  await page.waitForFunction(() => Boolean(window.harness))
+  await page.evaluate((id) => window.harness.open(id, 512), embeddingModelId)
+  try {
+    const storage = new InMemoryStorage()
+    await storage.write('note', new TextEncoder().encode('A basket of fresh apples.'))
+    let documentCalls = 0
+    let queryVector: number[] = []
+    let documentVector: number[] = []
+    const strategy = new WebLLMEmbeddingSearchStrategy({
+      minScore: -1,
+      embed: async (texts, type) => {
+        const vectors = await page.evaluate(
+          ({ input, model }) =>
+            window.webllmBridge.withEngine(async (engine) => {
+              const response = await engine.embeddings.create({
+                model,
+                input,
+                encoding_format: 'float',
+              })
+              return [...response.data]
+                .sort((left, right) => left.index - right.index)
+                .map(({ embedding }) => embedding)
+            }),
+          {
+            model: embeddingModelId,
+            input: texts.map((text) =>
+              type === 'query'
+                ? `Represent this sentence for searching relevant passages: ${text}`
+                : text,
+            ),
+          },
+        )
+        if (type === 'query') queryVector = vectors[0]!
+        else {
+          documentCalls++
+          if (documentCalls === 1) return vectors.map((vector) => vector.slice(0, -1))
+          documentVector = vectors[0]!
+        }
+        return vectors
+      },
+    })
+    await expect(strategy.search(storage, 'fruit')).rejects.toThrow('same dimensions')
+    const results = await strategy.search(storage, 'fruit')
+    expect(documentCalls).toBe(2)
+    expect(queryVector).toHaveLength(384)
+    expect(documentVector).toHaveLength(384)
+    const norm = (vector: number[]) =>
+      Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0))
+    const dot = documentVector.reduce((sum, value, index) => sum + value * queryVector[index]!, 0)
+    expect(results).toHaveLength(1)
+    expect(results[0]!.key).toBe('note')
+    expect(results[0]!.score).toBeCloseTo(dot / (norm(queryVector) * norm(documentVector)), 8)
+    expect(await strategy.search(storage, 'fruit')).toEqual(results)
+    documentVector.fill(0)
+    expect(await strategy.search(storage, 'fruit')).toEqual(results)
+    expect(documentCalls).toBe(2)
+  } finally {
+    await page.evaluate(() => window.harness.close())
+  }
+})
 
 test('separate Strands stores reuse their real WebLLM document vectors', async ({ page }) => {
   const harness = await openHarness(page)

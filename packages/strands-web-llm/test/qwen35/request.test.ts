@@ -7,6 +7,7 @@ import {
 } from '@strands-agents/sdk'
 import { expect, it } from 'vitest'
 import { qwen35Request } from '../../src/qwen35/request.js'
+import { formatCall } from '../../../../shared/web-llm/qwen35/tools.js'
 
 const tool = {
   name: 'lookup',
@@ -26,7 +27,8 @@ it('matches the Qwen3.5 system, thinking, tool-call, and tool-result formats', (
       new Message({
         role: 'assistant',
         content: [
-          new ReasoningBlock({ text: 'Check the city.' }),
+          new ReasoningBlock({ text: ' Check the city.\n ' }),
+          new TextBlock(' \nWorking. \n '),
           new ToolUseBlock({ toolUseId: 'lookup-1', name: 'lookup', input: { city: 'Seoul' } }),
         ],
       }),
@@ -62,7 +64,7 @@ it('matches the Qwen3.5 system, thinking, tool-call, and tool-result formats', (
       '- If there is no function call available, answer the question like normal with your current knowledge and do not tell the user about function calls\n</IMPORTANT>\n\nBe concise.',
   })
   expect(request.messages.find((message) => message.role === 'assistant')?.content).toBe(
-    '<think>\nCheck the city.\n</think>\n\n<tool_call>\n<function=lookup>\n' +
+    '<think>\nCheck the city.\n</think>\n\nWorking.\n\n<tool_call>\n<function=lookup>\n' +
       '<parameter=city>\nSeoul\n</parameter>\n</function>\n</tool_call>',
   )
   expect(request.messages.at(-1)?.content).toBe(
@@ -166,3 +168,49 @@ it('rejects tool signatures that Qwen3.5 cannot preserve', () => {
     'tool calls with reasoning signatures',
   )
 })
+
+it('uses JSON serialization for optional and custom XML argument values', () => {
+  const date = new Date('2026-10-20T00:00:00.000Z')
+  const input = {
+    missing: undefined,
+    empty: '',
+    zero: 0,
+    disabled: false,
+    nullable: null,
+    date,
+    custom: { toJSON: () => 'literal' },
+    values: [undefined, 0, false, ''],
+  }
+
+  expect(formatCall('lookup', input)).toBe(
+    '<tool_call>\n<function=lookup>\n' +
+      '<parameter=empty>\n\n</parameter>\n' +
+      '<parameter=zero>\n0\n</parameter>\n' +
+      '<parameter=disabled>\nfalse\n</parameter>\n' +
+      '<parameter=nullable>\nnull\n</parameter>\n' +
+      '<parameter=date>\n2026-10-20T00:00:00.000Z\n</parameter>\n' +
+      '<parameter=custom>\nliteral\n</parameter>\n' +
+      '<parameter=values>\n[null, 0, false, ""]\n</parameter>\n' +
+      '</function>\n</tool_call>',
+  )
+  expect(Object.hasOwn(input, 'missing')).toBe(true)
+  expect(input.date).toBe(date)
+})
+
+it('writes JSON-serializable strings without adding quotes to XML values', () => {
+  const date = new Date('2026-10-20T00:00:00.000Z')
+
+  expect(formatCall('lookup', { date, custom: { toJSON: () => 'literal' } })).toBe(
+    '<tool_call>\n<function=lookup>\n' +
+      '<parameter=date>\n2026-10-20T00:00:00.000Z\n</parameter>\n' +
+      '<parameter=custom>\nliteral\n</parameter>\n' +
+      '</function>\n</tool_call>',
+  )
+})
+
+it.each([null, [], 42, 'literal', { toJSON: () => [] }])(
+  'rejects JSON tool arguments that are not objects: %j',
+  (input) => {
+    expect(() => formatCall('lookup', input)).toThrow('arguments must be an object')
+  },
+)

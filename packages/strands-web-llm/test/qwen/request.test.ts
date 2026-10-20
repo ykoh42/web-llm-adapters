@@ -7,6 +7,60 @@ import {
 } from '@strands-agents/sdk'
 import { expect, it } from 'vitest'
 import { qwenRequest } from '../../src/qwen/request.js'
+import { qwen35Request } from '../../src/qwen35/request.js'
+import { ModelType, postInitAndCheckFieldsChatCompletion } from '@mlc-ai/web-llm'
+
+it('allows automatic Qwen3 1.7B chat when no tools are registered', () => {
+  const modelId = 'Qwen3-1.7B-q4f16_1-MLC'
+  const request = qwenRequest(
+    { modelId },
+    [new Message({ role: 'user', content: [new TextBlock('Hi')] })],
+    { toolChoice: { auto: {} } },
+  )
+
+  expect(request).not.toHaveProperty('tools')
+  expect(request).not.toHaveProperty('tool_choice')
+  expect(() => postInitAndCheckFieldsChatCompletion(request, modelId, ModelType.LLM)).not.toThrow()
+})
+
+it.each([
+  { modelId: 'Qwen3-4B-q4f16_1-MLC', request: qwenRequest },
+  { modelId: 'Qwen3.5-4B-q4f16_1-MLC', request: qwen35Request },
+])(
+  '$modelId keeps thoughts for Harness context but drops them after a user question',
+  ({ modelId, request }) => {
+    const messages = [
+      new Message({ role: 'user', content: [new TextBlock('Find the code.')] }),
+      new Message({
+        role: 'assistant',
+        content: [
+          new ReasoningBlock({ text: 'Check the code.' }),
+          new ToolUseBlock({ toolUseId: 'call', name: 'lookup', input: {} }),
+        ],
+      }),
+      new Message({
+        role: 'user',
+        content: [
+          new ToolResultBlock({
+            toolUseId: 'call',
+            status: 'success',
+            content: [new TextBlock('42')],
+          }),
+          new TextBlock('Current task context.'),
+        ],
+      }),
+    ]
+    const original = JSON.stringify(messages)
+
+    const context = request({ modelId }, messages, { dynamicTrailingBlocks: 1 })
+    const followup = request({ modelId }, messages, {})
+
+    expect(context.messages[1]?.content).toContain('<think>\nCheck the code.\n</think>')
+    expect(context.messages.at(-1)?.content).toBe('Current task context.')
+    expect(followup.messages[1]?.content).not.toContain('Check the code.')
+    expect(JSON.stringify(messages)).toBe(original)
+  },
+)
 
 it.each(['Qwen2.5-3B-Instruct-q4f16_1-MLC', 'Qwen3-4B-q4f16_1-MLC'])(
   '%s keeps compact Hermes JSON for the WebLLM artifact without changing strings',
@@ -108,7 +162,11 @@ it('keeps Qwen3 thoughts only in the current tool loop', () => {
     new Message({ role: 'user', content: [new TextBlock('Look up Seoul.')] }),
     new Message({
       role: 'assistant',
-      content: [new ReasoningBlock({ text: 'Find the code.' }), tool],
+      content: [
+        new ReasoningBlock({ text: '\n\n  Find the code.  \n\n' }),
+        new TextBlock('\n\nWorking.  '),
+        tool,
+      ],
     }),
     new Message({
       role: 'user',
@@ -124,7 +182,7 @@ it('keeps Qwen3 thoughts only in the current tool loop', () => {
 
   const request = qwenRequest({ modelId: 'Qwen3-4B-q4f16_1-MLC' }, messages, {})
   expect(request.messages[1]?.content).toBe(
-    '<think>\nFind the code.\n</think>\n\n<tool_call>\n{"name": "lookup", "arguments": {"city":"Seoul"}}\n</tool_call>',
+    '<think>\n  Find the code.  \n</think>\n\nWorking.  \n<tool_call>\n{"name": "lookup", "arguments": {"city":"Seoul"}}\n</tool_call>',
   )
 
   const nextTurn = qwenRequest(

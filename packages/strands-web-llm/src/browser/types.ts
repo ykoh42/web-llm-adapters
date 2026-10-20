@@ -1,3 +1,5 @@
+import type { ErrorInfo } from '../../../../shared/web-llm/errors.js'
+import type { BrowserPacket } from '../../../../shared/browser/stream.js'
 import type { MessageData, ModelStreamEvent, StreamOptions } from '@strands-agents/sdk'
 import type { WebLLMChunk, WebLLMModelConfig, WebLLMModelOptions } from '../types.js'
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
@@ -12,16 +14,10 @@ export interface BrowserRequest {
     systemPrompt?: string
   }
 }
-interface BrowserErrorCause {
-  name: string
-  message: string
-}
-export interface BrowserError {
-  name: string
-  message: string
-  causes?: BrowserErrorCause[]
-}
-export type BrowserResult = (IteratorResult<ModelStreamEvent, void> | { error: BrowserError }) & {
+export type BrowserError = ErrorInfo
+export type BrowserResult = (
+  BrowserPacket<ModelStreamEvent, WebLLMChunk> | { error: BrowserError }
+) & {
   chunks?: WebLLMChunk[]
 }
 
@@ -35,6 +31,7 @@ export interface BrowserBridge {
   /** Run on the browser page. Finish native work inside the callback before returning. */
   withEngine<T>(run: (engine: MLCEngineInterface) => T | Promise<T>): Promise<T>
   start(request: BrowserRequest): Promise<string>
+  /** Returns model output or a native chunk batch. */
   next(id: string): Promise<BrowserResult>
   stop(id: string): Promise<void>
   close(): Promise<void>

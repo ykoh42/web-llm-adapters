@@ -85,8 +85,21 @@ import { ChatWebLLM, BrowserChatWebLLM, WebLLMEmbeddings, createBrowserBridge, w
 const engine = new MLCEngine({logLevel:'SILENT'})
 engine.chat.completions.create = (async () => (async function*(){yield {id:'test',object:'chat.completion.chunk',created:0,model:'test',choices:[{index:0,delta:{content:'Hello'},finish_reason:'stop'}]}})()) as unknown as typeof engine.chat.completions.create
 const model = new ChatWebLLM({engine,modelId:'test'})
-assert.equal((await model.invoke('Hi')).text,'Hello')
-assert.equal((await model.batch(['One','Two'])).length,2)
+const response = await model.invoke('Hi')
+assert.equal(response.text,'Hello')
+const tokens: number | undefined = response.usage_metadata?.output_tokens
+assert.equal(tokens,undefined)
+const bound = await model.bindTools([]).invoke('Hi')
+const boundTokens: number | undefined = bound.usage_metadata?.output_tokens
+assert.equal(boundTokens,undefined)
+for await (const chunk of await model.stream('Hi')) {
+  const streamedTokens: number | undefined = chunk.usage_metadata?.output_tokens
+  assert.equal(streamedTokens,undefined)
+}
+const batch = await model.batch(['One','Two'])
+assert.equal(batch.length,2)
+const batchTokens: number | undefined = batch[0]?.usage_metadata?.output_tokens
+assert.equal(batchTokens,undefined)
 assert.equal(typeof model.bindTools([]).invoke,'function')
 assert.equal(typeof model.withStructuredOutput({type:'object'}).invoke,'function')
 assert.equal(typeof new WebLLMEmbeddings({engine,modelId:'embedding'}).embedQuery,'function')
@@ -106,6 +119,8 @@ await bridge.close()
       'node_modules/typescript/bin/tsc',
       '--noEmit',
       '--strict',
+      '--exactOptionalPropertyTypes',
+      '--noUncheckedIndexedAccess',
       '--skipLibCheck',
       '--types',
       'node',

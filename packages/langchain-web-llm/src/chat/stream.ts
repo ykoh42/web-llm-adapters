@@ -32,26 +32,27 @@ export async function* readEvents(
     if (!messageStarted) {
       messageStarted = true
       yield { event: 'message-start', ...(message.id && { id: message.id }) }
+      signal?.throwIfAborted()
     }
 
     const content = message.content
     if (typeof content === 'string' && content) {
       const index = lastTextIndex ?? nextBlockIndex(blocks)
-      yield* appendContent(blocks, index, 'text', content)
+      yield* appendContent(blocks, index, 'text', content, signal)
       lastTextIndex = index
     } else if (Array.isArray(content)) {
       for (const part of content) {
         if (!isRecord(part)) continue
         const index = typeof part.index === 'number' ? part.index : nextBlockIndex(blocks)
         if (part.type === 'text' && typeof part.text === 'string' && part.text) {
-          yield* appendContent(blocks, index, 'text', part.text)
+          yield* appendContent(blocks, index, 'text', part.text, signal)
           lastTextIndex = index
         } else if (
           part.type === 'reasoning' &&
           typeof part.reasoning === 'string' &&
           part.reasoning
         ) {
-          yield* appendContent(blocks, index, 'reasoning', part.reasoning)
+          yield* appendContent(blocks, index, 'reasoning', part.reasoning, signal)
         }
       }
     }
@@ -71,6 +72,7 @@ export async function* readEvents(
           index,
         },
       }
+      signal?.throwIfAborted()
       yield {
         event: 'content-block-delta',
         index,
@@ -84,6 +86,7 @@ export async function* readEvents(
           },
         },
       }
+      signal?.throwIfAborted()
       blocks.set(index, {
         type: 'tool_call',
         ...(call.id && { id: call.id }),
@@ -102,9 +105,14 @@ export async function* readEvents(
   signal?.throwIfAborted()
   if (!messageStarted || !finishReason)
     throw new Error('WebLLM ended the stream without a finish reason.')
-  for (const [index, content] of blocks)
+  for (const [index, content] of blocks) {
     yield { event: 'content-block-finish', index, content: { ...content } }
-  if (usage) yield { event: 'usage', usage }
+    signal?.throwIfAborted()
+  }
+  if (usage) {
+    yield { event: 'usage', usage }
+    signal?.throwIfAborted()
+  }
   yield {
     event: 'message-finish',
     reason: finishReason,
@@ -113,33 +121,34 @@ export async function* readEvents(
   }
 }
 
-function appendContent(
+function* appendContent(
   blocks: Map<number, EventBlock>,
   index: number,
   type: 'text' | 'reasoning',
   value: string,
-): ChatModelStreamEvent[] {
-  const events: ChatModelStreamEvent[] = []
+  signal?: AbortSignal,
+): Generator<ChatModelStreamEvent> {
   let block = blocks.get(index)
   if (block && block.type !== type)
     throw new Error(`WebLLM reused content block ${index} for ${type}.`)
   if (!block) {
     block = type === 'text' ? { type, text: '' } : { type, reasoning: '' }
     blocks.set(index, block)
-    events.push({ event: 'content-block-start', index, content: { ...block } })
+    yield { event: 'content-block-start', index, content: { ...block } }
+    signal?.throwIfAborted()
   }
   if (block.type === 'text') {
     block.text += value
-    events.push({ event: 'content-block-delta', index, delta: { type: 'text-delta', text: value } })
+    yield { event: 'content-block-delta', index, delta: { type: 'text-delta', text: value } }
   } else {
     block.reasoning += value
-    events.push({
+    yield {
       event: 'content-block-delta',
       index,
       delta: { type: 'reasoning-delta', reasoning: value },
-    })
+    }
   }
-  return events
+  signal?.throwIfAborted()
 }
 
 function nextBlockIndex(blocks: Map<number, EventBlock>): number {
@@ -166,7 +175,6 @@ export async function* readChunks(
   choice?: ToolChoice | 'none',
 ): AsyncGenerator<ChatGenerationChunk> {
   const calls = new Map<number, ToolDelta>()
-  let toolText = ''
   let stop: StreamChunk['stop']
   let usage: StreamChunk['usage']
   let block: 'text' | 'reasoning' | undefined
@@ -174,7 +182,6 @@ export async function* readChunks(
   for await (const chunk of chunks) {
     signal?.throwIfAborted()
     if (chunk.stop) stop = chunk.stop
-    toolText += chunk.toolText
     for (const delta of chunk.calls) {
       const previous = calls.get(delta.index)
       calls.set(delta.index, {
@@ -199,19 +206,21 @@ export async function* readChunks(
         text: type === 'text' ? value : '',
         message: new AIMessageChunk({ content }),
       })
+      signal?.throwIfAborted()
     }
     if (chunk.usage) usage = chunk.usage
   }
   signal?.throwIfAborted()
   if (!stop) throw new Error('WebLLM ended the stream without a stop reason.')
   if (stop === 'cancelled') throw new Error('WebLLM cancelled generation.')
+  const ordered = [...calls.values()].sort((left, right) => left.index - right.index)
   checkToolChoice(
-    Array.from(calls.values(), (call) => call.name),
+    ordered.map((call) => call.name),
     choice,
     stop,
   )
-  if (calls.size && stop !== 'maxTokens') {
-    for (const call of calls.values()) {
+  if (ordered.length && stop !== 'maxTokens') {
+    for (const call of ordered) {
       if (!call.name) throw new Error('WebLLM returned a tool call without a name.')
       const input = parseJSON(call.input ?? '')
       if (typeof input !== 'object' || input === null || Array.isArray(input))
@@ -231,16 +240,10 @@ export async function* readChunks(
           ],
         }),
       })
+      signal?.throwIfAborted()
     }
     stop = 'toolUse'
-  } else {
-    if (stop === 'toolUse') throw new Error('WebLLM returned no tool calls.')
-    if (toolText)
-      yield new ChatGenerationChunk({
-        text: toolText,
-        message: new AIMessageChunk({ content: toolText }),
-      })
-  }
+  } else if (stop === 'toolUse') throw new Error('WebLLM returned no tool calls.')
   const finish_reason = stop === 'toolUse' ? 'tool_calls' : stop === 'maxTokens' ? 'length' : 'stop'
   yield new ChatGenerationChunk({
     text: '',

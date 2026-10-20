@@ -1,20 +1,23 @@
 import {
   AIMessageChunk,
-  mapStoredMessagesToChatMessages,
+  coerceMessageLikeToMessage,
   type StandardMessageStructure,
 } from '@langchain/core/messages'
+import { serializeError } from '../../../../shared/web-llm/errors.js'
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
 import type { WebLLMChunk } from '../types.js'
 import { WebLLMEmbeddings } from '../embeddings/model.js'
 import { ChatWebLLM } from '../model.js'
 import type { BrowserBridge, BrowserChunk } from './types.js'
+import { browserStream, type BrowserPacket } from '../../../../shared/browser/stream.js'
 
 /** Serve a caller-owned engine on a private browser page. Closing does not unload it. */
 export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
   interface Call {
     chunks: WebLLMChunk[]
     stream: AsyncGenerator<BrowserChunk>
-    pending?: Promise<IteratorResult<BrowserChunk, undefined>>
+    next: () => Promise<BrowserPacket<BrowserChunk, WebLLMChunk>>
+    pending?: Promise<BrowserPacket<BrowserChunk, WebLLMChunk>>
     controller: AbortController
     closing?: Promise<void>
   }
@@ -23,19 +26,22 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
   const nativeCalls = new Set<Promise<unknown>>()
   const bridge: BrowserBridge = {
     async embed({ config, texts, type }) {
-      if (closed) throw new Error('The browser bridge is closed.')
-      const model = new WebLLMEmbeddings({ ...config, engine })
-      if (type === 'query' && texts.length !== 1)
-        throw new Error('An embedding query needs one text.')
-      const call =
-        type === 'query'
-          ? model.embedQuery(texts[0]!).then((vector) => [vector])
-          : model.embedDocuments(texts)
-      nativeCalls.add(call)
+      let call: Promise<number[][]> | undefined
       try {
+        if (closed) throw new Error('The browser bridge is closed.')
+        const model = new WebLLMEmbeddings({ ...config, engine })
+        if (type === 'query' && texts.length !== 1)
+          throw new Error('An embedding query needs one text.')
+        call =
+          type === 'query'
+            ? model.embedQuery(texts[0]!).then((vector) => [vector])
+            : model.embedDocuments(texts)
+        nativeCalls.add(call)
         return await call
+      } catch (error) {
+        return { error: serializeError(error) }
       } finally {
-        nativeCalls.delete(call)
+        if (call) nativeCalls.delete(call)
       }
     },
     async start({ config, messages, options, includeChunks }) {
@@ -43,14 +49,15 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
       const id = crypto.randomUUID()
       const controller = new AbortController()
       const chunks: WebLLMChunk[] = []
+      const output = includeChunks ? browserStream<BrowserChunk, WebLLMChunk>(chunks) : undefined
       const model = new ChatWebLLM({
         ...config,
         engine,
-        ...(includeChunks && { onChunk: (chunk: WebLLMChunk) => chunks.push(chunk) }),
+        ...(output && { onChunk: output.push }),
       })
       async function* stream(): AsyncGenerator<BrowserChunk> {
         for await (const chunk of model._streamResponseChunks(
-          mapStoredMessagesToChatMessages(messages),
+          messages.map(coerceMessageLikeToMessage),
           { ...options, signal: controller.signal },
         )) {
           if (!AIMessageChunk.isInstance(chunk.message))
@@ -69,27 +76,30 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
           }
         }
       }
-      calls.set(id, { stream: stream(), controller, chunks })
+      const source = stream()
+      calls.set(id, {
+        stream: source,
+        controller,
+        chunks,
+        next: output ? () => output.next(source) : () => source.next(),
+      })
       return id
     },
     async next(id) {
       const call = calls.get(id)
       try {
         if (!call) throw new Error('Unknown browser call.')
-        const pending = call.pending ?? call.stream.next()
+        const pending = call.pending ?? call.next()
         // Reserve the next chunk before waiting, so overlapping reads cannot share it.
-        call.pending = pending.then((result) => (result.done ? result : call.stream.next()))
+        call.pending = pending.then((result) => (result.done ? result : call.next()))
         void call.pending.catch(() => {})
         const result = await pending
         if (result.done) calls.delete(id)
-        return { ...result, ...(call.chunks.length && { chunks: call.chunks.splice(0) }) }
+        return result
       } catch (error) {
         calls.delete(id)
         return {
-          error: {
-            name: error instanceof Error ? error.name : 'Error',
-            message: error instanceof Error ? error.message : String(error),
-          },
+          error: serializeError(error),
           ...(call?.chunks.length && { chunks: call.chunks.splice(0) }),
         }
       }

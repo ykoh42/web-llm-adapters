@@ -1,4 +1,4 @@
-import { Agent, AfterToolsEvent, FunctionTool } from '@strands-agents/sdk'
+import { Agent, AfterToolsEvent, FunctionTool, TextBlock } from '@strands-agents/sdk'
 import { describe, expect, it, vi } from 'vitest'
 import { chunk, setup } from '../../../../../packages/strands-web-llm/fixtures/engine.js'
 import { runAgent, type ExampleInput } from '../../src/examples/output.js'
@@ -36,8 +36,8 @@ describe('example output', () => {
     expect(output).toBe('42')
     expect(details).toContainEqual({ reasoning: ['Check first.'] })
   })
-  it('shows a final hook message when there were no text deltas', async () => {
-    const { engine, model } = setup(
+  it.each(['Finished', ''])('preserves the explicit hook answer %j', async (answer) => {
+    const { engine, model, create } = setup(
       chunk(
         { tool_calls: [{ index: 0, id: 'clock-1', function: { name: 'clock', arguments: '{}' } }] },
         'tool_calls',
@@ -55,7 +55,7 @@ describe('example output', () => {
       ],
     })
     agent.addHook(AfterToolsEvent, (event) => {
-      event.endTurn = 'Finished'
+      event.endTurn = [new TextBlock(answer)]
     })
     let output = ''
     const details: unknown[] = []
@@ -70,8 +70,9 @@ describe('example output', () => {
       },
       info: (value) => details.push(value),
     }
-    expect(await runAgent(agent, input.prompt, input)).toBe('Finished')
-    expect(output).toBe('Finished')
+    expect(await runAgent(agent, input.prompt, input)).toBe(answer)
+    expect(output).toBe(answer)
+    expect(create).toHaveBeenCalledTimes(1)
     expect(details).toEqual(
       expect.arrayContaining([expect.objectContaining({ type: 'toolResultEvent' })]),
     )

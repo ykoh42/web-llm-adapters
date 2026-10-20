@@ -1,8 +1,10 @@
+import type { ErrorInfo } from '../../../../shared/web-llm/errors.js'
+import type { BrowserPacket } from '../../../../shared/browser/stream.js'
 import type { WebLLMEmbeddingsOptions } from '../embeddings/model.js'
 import type {
   AIMessageChunkFields,
   StandardMessageStructure,
-  StoredMessage,
+  MessageFieldWithRole,
 } from '@langchain/core/messages'
 import type { WebLLMModelOptions, WebLLMCallOptions, WebLLMChunk } from '../types.js'
 
@@ -13,7 +15,7 @@ export interface BrowserPage {
 export interface BrowserRequest {
   includeChunks?: boolean
   config: WebLLMModelOptions
-  messages: StoredMessage[]
+  messages: MessageFieldWithRole[]
   options: Pick<
     WebLLMCallOptions,
     'tools' | 'tool_choice' | 'request' | 'stop' | 'response_format' | 'maxRetries'
@@ -24,9 +26,9 @@ export interface BrowserChunk {
   message: AIMessageChunkFields<StandardMessageStructure>
   generationInfo?: Record<string, unknown>
 }
-type BrowserResult = (
-  IteratorResult<BrowserChunk, undefined> | { error: { name: string; message: string } }
-) & { chunks?: WebLLMChunk[] }
+type BrowserResult = (BrowserPacket<BrowserChunk, WebLLMChunk> | { error: ErrorInfo }) & {
+  chunks?: WebLLMChunk[]
+}
 
 /** Expose only on a private page controlled by your application. */
 export interface BrowserBridge {
@@ -34,8 +36,9 @@ export interface BrowserBridge {
     config: Omit<WebLLMEmbeddingsOptions, 'engine'>
     texts: string[]
     type: 'query' | 'document'
-  }): Promise<number[][]>
+  }): Promise<number[][] | { error: ErrorInfo }>
   start(request: BrowserRequest): Promise<string>
+  /** Returns model output or a native chunk batch. */
   next(id: string): Promise<BrowserResult>
   stop(id: string): Promise<void>
   close(): Promise<void>

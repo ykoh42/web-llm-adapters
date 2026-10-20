@@ -18,7 +18,7 @@ export async function tools(input: ExampleInput, thinking = false) {
     ...(thinking && { request: { extra_body: { enable_thinking: true } } }),
   })
   const agent = new Agent({ model, tools: [clock], printer: false })
-  // These models repeat tool calls instead of answering after a tool result.
+  // WebLLM requires tool-call JSON on every native Hermes request.
   const { functionCallingModelIds } = await import('@mlc-ai/web-llm')
   if (functionCallingModelIds.includes(input.modelId))
     agent.addHook(AfterToolsEvent, (event) => {

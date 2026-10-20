@@ -1,8 +1,14 @@
 import { ModelError, type ToolSpec } from '../types.js'
 import type { ChatCompletionChunk } from '@mlc-ai/web-llm'
-import { stopReason, type StreamChunk, type ToolDelta } from '../stream/chunks.js'
+import {
+  stopReason,
+  type StreamChunk,
+  type ToolDelta,
+  type ChunkOptions,
+} from '../stream/chunks.js'
 import { textEnd } from '../gemma/markers.js'
 import { parseJSON } from '../json.js'
+import { QwenOutput } from './output.js'
 
 const thinkStart = '<think>'
 const thinkEnd = '</think>'
@@ -13,107 +19,119 @@ const callEnd = '</tool_call>'
 export async function* qwenChunks(
   chunks: AsyncIterable<ChatCompletionChunk>,
   tools: ToolSpec[],
-  onChunk?: (chunk: ChatCompletionChunk) => void,
-  parseProtocol = true,
+  {
+    onChunk,
+    signal,
+    parseProtocol = true,
+    parseThinking = true,
+  }: ChunkOptions<ChatCompletionChunk> & {
+    parseProtocol?: boolean
+    parseThinking?: boolean
+  } = {},
 ): AsyncGenerator<StreamChunk> {
+  const textMarkers: string[] = []
+  if (parseThinking) textMarkers.push(thinkStart)
+  if (tools.length) textMarkers.push(callStart)
   let mode: 'text' | 'thinking' | 'tool' = 'text'
   let pending = ''
   let toolJson = ''
-  // Hold output after a call marker so truncation can return it in order.
-  let fallbackText = ''
-  let afterToolText = ''
-  let sawTool = false
+  const output = new QwenOutput()
   let callIndex = 0
   const quoted = { inside: false, escaped: false }
-  for await (const chunk of chunks) {
-    onChunk?.(chunk)
-    const choice = chunk.choices[0]
-    if (chunk.choices.length > 1 || (choice && choice.index !== 0))
-      throw new ModelError('WebLLM adapters need one response per request.')
-    pending += choice?.delta.content ?? ''
-    let text = ''
-    let reasoning = ''
-    const calls: ToolDelta[] = []
-    const appendText = (value: string) => {
-      if (sawTool) {
-        afterToolText += value
-        fallbackText += value
-      } else text += value
-    }
+  let failure: { error: unknown } | undefined
+  try {
+    for await (const chunk of chunks) {
+      if (signal?.aborted) return
+      onChunk?.(chunk)
+      if (signal?.aborted) return
+      const choice = chunk.choices[0]
+      if (chunk.choices.length > 1 || (choice && choice.index !== 0))
+        throw new ModelError('WebLLM adapters need one response per request.')
+      pending += choice?.delta.content ?? ''
+      const calls: ToolDelta[] = []
 
-    while (pending) {
-      if (mode === 'tool') {
-        const end = textEnd(pending, [callEnd])
-        const at = toolEnd(pending, end, quoted)
-        if (at === -1) {
-          toolJson += pending.slice(0, end)
-          pending = pending.slice(end)
+      while (pending) {
+        if (mode === 'tool') {
+          const end = textEnd(pending, [callEnd])
+          const at = toolEnd(pending, end, quoted)
+          if (at === -1) {
+            output.add('tool', pending.slice(0, end))
+            toolJson += pending.slice(0, end)
+            pending = pending.slice(end)
+            break
+          }
+          toolJson += pending.slice(0, at)
+          output.add('tool', pending.slice(0, at) + callEnd)
+          pending = pending.slice(at + callEnd.length)
+          calls.push(parseCall(toolJson, tools, callIndex++))
+          toolJson = ''
+          mode = 'text'
+          continue
+        }
+
+        if (mode === 'text' && (!parseProtocol || !textMarkers.length)) {
+          output.add('text', pending)
+          pending = ''
           break
         }
-        toolJson += pending.slice(0, at)
-        fallbackText += `${callStart}${toolJson}${callEnd}`
-        pending = pending.slice(at + callEnd.length)
-        calls.push(parseCall(toolJson, tools, callIndex++))
-        toolJson = ''
-        mode = 'text'
-        continue
-      }
 
-      if (mode === 'text' && !parseProtocol) {
-        appendText(pending)
-        pending = ''
+        const markers = mode === 'thinking' ? [thinkEnd] : textMarkers
+        const at = earliest(pending, markers)
+        if (at !== undefined) {
+          const value = pending.slice(0, at.index)
+          if (mode === 'thinking') output.add('reasoning', value)
+          else output.add('text', value)
+          pending = pending.slice(at.index + at.marker.length)
+          if (mode === 'thinking') mode = 'text'
+          else if (at.marker === thinkStart) mode = 'thinking'
+          else {
+            output.add('tool', callStart)
+            mode = 'tool'
+          }
+          continue
+        }
+        const end = textEnd(pending, markers)
+        const value = pending.slice(0, end)
+        if (mode === 'thinking') output.add('reasoning', value)
+        else output.add('text', value)
+        pending = pending.slice(end)
         break
       }
 
-      const markers = mode === 'thinking' ? [thinkEnd] : [thinkStart, callStart]
-      const at = earliest(pending, markers)
-      if (at !== undefined) {
-        const value = pending.slice(0, at.index)
-        if (mode === 'thinking') reasoning += value
-        else appendText(value)
-        pending = pending.slice(at.index + at.marker.length)
-        if (mode === 'thinking') mode = 'text'
-        else if (at.marker === thinkStart) mode = 'thinking'
-        else {
-          sawTool = true
-          mode = 'tool'
+      const stop = stopReason(choice?.finish_reason)
+      if (stop) {
+        if (mode === 'tool') {
+          if (stop !== 'maxTokens' && stop !== 'cancelled') {
+            const end = textEnd(pending, [callEnd])
+            const content = toolJson + pending.slice(0, end)
+            output.add('tool', pending)
+            pending = ''
+            calls.push(parseCall(content, tools, callIndex++))
+          } else output.add('tool', pending)
+          pending = ''
+          toolJson = ''
+          mode = 'text'
         }
-        continue
-      }
-      const end = textEnd(pending, markers)
-      const value = pending.slice(0, end)
-      if (mode === 'thinking') reasoning += value
-      else appendText(value)
-      pending = pending.slice(end)
-      break
-    }
-
-    const stop = stopReason(choice?.finish_reason)
-    if (stop) {
-      if (mode === 'tool') {
-        if (stop !== 'maxTokens' && stop !== 'cancelled') {
-          const end = textEnd(pending, [callEnd])
-          const content = toolJson + pending.slice(0, end)
-          fallbackText += `${callStart}${toolJson}${pending}`
-          calls.push(parseCall(content, tools, callIndex++))
-        } else fallbackText += `${callStart}${toolJson}${pending}`
-        pending = ''
-        toolJson = ''
+        if (mode === 'thinking') {
+          output.add('reasoning', pending)
+          pending = ''
+        } else {
+          output.add('text', pending)
+          pending = ''
+        }
         mode = 'text'
       }
-      if (mode === 'thinking') {
-        reasoning += pending
-        pending = ''
-      } else {
-        appendText(pending)
-        pending = ''
-      }
-      if (sawTool)
-        text += stop === 'maxTokens' || stop === 'cancelled' ? fallbackText : afterToolText
-      mode = 'text'
+      yield* output.read(stop)
+      if (calls.length || stop || chunk.usage)
+        yield { text: '', reasoning: '', calls, stop, usage: chunk.usage }
     }
-    yield { text, reasoning, toolText: '', calls, stop, usage: chunk.usage }
+  } catch (error) {
+    failure = { error }
   }
+  if (signal?.aborted) return
+  output.add(mode === 'thinking' ? 'reasoning' : 'text', pending)
+  yield* output.read('incomplete')
+  if (failure && !signal?.aborted) throw failure.error
 }
 
 /** A closing tag inside a JSON string is data, including across chunk boundaries. */

@@ -3,7 +3,7 @@ import type { GemmaMessage } from '../../../../shared/web-llm/gemma/prompt.js'
 import type { ToolSpec, ToolChoice } from '../../../../shared/web-llm/types.js'
 import * as qwen from '../../../../shared/web-llm/qwen/tools.js'
 import * as qwen35 from '../../../../shared/web-llm/qwen35/tools.js'
-import { appendQwenTurns } from '../../../../shared/web-llm/qwen/history.js'
+import { appendQwenTurns, formatQwenAssistant } from '../../../../shared/web-llm/qwen/history.js'
 
 export function trimThoughts(history: GemmaMessage[]) {
   const last = lastUser(history)
@@ -39,23 +39,15 @@ export function qwenHistory(
       previousWasTool = appendQwenTurns(output, [message], previousWasTool)
       continue
     }
-    const thought = message.reasoning?.trim()
-    const reasoning =
-      !modelId.startsWith('Qwen2.5-') && index > last && thought
-        ? `<think>\n${thought}\n</think>\n\n`
-        : ''
-    const answer = message.content ?? ''
-    const calls = (message.tool_calls ?? [])
-      .map((call, index) => {
-        const input: unknown = JSON.parse(call.function.arguments)
-        const separator = index ? '\n' : answer ? (xml ? '\n\n' : '\n') : ''
-        return separator + (xml ? qwen35 : qwen).formatCall(call.function.name, input)
-      })
-      .join('')
+    const thought = !modelId.startsWith('Qwen2.5-') && index > last ? (message.reasoning ?? '') : ''
+    const calls = (message.tool_calls ?? []).map((call) => {
+      const input: unknown = JSON.parse(call.function.arguments)
+      return (xml ? qwen35 : qwen).formatCall(call.function.name, input)
+    })
     output.push({
       role: 'assistant',
-      content: `${reasoning}${answer}${calls}` || null,
-      ...(message.name !== undefined && { name: message.name }),
+      content: formatQwenAssistant(message.content ?? '', thought, calls, xml),
+      ...(message.name !== undefined && message.name !== 'model' && { name: message.name }),
     })
     previousWasTool = false
   }

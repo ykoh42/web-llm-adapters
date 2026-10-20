@@ -6,6 +6,7 @@ import { WebLLMChatModel } from './chat/base.js'
 import { formatMessages } from './chat/messages.js'
 import { formatChoice, formatTools } from './chat/tools.js'
 import { protocolStream } from './protocol/stream.js'
+import { modelError } from './error.js'
 import { readChunks } from './chat/stream.js'
 import type { ChatWebLLMOptions } from './types.js'
 
@@ -41,12 +42,25 @@ export class ChatWebLLM extends WebLLMChatModel {
       signal: options.signal,
       maxRetries: options.maxRetries,
     })
-    for await (const chunk of readChunks(chunks, this.modelId, options.signal, choice)) {
-      if (runManager)
-        await runManager.handleLLMNewToken(chunk.text, undefined, undefined, undefined, undefined, {
-          chunk,
-        })
-      yield chunk
+    try {
+      for await (const chunk of readChunks(chunks, this.modelId, options.signal, choice)) {
+        options.signal?.throwIfAborted()
+        if (runManager)
+          await runManager.handleLLMNewToken(
+            chunk.text,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            {
+              chunk,
+            },
+          )
+        options.signal?.throwIfAborted()
+        yield chunk
+      }
+    } catch (error) {
+      throw modelError(error)
     }
   }
 }

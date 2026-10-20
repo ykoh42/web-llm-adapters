@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest'
-import { startCall } from '../../../../shared/web-llm/engine/call.js'
-import { setup, chunks, chunk, pause } from '../../fixtures/engine.js'
+import { startCall, streamCall } from '../../../../shared/web-llm/engine/call.js'
+import { setup, chunks, chunk, pause, collect } from '../../fixtures/engine.js'
 
 it.each(['throw', 'reject'] as const)(
   'closes the stream and releases the queue when interrupt fails (%s)',
@@ -43,4 +43,51 @@ it('starts stream cleanup while an async interrupt is still pending', async () =
   }))
   await call.close(true)
   expect(returned).toHaveBeenCalledTimes(1)
+})
+
+it('keeps the original stream failure when cleanup also fails', async () => {
+  const { engine, stop } = setup()
+  const failure = new Error('Read failed')
+  stop.mockRejectedValueOnce(new Error('Cleanup failed'))
+  let returned = false
+  const source = (async function* () {
+    try {
+      yield 1
+      yield 2
+    } finally {
+      returned = true
+    }
+  })()
+  const stream = streamCall(
+    engine,
+    async () => source,
+    async function* (chunks) {
+      for await (const value of chunks) {
+        yield value
+        throw failure
+      }
+    },
+  )
+  await expect(collect(stream)).rejects.toBe(failure)
+  expect(returned).toBe(true)
+  const next = await startCall(engine, async () => chunks(chunk({}, 'stop')))
+  await next.close(false)
+})
+
+it('does not open a request cancelled while registering its active listener', async () => {
+  const { engine } = setup()
+  const controller = new AbortController()
+  const listen = controller.signal.addEventListener.bind(controller.signal)
+  let registrations = 0
+  vi.spyOn(controller.signal, 'addEventListener').mockImplementation((...args) => {
+    listen(...args)
+    if (++registrations === 2) controller.abort(new Error('Cancelled before opening'))
+  })
+  const open = vi.fn(async () => chunks(chunk({}, 'stop')))
+  await expect(startCall(engine, open, controller.signal)).rejects.toThrow(
+    'Cancelled before opening',
+  )
+  expect(open).not.toHaveBeenCalled()
+  const next = await startCall(engine, async () => chunks(chunk({}, 'stop')))
+  await next.close(false)
 })

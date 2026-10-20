@@ -1,5 +1,6 @@
 import { ModelError, type ToolSpec, type ToolChoice } from '../types.js'
 import type { ChatCompletionTool } from '@mlc-ai/web-llm'
+import { stringifyJSON } from '../json.js'
 
 function formatTools(tools: ToolSpec[]): ChatCompletionTool[] {
   return tools.map((tool) => ({
@@ -57,14 +58,16 @@ export function toolPrompt(tools: ToolSpec[], choice?: ToolChoice) {
 
 /** Match the template's JSON separators without changing strings. */
 function templateJson(value: unknown) {
-  return JSON.stringify(value).replace(/"(?:\\.|[^"\\])*"|[:,]/g, (token) =>
+  return stringifyJSON(value).replace(/"(?:\\.|[^"\\])*"|[:,]/g, (token) =>
     token === ',' || token === ':' ? `${token} ` : token,
   )
 }
 
 export function formatCall(name: string, input: unknown) {
-  if (!isRecord(input)) throw new ModelError('Qwen3.5 tool arguments must be an object.')
-  const parameters = Object.entries(input).map(([key, value]) => {
+  // Match the JSON values sent by native requests and browser transport.
+  const args: unknown = JSON.parse(stringifyJSON(input))
+  if (!isRecord(args)) throw new ModelError('Qwen3.5 tool arguments must be an object.')
+  const parameters = Object.entries(args).map(([key, value]) => {
     const text = typeof value === 'string' ? value : templateJson(value)
     return `<parameter=${key}>\n${text}\n</parameter>`
   })

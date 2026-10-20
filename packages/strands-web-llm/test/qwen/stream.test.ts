@@ -47,7 +47,7 @@ it('rejects an unregistered function wrapper without changing the model output',
   const onChunk = vi.fn()
 
   await expect(
-    collect(qwenChunks(chunks(raw), [{ name: 'read', description: 'Read a file.' }], onChunk)),
+    collect(qwenChunks(chunks(raw), [{ name: 'read', description: 'Read a file.' }], { onChunk })),
   ).rejects.toThrow('Qwen returned unknown tool "function".')
   expect(onChunk).toHaveBeenCalledExactlyOnceWith(raw)
 })

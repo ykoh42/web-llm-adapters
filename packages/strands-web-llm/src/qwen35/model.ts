@@ -21,10 +21,12 @@ export function qwen35Stream(
     () => engine.chat.completions.create(request),
     (chunks) =>
       readStream(
-        qwen35Chunks(chunks, options.toolSpecs ?? [], onChunk, !hasStructuredResponse(config)),
-        (chunk) => chunk,
+        qwen35Chunks(chunks, options.toolSpecs ?? [], {
+          onChunk,
+          parseProtocol: !hasStructuredResponse(config),
+          signal: options.cancelSignal,
+        }),
         options.cancelSignal,
-        undefined,
         options.toolChoice ?? config.request?.tool_choice,
       ),
     options.cancelSignal,

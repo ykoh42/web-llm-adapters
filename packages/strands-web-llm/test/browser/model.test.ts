@@ -8,6 +8,8 @@ import {
   Message,
   ModelError,
   TextBlock,
+  ToolUseBlock,
+  ToolResultBlock,
 } from '@strands-agents/sdk'
 import {
   BrowserModel,
@@ -19,6 +21,122 @@ import { chunk, chunks, collect, pause, setup } from '../../fixtures/engine.js'
 
 afterEach(() => vi.unstubAllGlobals())
 const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+
+it('delivers native tool chunks while the model is still generating arguments', async () => {
+  const { page, bridge, create } = open()
+  const hold = pause()
+  const onChunk = vi.fn()
+  create.mockResolvedValueOnce(
+    (async function* () {
+      yield chunk({ content: '<tool_call>' })
+      yield chunk({ content: '{"name":"lookup","arguments":{' })
+      await hold.wait
+      yield chunk({ content: '}}</tool_call>' }, 'stop')
+    })(),
+  )
+  const model = new BrowserModel(page, { modelId: 'Qwen3-8B-q4f16_1-MLC', onChunk })
+  const pending = collect(
+    model.stream(messages, { toolSpecs: [{ name: 'lookup', description: 'Look up a note.' }] }),
+  )
+  try {
+    await vi.waitFor(() => expect(onChunk).toHaveBeenCalledTimes(2))
+  } finally {
+    hold.resume()
+    await pending
+    await bridge.close()
+  }
+  expect(onChunk).toHaveBeenCalledTimes(3)
+  expect(await pending).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'toolUse' })
+})
+
+it.each(['abort', 'throw'])(
+  'closes a pending native tool stream when its callback %s',
+  async (mode) => {
+    const { page, bridge, create, stop, model: plain } = open()
+    const hold = pause()
+    const closed = vi.fn()
+    const controller = new AbortController()
+    create.mockResolvedValueOnce(
+      (async function* () {
+        try {
+          yield chunk({ content: '<tool_call>' })
+          await hold.wait
+          yield chunk({ content: '{"name":"lookup","arguments":{}}</tool_call>' }, 'stop')
+        } finally {
+          closed()
+        }
+      })(),
+    )
+    stop.mockImplementation(async () => hold.resume())
+    const onChunk = vi.fn(() => {
+      if (mode === 'abort') controller.abort()
+      else throw new Error('Callback failed')
+    })
+    const model = new BrowserModel(page, { modelId: 'Qwen3-8B-q4f16_1-MLC', onChunk })
+    const pending = collect(
+      model.stream(messages, {
+        toolSpecs: [{ name: 'lookup', description: 'Look up a note.' }],
+        cancelSignal: controller.signal,
+      }),
+    )
+    try {
+      if (mode === 'abort') await expect(pending).rejects.toHaveProperty('name', 'AbortError')
+      else await expect(pending).rejects.toThrow('Callback failed')
+      expect(onChunk).toHaveBeenCalledTimes(1)
+      expect(closed).toHaveBeenCalledTimes(1)
+      expect(stop).toHaveBeenCalledTimes(1)
+      expect(await collect(plain.stream(messages))).toContainEqual({
+        type: 'modelMessageStopEvent',
+        stopReason: 'endTurn',
+      })
+    } finally {
+      hold.resume()
+      await bridge.close()
+    }
+  },
+)
+
+it('stops a native chunk batch when its callback cancels the request', async () => {
+  const { page, bridge } = open()
+  const controller = new AbortController()
+  const onChunk = vi.fn(() => controller.abort())
+  vi.spyOn(bridge, 'next').mockResolvedValueOnce({
+    done: false,
+    value: { type: 'modelMessageStartEvent', role: 'assistant' },
+    chunks: [chunk({ content: 'First' }), chunk({ content: 'Late' }, 'stop')],
+  })
+  const model = new BrowserModel(page, { modelId: 'test-model', onChunk })
+  const output: unknown[] = []
+  await expect(
+    (async () => {
+      for await (const event of model.stream(messages, { cancelSignal: controller.signal }))
+        output.push(event)
+    })(),
+  ).rejects.toHaveProperty('name', 'AbortError')
+  expect(onChunk).toHaveBeenCalledTimes(1)
+  expect(output).toEqual([])
+  await bridge.close()
+})
+
+it('transfers provider content without session metadata or tracking IDs', async () => {
+  const { model, bridge } = open()
+  const start = vi.spyOn(bridge, 'start')
+  const metadata = { custom: { private: 'session-only', score: Infinity } }
+  const message = new Message({
+    role: 'user',
+    content: [new TextBlock('Hello')],
+    metadata,
+  })
+
+  await collect(model.stream([message]))
+
+  expect(start.mock.calls[0]?.[0].messages).toEqual([
+    { role: 'user', content: [{ text: 'Hello' }] },
+  ])
+  expect(message.metadata).toBe(metadata)
+  expect(message.trackingId).toBeTruthy()
+  await bridge.close()
+})
 
 function open() {
   const native = setup()
@@ -47,12 +165,37 @@ it('keeps overlapping bridge reads in event order without duplicating events', a
     expect(
       results.map((result) => {
         if ('error' in result) throw new Error(result.error.message)
-        return result.done ? 'done' : result.value.type
+        return result.done ? 'done' : result.value?.type
       }),
     ).toEqual([
       'modelContentBlockStartEvent',
       'modelContentBlockDeltaEvent',
       'modelContentBlockStopEvent',
+    ])
+  } finally {
+    await bridge.stop(id)
+  }
+})
+
+it('delivers every native chunk once when bridge reads overlap', async () => {
+  const { bridge, request, create } = open()
+  const first = chunk({ content: 'Hi' })
+  const last = chunk({}, 'stop')
+  create.mockResolvedValueOnce(chunks(first, last))
+  const id = await bridge.start({ ...request, includeChunks: true })
+  try {
+    const results = await Promise.all(Array.from({ length: 12 }, () => bridge.next(id)))
+    expect(results.flatMap((result) => result.chunks ?? [])).toEqual([first, last])
+    const events = results.flatMap((result) => {
+      if ('error' in result) throw new Error(result.error.message)
+      return result.done || 'native' in result ? [] : [result.value.type]
+    })
+    expect(events).toEqual([
+      'modelMessageStartEvent',
+      'modelContentBlockStartEvent',
+      'modelContentBlockDeltaEvent',
+      'modelContentBlockStopEvent',
+      'modelMessageStopEvent',
     ])
   } finally {
     await bridge.stop(id)
@@ -95,24 +238,49 @@ it('preserves Strands model errors across the browser boundary', async () => {
   })
 })
 
+it('delivers buffered native output before a browser stream failure', async () => {
+  const { model, create, bridge } = open()
+  const raw = '[{"name":"lookup","arguments":{'
+  create.mockResolvedValueOnce(
+    (async function* () {
+      yield chunk({ content: raw })
+      throw new TypeError('Native stream failed')
+    })(),
+  )
+  const output: string[] = []
+  await expect(
+    (async () => {
+      for await (const event of model.stream(messages, {
+        toolSpecs: [{ name: 'lookup', description: 'Look up a code.' }],
+      })) {
+        if (event.type === 'modelContentBlockDeltaEvent' && event.delta.type === 'textDelta')
+          output.push(event.delta.text)
+        if (event.type === 'modelContentBlockStartEvent') expect(event.start).toBeUndefined()
+      }
+    })(),
+  ).rejects.toBeInstanceOf(TypeError)
+  expect(output.join('')).toBe(raw)
+  await expect(collect(model.stream(messages))).resolves.toContainEqual({
+    type: 'modelMessageStopEvent',
+    stopReason: 'endTurn',
+  })
+  await bridge.close()
+})
+
 it('preserves model error causes across the browser boundary', async () => {
   const { model, create } = open()
   model.updateConfig({ modelId: 'Qwen3-4B-q4f16_1-MLC' })
   create.mockResolvedValueOnce(
     chunks(chunk({ content: '<tool_call>{"name":"lookup","arguments": }</tool_call>' }, 'stop')),
   )
-  await expect(
-    collect(
-      model.stream(messages, {
-        toolSpecs: [{ name: 'lookup', description: 'Look up a value.' }],
-      }),
-    ),
-  ).rejects.toMatchObject({
+  const failed = collect(
+    model.stream(messages, {
+      toolSpecs: [{ name: 'lookup', description: 'Look up a value.' }],
+    }),
+  )
+  await expect(failed).rejects.toMatchObject({
     name: 'ModelError',
-    cause: {
-      name: 'WebLLMError',
-      cause: { name: 'SyntaxError' },
-    },
+    cause: { name: 'WebLLMError', cause: expect.any(SyntaxError) },
   })
 })
 
@@ -210,6 +378,56 @@ it('does not transfer native chunks unless requested', async () => {
   }
 })
 
+it('snapshots tool history and definitions before a delayed page transfer', async () => {
+  const { create, bridge } = open()
+  const hold = pause()
+  const submitted = pause()
+  const page: BrowserPage = {
+    async evaluate<T, A>(run: (arg: A) => T | Promise<T>, arg: A): Promise<T> {
+      submitted.resume()
+      await hold.wait
+      return run(structuredClone(arg))
+    },
+  }
+  const model = new BrowserModel(page, { modelId: 'Hermes-3-Llama-3.1-8B-q4f16_1-MLC' })
+  const input = { city: 'Before' }
+  const toolSpecs = [{ name: 'weather', description: 'Before' }]
+  const history = [
+    ...messages,
+    new Message({
+      role: 'assistant',
+      content: [new ToolUseBlock({ toolUseId: 'call-1', name: 'weather', input })],
+    }),
+    new Message({
+      role: 'user',
+      content: [
+        new ToolResultBlock({
+          toolUseId: 'call-1',
+          status: 'success',
+          content: [new TextBlock('Done.')],
+        }),
+      ],
+    }),
+  ]
+  const pending = collect(model.stream(history, { toolSpecs }))
+  try {
+    await submitted.wait
+    input.city = 'After'
+    toolSpecs[0]!.description = 'After'
+    hold.resume()
+    await pending
+    expect(create.mock.calls[0]?.[0].messages[1]).toMatchObject({
+      role: 'assistant',
+      content: '[{"name":"weather","arguments":{"city":"Before"}}]',
+    })
+    expect(create.mock.calls[0]?.[0].tools?.[0]?.function.description).toBe('Before')
+  } finally {
+    hold.resume()
+    await pending.catch(() => {})
+    await bridge.close()
+  }
+})
+
 it('runs a Strands Agent through the public browser bridge and keeps config snapshots', async () => {
   const { model, create, engine } = open()
   const unload = vi.spyOn(engine, 'unload')
@@ -242,11 +460,11 @@ it('counts the browser prompt, joins system text and ignores cache hints', async
     modelId: 'test-model',
   })
   expect(await model.countTokens(messages, options)).toBe(
-    await native.countTokens(messages, { ...options, systemPrompt: 'One\n\nTwo' }),
+    await native.countTokens(messages, { ...options, systemPrompt: 'OneTwo' }),
   )
   expect(evaluate).not.toHaveBeenCalled()
   await collect(model.stream(messages, { systemPrompt: prompt }))
-  expect(create.mock.calls[0]?.[0].messages[0]).toEqual({ role: 'system', content: 'One\n\nTwo' })
+  expect(create.mock.calls[0]?.[0].messages[0]).toEqual({ role: 'system', content: 'OneTwo' })
 })
 
 it('counts Gemma prompts locally without crossing the browser bridge', async () => {
@@ -292,14 +510,11 @@ it('preserves audio bytes across the browser boundary without changing the nativ
     }),
   ]
   await collect(model.stream(audio))
-  expect(evaluate.mock.calls[0]?.[1]).toMatchObject({
+  expect(JSON.parse(String(evaluate.mock.calls[0]?.[1]))).toMatchObject({
     messages: [{ content: [{ audio: { source: { bytes: 'AH+A/w==' } } }] }],
   })
   expect(create.mock.calls[0]?.[0].messages[0]).toMatchObject({
-    content: [
-      { type: 'text', text: '' },
-      { type: 'input_audio', input_audio: { format: 'wav', data: 'AH+A/w==' } },
-    ],
+    content: [{ type: 'input_audio', input_audio: { format: 'wav', data: 'AH+A/w==' } }],
   })
 })
 
@@ -484,4 +699,80 @@ it('uses native APIs through page evaluation and waits for them during bridge cl
   await closing
   expect(closed).toBe(true)
   expect(run).not.toHaveBeenCalled()
+})
+
+it('preserves reserved JSON keys when browser RPC filters object properties', async () => {
+  const { model, page, create } = open()
+  page.evaluate = async (run, arg) =>
+    run(JSON.parse(JSON.stringify(arg), (key, value) => (key === '__proto__' ? undefined : value)))
+  const input = JSON.parse('{"__proto__":{"safe":true},"lc":1}')
+  const history = [
+    new Message({ role: 'user', content: [new TextBlock('Look up the data.')] }),
+    new Message({
+      role: 'assistant',
+      content: [new ToolUseBlock({ toolUseId: 'call', name: 'lookup', input })],
+    }),
+    new Message({
+      role: 'user',
+      content: [
+        new ToolResultBlock({
+          toolUseId: 'call',
+          status: 'success',
+          content: [new TextBlock('Done')],
+        }),
+      ],
+    }),
+  ]
+
+  await collect(model.stream(history))
+
+  const assistant = create.mock.calls[0]?.[0].messages[1]
+  if (assistant?.role !== 'assistant') throw new Error('Missing assistant history.')
+  expect(JSON.parse(assistant.tool_calls![0]!.function.arguments)).toEqual(input)
+})
+
+it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+  'rejects invalid browser input numbers instead of changing them to null: %s',
+  async (temperature) => {
+    const { model, page, create } = open()
+    const evaluate = vi.spyOn(page, 'evaluate')
+    model.updateConfig({ temperature })
+
+    await expect(collect(model.stream(messages))).rejects.toThrow('finite numbers')
+
+    expect(evaluate).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+  },
+)
+
+it('matches direct Qwen3.5 history when optional arguments are undefined', async () => {
+  const { model, page, engine, create } = open()
+  model.updateConfig({ modelId: 'Qwen3.5-4B-q4f16_1-MLC' })
+  const direct = new WebLLMModel({ engine, ...model.getConfig() })
+  const input = { code: 'A7', empty: '', zero: 0, disabled: false, nullable: null }
+  Object.assign(input, { optional: undefined })
+  const history = [
+    new Message({ role: 'user', content: [new TextBlock('Look up the code.')] }),
+    new Message({
+      role: 'assistant',
+      content: [new ToolUseBlock({ toolUseId: 'call', name: 'lookup', input })],
+    }),
+    new Message({
+      role: 'user',
+      content: [
+        new ToolResultBlock({
+          toolUseId: 'call',
+          status: 'success',
+          content: [new TextBlock('Done')],
+        }),
+      ],
+    }),
+  ]
+
+  await collect(model.stream(history))
+  await collect(direct.stream(history))
+
+  expect(create.mock.calls[1]?.[0]).toEqual(create.mock.calls[0]?.[0])
+  expect(Object.hasOwn(input, 'optional')).toBe(true)
+  await page.evaluate(() => window.webllmBridge.close(), undefined)
 })

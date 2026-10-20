@@ -1,4 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
+import { ContextOverflowError } from '@langchain/core/errors'
+import { HumanMessage } from '@langchain/core/messages'
+import {
+  ModelType,
+  postInitAndCheckFieldsChatCompletion,
+  type ChatCompletionRequest,
+} from '@mlc-ai/web-llm'
 import { ChatWebLLM, withEngine } from '../src/index.js'
 import { withEngine as withStrandsEngine } from '../../strands-web-llm/src/index.js'
 import { chunk, chunks, collect, pause, setup } from '../fixtures/engine.js'
@@ -16,6 +23,41 @@ describe('engine ownership', () => {
     if (retries) expect((await result).text).toBe('Okay')
     else await expect(result).rejects.toThrow('Opening failed')
     expect(create).toHaveBeenCalledTimes(retries + 1)
+  })
+
+  it('retries a Hermes request after WebLLM mutates its first attempt', async () => {
+    const { engine, create } = setup()
+    const modelId = 'Hermes-3-Llama-3.1-8B-q4f16_1-MLC'
+    const attempts: ChatCompletionRequest[] = []
+    create.mockImplementation(async (request) => {
+      attempts.push(structuredClone(request))
+      postInitAndCheckFieldsChatCompletion(request, modelId, ModelType.LLM)
+      if (attempts.length === 1) throw new Error('Opening failed')
+      return chunks(
+        chunk(
+          { tool_calls: [{ index: 0, function: { name: 'lookup', arguments: '{"code":"A7"}' } }] },
+          'tool_calls',
+        ),
+      )
+    })
+    const model = new ChatWebLLM({ engine, modelId, maxRetries: 1 })
+    const result = await model
+      .bindTools([
+        {
+          type: 'function',
+          function: {
+            name: 'lookup',
+            parameters: { type: 'object', properties: { code: { type: 'string' } } },
+          },
+        },
+      ])
+      .invoke('Look up A7.')
+
+    expect(result.tool_calls).toMatchObject([{ name: 'lookup', args: { code: 'A7' } }])
+    expect(attempts).toHaveLength(2)
+    expect(attempts[1]).toEqual(attempts[0])
+    expect(attempts[1]?.response_format).toBeUndefined()
+    expect(attempts[1]?.messages).toEqual([{ role: 'user', content: 'Look up A7.' }])
   })
 
   it('keeps local retries off when maxRetries is undefined', async () => {
@@ -122,6 +164,40 @@ describe('engine ownership', () => {
     expect(iterator.return).toHaveBeenCalledOnce()
   })
 
+  it('preserves cancellation when closing a late opening stream also fails', async () => {
+    const { model, create } = setup(chunk({ content: 'Recovered' }, 'stop'))
+    const opening = pause()
+    const hold = pause()
+    const returned = vi.fn(async () => {
+      throw new Error('Cleanup failed')
+    })
+    create.mockImplementationOnce(async () => {
+      opening.resume()
+      await hold.wait
+      return {
+        [Symbol.asyncIterator]: () => ({
+          next: async () => ({ done: true as const, value: undefined }),
+          return: returned,
+        }),
+      }
+    })
+    const cancel = new AbortController()
+    const first = collect(
+      model._streamResponseChunks([new HumanMessage('First')], { signal: cancel.signal }),
+    )
+    await opening.wait
+    cancel.abort()
+    const failed = expect(first).rejects.toHaveProperty('name', 'AbortError')
+    const second = model.invoke('Second')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(create).toHaveBeenCalledTimes(1)
+
+    hold.resume()
+    await failed
+    expect(returned).toHaveBeenCalledOnce()
+    expect((await second).text).toBe('Recovered')
+  })
+
   it('cancels retry backoff without delaying the next engine call', async () => {
     vi.useFakeTimers()
     try {
@@ -213,12 +289,14 @@ describe('engine ownership', () => {
     expect((await model.invoke('After')).text).toBe('Okay')
   })
 
-  it('passes a native context error through without rewriting it', async () => {
+  it('preserves a native context error as the cause of the standard error', async () => {
     const { model, create } = setup()
     const error = new Error('Context full')
     error.name = 'ContextWindowSizeExceededError'
     create.mockRejectedValueOnce(error)
-    await expect(model.invoke('Hi')).rejects.toBe(error)
+    const failed = model.invoke('Hi')
+    await expect(failed).rejects.toBeInstanceOf(ContextOverflowError)
+    await expect(failed).rejects.toHaveProperty('cause', error)
     create.mockResolvedValueOnce(chunks(chunk({ content: 'Okay' }, 'stop')))
     expect((await model.invoke('After')).text).toBe('Okay')
   })

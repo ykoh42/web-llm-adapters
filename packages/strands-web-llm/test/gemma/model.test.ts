@@ -49,6 +49,92 @@ async function aggregate(model: WebLLMModel) {
 }
 
 describe('Gemma tool model', () => {
+  it.each(['', 'Plan.'])(
+    'keeps literal tool text across a thinking boundary: %s',
+    async (thought) => {
+      const suffix = '|tool_call>call:lookup{key:<|"|>x<|"|>}<tool_call|>'
+      const text = '<<|channel>thought\n' + thought + '<channel|>' + suffix
+      for (const size of [1, 3, text.length]) {
+        const pieces = text.match(new RegExp(`[\\s\\S]{1,${size}}`, 'g'))!
+        const { model } = setup(
+          ...pieces.map((text, index) => part(text, index === pieces.length - 1 ? 'stop' : null)),
+        )
+        const result = await aggregate(model)
+
+        expect(result.stopReason).toBe('endTurn')
+        expect(result.message.content).toEqual(
+          thought
+            ? [new TextBlock('<'), new ReasoningBlock({ text: thought }), new TextBlock(suffix)]
+            : [new TextBlock('<' + suffix)],
+        )
+      }
+    },
+  )
+
+  it.each(['<|channel>', '<|channel>thou', '<|tool_ca'])(
+    'preserves truncated protocol headers as literal text: %s',
+    async (text) => {
+      const { model } = setup(part(text, 'length'))
+      const output: TextBlock[] = []
+      await expect(
+        (async () => {
+          for await (const event of model.streamAggregated(messages, { toolSpecs: tools }))
+            if (event instanceof TextBlock) output.push(event)
+        })(),
+      ).rejects.toBeInstanceOf(MaxTokensError)
+      expect(output).toEqual([new TextBlock(text)])
+    },
+  )
+
+  it('does not report a forced prefix before the model produces any bytes', async () => {
+    const failure = new Error('Native stream failed')
+    const { model, create } = setup(part('Recovered', 'stop'))
+    create.mockResolvedValueOnce(
+      (async function* () {
+        yield part('')
+        throw failure
+      })(),
+    )
+    const output: string[] = []
+    await expect(
+      (async () => {
+        for await (const event of model.stream(messages, {
+          toolSpecs: tools,
+          toolChoice: { tool: { name: 'lookup' } },
+        }))
+          if (event.type === 'modelContentBlockDeltaEvent' && event.delta.type === 'textDelta')
+            output.push(event.delta.text)
+      })(),
+    ).rejects.toBe(failure)
+    expect(output).toEqual([])
+    expect((await aggregate(model)).message.content).toEqual([new TextBlock('Recovered')])
+  })
+
+  it.each(['length', 'abort'] as const)(
+    'preserves unfinished tool text after native %s without starting a tool',
+    async (finish) => {
+      const source = call.slice(0, -8)
+      const { model } = setup(part(source.slice(0, 12)), part(source.slice(12), finish))
+      const events = await collect(model.stream(messages, { toolSpecs: tools }))
+
+      expect(
+        events
+          .flatMap((event) =>
+            event.type === 'modelContentBlockDeltaEvent' && event.delta.type === 'textDelta'
+              ? [event.delta.text]
+              : [],
+          )
+          .join(''),
+      ).toBe(source)
+      expect(
+        events.some(
+          (event) =>
+            event.type === 'modelContentBlockStartEvent' && event.start?.type === 'toolUseStart',
+        ),
+      ).toBe(false)
+    },
+  )
+
   it('returns to native JSON after a thinking turn without changing stored reasoning', async () => {
     const { model, create, chat } = setup(part('<|channel>thought\nCheck.<channel|>42', 'stop'))
     model.updateConfig({ request: { extra_body: { enable_thinking: true } } })
@@ -66,6 +152,30 @@ describe('Gemma tool model', () => {
     expect(chat.mock.calls[0]![0].messages).toContainEqual({ role: 'assistant', content: '42' })
     expect(agent.messages[1]!.content).toContainEqual(new ReasoningBlock({ text: 'Check.' }))
   })
+  it('returns to native JSON after an empty user turn while keeping stored thoughts', async () => {
+    const { engine, create } = chatSetup(chunk({ content: '{"answer":42}' }, 'stop'))
+    const raw = vi.spyOn(engine.completions, 'create')
+    const model = new WebLLMModel({
+      engine,
+      modelId,
+      request: { response_format: { type: 'json_object' } },
+    })
+    const thought = new ReasoningBlock({ text: 'Earlier thought.' })
+    const history = [
+      ...messages,
+      new Message({ role: 'assistant', content: [thought, new TextBlock('42')] }),
+      new Message({ role: 'user', content: [] }),
+    ]
+    await collect(model.stream(history))
+    expect(raw).not.toHaveBeenCalled()
+    expect(create.mock.calls[0]![0].messages).toEqual([
+      { role: 'user', content: 'Find x.' },
+      { role: 'assistant', content: '42' },
+      { role: 'user', content: '' },
+    ])
+    expect(history[1]!.content[0]).toBe(thought)
+  })
+
   it('keeps thinking but omits tool declarations when tools are disabled', async () => {
     const { model, create } = setup(part('<|channel>thought\nThink.<channel|>Hello', 'stop'))
     model.updateConfig({ request: { tool_choice: 'none', extra_body: { enable_thinking: true } } })
@@ -336,6 +446,26 @@ describe('Gemma tool model', () => {
     expect(prompt).not.toContain('<|think|>')
   })
 
+  it('stops parser validation when a reasoning consumer cancels the same native packet', async () => {
+    const { model, create } = setup(part('<|channel>thought\nPartial', 'stop'))
+    const controller = new AbortController()
+    const events = []
+    for await (const event of model.stream(messages, {
+      toolSpecs: tools,
+      cancelSignal: controller.signal,
+    })) {
+      events.push(event)
+      if (
+        event.type === 'modelContentBlockDeltaEvent' &&
+        event.delta.type === 'reasoningContentDelta'
+      )
+        controller.abort()
+    }
+    expect(events.at(-1)).toEqual({ type: 'modelMessageStopEvent', stopReason: 'cancelled' })
+    create.mockResolvedValueOnce(parts(part('Recovered', 'stop')))
+    expect((await aggregate(model)).message.content).toEqual([new TextBlock('Recovered')])
+  })
+
   it('can cancel a reasoning delta, then reuse the engine without leaking parser state', async () => {
     const { model, create, stop } = setup(part('<|channel>thought\nPartial'), part('', 'stop'))
     model.updateConfig({ request: { extra_body: { enable_thinking: true } } })
@@ -463,7 +593,7 @@ describe('Gemma tool model', () => {
     const { model } = setup(part(call, 'abort'))
     const result = await aggregate(model)
     expect(result.stopReason).toBe('cancelled')
-    expect(result.message.content).toEqual([])
+    expect(result.message.content).toEqual([new TextBlock(call)])
   })
 
   it('passes sampling settings, usage, probabilities and original native chunks through', async () => {

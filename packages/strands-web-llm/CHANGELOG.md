@@ -2,27 +2,24 @@
 
 ## 0.1.1 (unreleased)
 
-- Use Strands media serialization for faster image and WAV input.
-- Reject required Qwen tool choices before inference when no tools are registered.
-- Preserve each tool-result image group as a separate user turn; model support remains unverified.
-- Snapshot queued document bytes and emit usage metadata before message stop.
-- Keep embedding caches separate across stores; bound storage reads and document embedding batches.
-- Let FileMemoryStore omit unused bytes from search results.
-- Keep cosine scores stable for very large and very small embeddings.
-- Drop cached vectors when documents become empty.
-- Reject non-object tool arguments before execution.
-- Reject signed tool-call history that WebLLM cannot preserve.
-- Reduce browser transport and embedding search overhead.
-- Preserve SDK model error types across browser calls.
-- Preserve literal tool tags inside Qwen JSON arguments.
-- Reject overflowing tool numbers in native and model-specific formats.
-- Share protocol parsers, engine scheduling, and runtime assets with other adapters.
-- Reject tool output that violates an explicit tool choice.
-- Preserve Gemma reasoning when a caller-supplied stop string ends generation.
-- Match Qwen tool history, reasoning, and Qwen3.5 tool declarations to their templates.
-- Accept Qwen3.5 parameter boundaries and extra closing tags handled by its recommended parser.
-- Sort Gemma object keys to match its template.
-- Use model-card sampling settings in examples and update verified model support.
+- Preserve input text, empty turns, output block order, and thinking across Harness tool loops.
+- Normalize bare JSON mode and match native Gemma, Qwen, and Hermes tool history and output.
+- Avoid duplicate Hermes calls after JSON keys are reordered.
+- Validate tool restrictions, preserve split names, and reject changed call IDs while streaming.
+- Preserve Qwen3.5 argument names and types through enums, constants, patterns, JSON Pointers, and schema unions.
+- Avoid repeated expansion of shared Qwen3.5 tool schemas.
+- Preserve empty system prompts; allow WebLLM to supply native Hermes tool instructions.
+- Preserve protocol text and interrupted output; reject malformed calls, invalid JSON, and signed history.
+- Keep tool-result image groups without added narration; model support remains unverified.
+- Snapshot queued inputs; preserve JSON keys, error causes, and usage across browser transport.
+- Stop callbacks and pending output on cancellation; close streams before reusing the engine.
+- Reduce media serialization, browser transport, and embedding search overhead.
+- Deliver native browser chunks while tool arguments are still being generated.
+- Bound embedding batches and storage reads; isolate caches, copy reusable vectors, and reject mismatched dimensions before caching.
+- Reuse cached text across copies, renames, and content swaps during search.
+- Let FileMemoryStore omit unused document bytes.
+- Share engine scheduling and runtime assets across adapters.
+- Update examples to verified model support and model-card sampling settings.
 
 With thinking on, Qwen3 0.6B can miscopy arguments or omit answers;
 Qwen3 4B can call dependent tools together. Both failures also occur in native WebLLM.

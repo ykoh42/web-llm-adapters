@@ -7,6 +7,8 @@ import {
   ToolMessage,
 } from '@langchain/core/messages'
 import { tool } from '@langchain/core/tools'
+import { CallbackManager } from '@langchain/core/callbacks/manager'
+import type { ChatModelStreamEvent } from '@langchain/core/language_models/event'
 import { ChatPromptTemplate } from '@langchain/core/prompts'
 import { RunnableLambda } from '@langchain/core/runnables'
 import { createAgent } from 'langchain'
@@ -39,6 +41,67 @@ function qwenModel(...items: ReturnType<typeof chunk>[]) {
 }
 
 describe('LangChain model', () => {
+  it.each(['message-start', 'content-block-start', 'content-block-finish'])(
+    'stops content events when its consumer cancels at %s',
+    async (phase) => {
+      const { model } = setup(chunk({ content: 'Answer' }, 'stop'))
+      const controller = new AbortController()
+      const after: ChatModelStreamEvent[] = []
+      await expect(
+        (async () => {
+          for await (const event of model._streamChatModelEvents([new HumanMessage('Hi')], {
+            signal: controller.signal,
+          })) {
+            if (controller.signal.aborted) after.push(event)
+            if (event.event === phase) controller.abort()
+          }
+        })(),
+      ).rejects.toHaveProperty('name', 'AbortError')
+      expect(after).toEqual([])
+      expect((await model.invoke('Next')).text).toBe('Answer')
+    },
+  )
+
+  it('does not yield a chunk after its token callback cancels', async () => {
+    const { model } = setup(chunk({ content: 'Answer' }, 'stop'))
+    const controller = new AbortController()
+    const onToken = vi.fn(() => controller.abort())
+    const callbacks = CallbackManager.fromHandlers({ handleLLMNewToken: onToken })
+    const messages = [new HumanMessage('Hi')]
+    const [run] = await callbacks.handleChatModelStart(model.toJSON(), [messages])
+    const stream = model._streamResponseChunks(messages, { signal: controller.signal }, run)
+    await expect(stream.next()).rejects.toHaveProperty('name', 'AbortError')
+    expect(onToken).toHaveBeenCalledTimes(1)
+    expect((await model.invoke('Next')).text).toBe('Answer')
+  })
+
+  it('stops pending tool chunks when a consumer cancels', async () => {
+    const { model, create } = setup(chunk({ content: 'Recovered' }, 'stop'))
+    create.mockResolvedValueOnce(
+      chunks(
+        chunk(
+          {
+            tool_calls: [
+              { index: 0, function: { name: 'lookup', arguments: '{"code":"A7"}' } },
+              { index: 1, function: { name: 'lookup', arguments: '{"code":"A8"}' } },
+            ],
+          },
+          'tool_calls',
+        ),
+      ),
+    )
+    const controller = new AbortController()
+    const pending = model._streamResponseChunks([new HumanMessage('Find both codes.')], {
+      signal: controller.signal,
+    })
+    expect((await pending.next()).value?.message).toMatchObject({
+      tool_calls: [expect.objectContaining({ name: 'lookup', args: { code: 'A7' } })],
+    })
+    controller.abort()
+    await expect(pending.next()).rejects.toHaveProperty('name', 'AbortError')
+    expect((await model.invoke('Next')).text).toBe('Recovered')
+  })
+
   it('preserves native tool JSON with finite numbers and literal protocol tags', async () => {
     const input = ' { "small": 1e-300, "large": 1e300, "text": "</tool_call>", "items": [null] } '
     const { model } = setup(
@@ -295,6 +358,8 @@ describe('LangChain model', () => {
       output_tokens: 2,
       total_tokens: 5,
     })
+    const outputTokens: number | undefined = result.usage_metadata?.output_tokens
+    expect(outputTokens).toBe(2)
     expect(result.response_metadata).toMatchObject({ finish_reason: 'stop', webllm: usage.extra })
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -444,7 +509,7 @@ describe('LangChain model', () => {
         expect.objectContaining({
           role: 'tool',
           tool_call_id: toolResult?.tool_call_id,
-          content: '[Image attached]',
+          content: '',
         }),
         {
           role: 'user',

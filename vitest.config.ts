@@ -9,7 +9,7 @@ export default defineConfig({
     ],
     coverage: {
       provider: 'v8',
-      include: ['packages/*/src/**/*.ts', 'shared/web-llm/**/*.ts'],
+      include: ['packages/*/src/**/*.ts', 'shared/web-llm/**/*.ts', 'shared/browser/stream.ts'],
       reporter: ['text', 'html'],
       thresholds: { lines: 90, branches: 85 },
     },

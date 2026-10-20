@@ -2,9 +2,111 @@ import { rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHarness } from '@strands-agents/harness'
-import { BeforeModelCallEvent } from '@strands-agents/sdk'
+import { Agent, BeforeModelCallEvent, FunctionTool, type JSONSchema } from '@strands-agents/sdk'
 import { expect, test } from '../../../fixtures/browser.js'
 import { BrowserModel } from 'strands-web-llm'
+import { sampling } from '../../../shared/sampling.js'
+import { sharedSchema } from '../../../../shared/schema.js'
+
+function lookupSchema(code: JSONSchema, key = 'code') {
+  return { type: 'object', properties: { [key]: code }, required: [key] } satisfies JSONSchema
+}
+
+const schemaCases = [
+  { name: 'enum', schema: lookupSchema({ enum: ['123', '456'] }) },
+  { name: 'const', schema: lookupSchema({ const: '123' }) },
+  {
+    name: 'spaced argument',
+    schema: lookupSchema({ type: 'string' }, 'access code'),
+    key: 'access code',
+  },
+  {
+    name: 'typed conditions',
+    schema: lookupSchema({
+      type: 'string',
+      oneOf: [{ pattern: '^1' }, { pattern: '^4' }],
+    }),
+  },
+  { name: 'property oneOf', schema: lookupSchema({ oneOf: [{ const: '123' }, { const: '456' }] }) },
+  { name: 'shared references', schema: sharedSchema() },
+  {
+    name: 'property pattern',
+    schema: {
+      type: 'object',
+      patternProperties: { '^code$': { type: 'string' } },
+      additionalProperties: false,
+      required: ['code'],
+    },
+  },
+  {
+    name: 'encoded reference',
+    schema: lookupSchema({
+      $ref: '#/properties/code/definitions/value%7E1text',
+      definitions: { 'value/text': { type: 'string' } },
+    }),
+  },
+  {
+    name: 'array reference',
+    schema: lookupSchema({
+      $ref: '#/properties/code/definitions/value/anyOf/0',
+      definitions: { value: { anyOf: [{ type: 'string' }] } },
+    }),
+  },
+  {
+    name: 'anyOf',
+    schema: {
+      type: 'object',
+      anyOf: [lookupSchema({ const: '123' }), lookupSchema({ const: '456' })],
+    },
+  },
+  {
+    name: 'oneOf',
+    schema: {
+      type: 'object',
+      oneOf: [lookupSchema({ const: '123' }), lookupSchema({ const: '456' })],
+    },
+  },
+] satisfies { name: string; schema: JSONSchema; key?: string }[]
+
+for (const { name, schema, key = 'code' } of schemaCases) {
+  test(`Qwen3.5 keeps ${name} strings through a Strands tool loop`, async ({ page }) => {
+    const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
+    await page.goto('http://127.0.0.1:4173/harness.html')
+    await page.waitForFunction(() => Boolean(window.harness))
+    await page.evaluate((id) => window.harness.open(id), modelId)
+    try {
+      const code = 'code-' + crypto.randomUUID().slice(0, 8)
+      const inputs: unknown[] = []
+      const settings = sampling(modelId, true)
+      const model = new BrowserModel(page, {
+        modelId,
+        ...settings,
+        maxTokens: 4096,
+        request: { ...settings.request, seed: 7 },
+      })
+      const lookup = new FunctionTool({
+        name: 'lookup',
+        description: 'Look up the secret for a code.',
+        inputSchema: schema,
+        callback: (input) => {
+          inputs.push(input)
+          return `The secret is ${code}.`
+        },
+      })
+      const agent = new Agent({ model, tools: [lookup], printer: false })
+      const result = await agent.invoke('Use lookup to look up code 123. Tell me its secret.')
+      expect(inputs).toEqual([{ [key]: '123' }])
+      expect(String(result)).toContain(code)
+      expect(
+        agent.messages
+          .flatMap((message) => message.content)
+          .some((block) => block.type === 'reasoningBlock' && block.text),
+      ).toBe(true)
+    } finally {
+      await page.evaluate(() => window.harness.close())
+    }
+  })
+}
 
 // Keep the filenames from both native API regressions.
 for (const [modelId, fileName] of [

@@ -7,22 +7,20 @@ import type {
   ChatCompletionTool,
   ChatCompletionToolChoiceOption,
 } from '@mlc-ai/web-llm'
+import { formatUserContent } from '../../../../shared/web-llm/content.js'
+import { stringifyJSON } from '../../../../shared/web-llm/json.js'
 
 export function formatMessages(
   messages: Message[],
   systemPrompt?: SystemPrompt,
 ): ChatCompletionMessageParam[] {
   const output: ChatCompletionMessageParam[] = []
-  if (systemPrompt !== undefined) {
-    const text = formatSystemPrompt(systemPrompt)
-    if (text) output.push({ role: 'system', content: text })
-  }
+  const text = formatSystemPrompt(systemPrompt)
+  if (text !== undefined) output.push({ role: 'system', content: text })
 
   for (const message of messages) {
-    if (message.role === 'assistant') {
-      const assistant = formatAssistant(message.content)
-      if (assistant.content !== null || assistant.tool_calls) output.push(assistant)
-    } else output.push(...formatUser(message.content))
+    if (message.role === 'assistant') output.push(formatAssistant(message.content))
+    else output.push(...formatUser(message.content))
   }
   return output
 }
@@ -33,12 +31,12 @@ export function formatAssistant(content: ContentBlock[]): ChatCompletionAssistan
   const text = textOnly(content.filter((block) => block.type !== 'toolUseBlock'))
   return {
     role: 'assistant',
-    content: text || (calls.length ? '' : null),
+    content: text,
     ...(calls.length && {
       tool_calls: calls.map((call) => ({
         id: call.toolUseId,
         type: 'function' as const,
-        function: { name: call.name, arguments: JSON.stringify(call.input) },
+        function: { name: call.name, arguments: stringifyJSON(call.input) },
       })),
     }),
   }
@@ -59,11 +57,11 @@ export function formatUser(content: ContentBlock[]): ChatCompletionMessageParam[
     if (block.type !== 'toolResultBlock') continue
     const images = block.content.filter((part) => part.type === 'imageBlock').map(formatPart)
     const text = textOnly(block.content.filter((part) => part.type !== 'imageBlock'))
-    const result = images.length && !text.trim() ? 'Tool successfully returned an image.' : text
+    const result = block.status === 'error' ? (text ? `[ERROR] ${text}` : '[ERROR]') : text
     output.push({
       role: 'tool',
       tool_call_id: block.toolUseId,
-      content: block.status === 'error' ? `Tool error: ${result}` : result,
+      content: result,
     })
     if (images.length) toolImageMessages.push({ role: 'user', content: images })
   }
@@ -71,21 +69,30 @@ export function formatUser(content: ContentBlock[]): ChatCompletionMessageParam[
   const parts = content
     .filter((block) => block.type !== 'toolResultBlock' && block.type !== 'cachePointBlock')
     .map(formatPart)
-  if (!parts.length) return output
-  const text = parts
-    .filter((part) => part.type === 'text')
-    .map((part) => part.text)
-    .join('\n')
-  const media = parts.filter((part) => part.type !== 'text')
-  output.push({ role: 'user', content: media.length ? [{ type: 'text', text }, ...media] : text })
+  if (parts.length || !output.length)
+    output.push({ role: 'user', content: formatUserContent(parts) })
   return output
+}
+
+export function hasToolContext(message: Message | undefined, trailingBlocks = 0): boolean {
+  if (message?.role !== 'user' || trailingBlocks <= 0) return false
+  const before = message.content.slice(0, -trailingBlocks)
+  const context = message.content.slice(-trailingBlocks)
+  return context.some((block) => block.type === 'textBlock') && isToolReply(before)
+}
+
+export function isToolReply(content: readonly ContentBlock[]): boolean {
+  return (
+    content.some((block) => block.type === 'toolResultBlock') &&
+    content.every((block) => block.type === 'toolResultBlock' || block.type === 'cachePointBlock')
+  )
 }
 
 function textOnly(blocks: readonly (ContentBlock | ToolResultContent)[]): string {
   return blocks
     .map((block) => {
       if (block.type === 'textBlock') return block.text
-      if (block.type === 'jsonBlock') return JSON.stringify(block.json)
+      if (block.type === 'jsonBlock') return stringifyJSON(block.json)
       if (block.type === 'cachePointBlock') return ''
       if (block.type === 'reasoningBlock') {
         if (block.signature !== undefined || block.redactedContent !== undefined)
@@ -94,7 +101,7 @@ function textOnly(blocks: readonly (ContentBlock | ToolResultContent)[]): string
       }
       throw new ModelError(`WebLLM cannot use ${block.type} here.`)
     })
-    .join('\n')
+    .join('')
 }
 
 function formatPart(block: ContentBlock): ChatCompletionContentPart {

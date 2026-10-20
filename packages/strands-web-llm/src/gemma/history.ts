@@ -1,6 +1,13 @@
 import { Message, ModelError, type SystemPrompt } from '@strands-agents/sdk'
 import type { ChatCompletionMessageParam } from '@mlc-ai/web-llm'
-import { formatMessages, formatAssistant, formatUser } from '../chat/messages.js'
+import {
+  formatMessages,
+  formatAssistant,
+  formatUser,
+  hasToolContext,
+  isToolReply,
+} from '../chat/messages.js'
+import { stringifyJSON } from '../../../../shared/web-llm/json.js'
 
 type GemmaMessage = ChatCompletionMessageParam & {
   reasoning?: string
@@ -16,7 +23,7 @@ export function gemmaHistory(
 ): GemmaMessage[] {
   messages = trimThoughts(messages, dynamicTrailingBlocks)
   const last = messages.at(-1)
-  const folded = toolReminder(messages, dynamicTrailingBlocks)
+  const folded = hasToolContext(last, dynamicTrailingBlocks)
   const history: GemmaMessage[] = formatMessages([], systemPrompt)
   for (const message of messages) {
     if (message.role === 'assistant') history.push(assistantTurn(message))
@@ -30,7 +37,7 @@ function assistantTurn(message: Message): GemmaMessage {
   const reasoning = message.content
     .filter((block) => block.type === 'reasoningBlock')
     .map((block) => block.text ?? '')
-    .join('\n')
+    .join('')
   return { ...formatAssistant(content), ...(reasoning && { reasoning }) }
 }
 
@@ -41,9 +48,12 @@ function userTurn(message: Message, folded: boolean): GemmaMessage[] {
     if (block.status === 'error') continue
     // formatUser always emits tool results first, in their original order.
     const turn = turns[index]!
+    if (turn.role !== 'tool') throw new ModelError('Gemma received an invalid tool result.')
     const first = block.content[0]
-    if (block.content.length === 1 && first?.type === 'jsonBlock') turn.response = first.json
-    else if (block.content.length > 1) turn.response = block.content.map((item) => item.toJSON())
+    if (block.content.length === 1 && first?.type === 'jsonBlock')
+      turn.response = JSON.parse(turn.content)
+    else if (block.content.length > 1 && block.content.some((item) => item.type !== 'textBlock'))
+      turn.response = JSON.parse(stringifyJSON(block.content.map((item) => item.toJSON())))
   }
   if (folded) foldReminder(turns)
   return turns
@@ -60,16 +70,10 @@ function foldReminder(turns: GemmaMessage[]) {
 /** Remove only thoughts that Gemma drops after a new user turn. */
 export function trimThoughts(messages: Message[], dynamicTrailingBlocks = 0): Message[] {
   const last = messages.at(-1)
-  const folded = toolReminder(messages, dynamicTrailingBlocks)
+  const folded = hasToolContext(last, dynamicTrailingBlocks)
   let lastUser = -1
   for (const [index, message] of messages.entries()) {
-    if (
-      message.role === 'user' &&
-      !(folded && message === last) &&
-      message.content.some(
-        (block) => block.type !== 'toolResultBlock' && block.type !== 'cachePointBlock',
-      )
-    )
+    if (message.role === 'user' && !(folded && message === last) && !isToolReply(message.content))
       lastUser = index
   }
   return messages.map((message, index) => {
@@ -85,17 +89,4 @@ export function trimThoughts(messages: Message[], dynamicTrailingBlocks = 0): Me
       content: message.content.filter((block) => block.type !== 'reasoningBlock'),
     })
   })
-}
-
-function toolReminder(messages: Message[], dynamicTrailingBlocks: number) {
-  const last = messages.at(-1)
-  return (
-    last?.role === 'user' &&
-    dynamicTrailingBlocks > 0 &&
-    last.content.slice(-dynamicTrailingBlocks).some((block) => block.type === 'textBlock') &&
-    last.content
-      .slice(0, -dynamicTrailingBlocks)
-      .every((block) => block.type === 'toolResultBlock' || block.type === 'cachePointBlock') &&
-    last.content.some((block) => block.type === 'toolResultBlock')
-  )
 }

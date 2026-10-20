@@ -92,6 +92,10 @@ Load the browser engine with `context_window_size: 32768` for this example. The 
 | Embeddings                           | `WebLLMEmbeddings` and `BrowserWebLLMEmbeddings` for LangGraph memory                    |
 | Strict tool schemas                  | No                                                                                       |
 
+For Qwen agents with tools and a response schema, use `responseFormat: toolStrategy(schema)` ([`toolStrategy`](https://reference.langchain.com/javascript/langchain/index/toolStrategy) from `langchain`); native JSON cannot be combined with Qwen tools.
+
+Use literal `~0`/`~1` in `$ref` paths; LangChain's tool validator cannot resolve `%7E0`/`%7E1`.
+
 ## Models
 
 These exact WebLLM IDs passed real-model checks. Tools includes default Deep Agents → tool result → final answer. `O` = verified; `—` = unavailable for this artifact.
@@ -122,12 +126,16 @@ const vector = await embeddings.embedQuery('a flower')
 ```
 
 Snowflake's query prefix is applied automatically; documents stay unprefixed. Use `BrowserWebLLMEmbeddings(page, options)` for Node.js and LangGraph semantic memory.
-Document inputs are sent in batches of 32 by default; lower `batchSize` to reduce temporary memory use for large embedding jobs.
+Document inputs are sent in batches of 32 by default; lower `batchSize` to reduce temporary memory use. With `maxRetries`, only the failed batch is retried.
 
 ## Native options
 
-Retries default to 0. Set `maxRetries` for failures while WebLLM opens a stream; errors during generation are not retried. Pass WebLLM generation settings through `request`, either at construction or per call. `onChunk` receives unchanged native chunks, including log probabilities and timing. For custom vision models used with Deep Agents, set `profile.imageInputs` and `profile.imageToolMessage` to `true` so Deep Agents keeps tool images; this adapter sends them in the next user turn. Use `model.engine` and `withEngine(engine, callback)` for other native APIs. Consume native streams inside the callback.
+Set generation options with `request` at construction or per call. `onChunk` exposes unchanged native chunks, including log probabilities and timing.
 
-You own the engine, model loading, workers, and browser page. Calls sharing one engine run in order. Cancellation interrupts the active generation; it does not unload the engine.
+Chat retries default to 0 and apply only while opening a stream. Context-limit errors use LangChain's `ContextOverflowError`, with the native cause preserved.
+
+For custom vision models in Deep Agents, set `profile.imageInputs` and `profile.imageToolMessage` to `true`. Tool images are sent in the next user turn.
+
+Use `model.engine` and `withEngine(engine, callback)` for other native APIs; consume streams inside the callback. You own model loading, the engine, workers, and browser page. Native calls on one engine run in order. Cancellation interrupts generation without unloading the model.
 
 [MIT](LICENSE). The bundled runtime includes its upstream licenses and notices.

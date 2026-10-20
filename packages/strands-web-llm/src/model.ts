@@ -31,6 +31,11 @@ export class WebLLMModel extends WebLLMModelBase {
     const signal = options.cancelSignal
     signal?.throwIfAborted()
     const config = this.getConfig()
+    options = {
+      ...options,
+      ...(options.toolSpecs && { toolSpecs: structuredClone(options.toolSpecs) }),
+      ...(options.toolChoice && { toolChoice: structuredClone(options.toolChoice) }),
+    }
     // Past-turn thoughts must not force later JSON or audio requests onto raw completions.
     if (isGemma(config.modelId)) {
       messages = trimThoughts(messages, options.dynamicTrailingBlocks)

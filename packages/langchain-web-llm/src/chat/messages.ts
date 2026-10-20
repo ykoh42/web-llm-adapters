@@ -2,6 +2,8 @@ import { deepCompareStrict } from '@langchain/core/utils/json_schema'
 import { AIMessage, type BaseMessage, type ToolCall } from '@langchain/core/messages'
 import type { ChatCompletionContentPart, ChatCompletionMessageParam } from '@mlc-ai/web-llm'
 import type { GemmaMessage } from '../../../../shared/web-llm/gemma/prompt.js'
+import { formatUserContent } from '../../../../shared/web-llm/content.js'
+import { stringifyJSON } from '../../../../shared/web-llm/json.js'
 
 export function formatMessages(messages: BaseMessage[]): GemmaMessage[] {
   const output: GemmaMessage[] = []
@@ -46,7 +48,6 @@ export function formatMessages(messages: BaseMessage[]): GemmaMessage[] {
       if (message.name !== undefined && toolNames.get(message.tool_call_id) !== message.name)
         throw new Error('A named tool result needs a matching assistant tool call.')
       let content = ''
-      const imageStart = toolImages.length
       if (typeof message.content === 'string') content = message.content
       else
         for (const block of message.content) {
@@ -54,10 +55,12 @@ export function formatMessages(messages: BaseMessage[]): GemmaMessage[] {
             toolImages.push(formatPart(block))
           else content += textContent([block])
         }
+      if ('status' in message && message.status === 'error')
+        content = content ? `[ERROR] ${content}` : '[ERROR]'
       output.push({
         role: 'tool',
         tool_call_id: message.tool_call_id,
-        content: content || (toolImages.length > imageStart ? '[Image attached]' : ''),
+        content,
       })
       continue
     }
@@ -72,14 +75,14 @@ export function formatMessages(messages: BaseMessage[]): GemmaMessage[] {
       return {
         id: call.id,
         type: 'function' as const,
-        function: { name: call.name, arguments: JSON.stringify(call.args) },
+        function: { name: call.name, arguments: stringifyJSON(call.args) },
       }
     })
     const reasoning = reasoningContent(message)
     const content = textContent(message.content, true)
     output.push({
       role: 'assistant',
-      content: content || (calls.length ? '' : null),
+      content,
       ...(message.name !== undefined && { name: message.name }),
       ...(reasoning && { reasoning }),
       ...(toolCalls.length && { tool_calls: toolCalls }),
@@ -100,38 +103,6 @@ function textContent(content: BaseMessage['content'], allowReasoning = false): s
     .join('')
 }
 
-function formatUserContent(parts: ChatCompletionContentPart[]) {
-  if (parts.every((part) => part.type === 'text')) return parts.map((part) => part.text).join('')
-
-  const output: ChatCompletionContentPart[] = []
-  const textParts: string[] = []
-  let textRuns = 0
-  let inText = false
-  let firstTextIndex = -1
-  for (const part of parts) {
-    if (part.type !== 'text') {
-      inText = false
-      output.push(part)
-      continue
-    }
-
-    if (!inText) textRuns++
-    inText = true
-    if (firstTextIndex === -1) firstTextIndex = output.length
-    textParts.push(part.text)
-    output.push(part)
-  }
-
-  if (textRuns > 1)
-    throw new Error(
-      'WebLLM accepts one text part per user message and cannot preserve text around media blocks.',
-    )
-  if (textParts.length < 2) return parts
-
-  output.splice(firstTextIndex, textParts.length, { type: 'text', text: textParts.join('') })
-  return output
-}
-
 function reasoningContent(message: BaseMessage): string {
   const parts: string[] = []
   if (Array.isArray(message.content))
@@ -149,7 +120,7 @@ function reasoningContent(message: BaseMessage): string {
   return parts.join('')
 }
 
-function formatPart(value: unknown): ChatCompletionContentPart {
+export function formatPart(value: unknown): ChatCompletionContentPart {
   if (!isRecord(value)) throw new Error('WebLLM needs an object content block.')
   if (value.type === 'text' && typeof value.text === 'string')
     return { type: 'text', text: value.text }

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { JSONSchema7 } from 'json-schema'
 import { createDeepAgent } from 'deepagents'
 import { createAgent } from 'langchain'
 import { tool } from '@langchain/core/tools'
@@ -9,9 +10,147 @@ import { writeFile } from 'node:fs/promises'
 import type { WebLLMChunk } from 'langchain-web-llm'
 import { test, expect } from '../../../fixtures/browser.js'
 import { sampling } from '../../../../shared/sampling.js'
+import { sharedSchema } from '../../../../shared/schema.js'
 
 test('uses a Web Worker by default', async ({ page }) => {
   await expect(page.getByLabel('Web Worker')).toBeChecked()
+})
+
+function lookupSchema(code: JSONSchema7, key = 'code') {
+  return { type: 'object', properties: { [key]: code }, required: [key] } satisfies JSONSchema7
+}
+
+const schemaCases = [
+  { name: 'enum', schema: lookupSchema({ enum: ['123', '456'] }) },
+  { name: 'const', schema: lookupSchema({ const: '123' }) },
+  {
+    name: 'spaced argument',
+    schema: lookupSchema({ type: 'string' }, 'access code'),
+    key: 'access code',
+  },
+  {
+    name: 'typed conditions',
+    schema: lookupSchema({
+      type: 'string',
+      oneOf: [{ pattern: '^1' }, { pattern: '^4' }],
+    }),
+  },
+  { name: 'property oneOf', schema: lookupSchema({ oneOf: [{ const: '123' }, { const: '456' }] }) },
+  { name: 'shared references', schema: sharedSchema() },
+  {
+    name: 'property pattern',
+    schema: {
+      type: 'object',
+      patternProperties: { '^code$': { type: 'string' } },
+      additionalProperties: false,
+      required: ['code'],
+    },
+  },
+  {
+    name: 'array reference',
+    schema: lookupSchema({
+      $ref: '#/properties/code/definitions/value/anyOf/0',
+      definitions: { value: { anyOf: [{ type: 'string' }] } },
+    }),
+  },
+  {
+    name: 'anyOf',
+    schema: {
+      type: 'object',
+      anyOf: [lookupSchema({ const: '123' }), lookupSchema({ const: '456' })],
+    },
+  },
+  {
+    name: 'oneOf',
+    schema: {
+      type: 'object',
+      oneOf: [lookupSchema({ const: '123' }), lookupSchema({ const: '456' })],
+    },
+  },
+] satisfies { name: string; schema: JSONSchema7; key?: string }[]
+
+for (const { name, schema, key = 'code' } of schemaCases) {
+  test(`Qwen3.5 keeps ${name} strings through a LangChain tool loop`, async ({ page }, info) => {
+    const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
+    await page.evaluate((id) => window.checks.load(id), modelId)
+    const code = 'code-' + crypto.randomUUID().slice(0, 8)
+    const inputs: unknown[] = []
+    const raw: WebLLMChunk[] = []
+    const model = new BrowserChatWebLLM(page, {
+      modelId,
+      request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
+      onChunk: (chunk) => raw.push(chunk),
+    })
+    const lookup = tool(
+      (input) => {
+        inputs.push(input)
+        return `The secret is ${code}.`
+      },
+      {
+        name: 'lookup',
+        description: 'Look up the secret for a code.',
+        schema,
+      },
+    )
+    const agent = createAgent({ model, tools: [lookup] })
+    const result = await agent
+      .invoke({
+        messages: [
+          { role: 'user', content: 'Use lookup to look up code 123. Tell me its secret.' },
+        ],
+      })
+      .catch(async (error: unknown) => {
+        await writeFile(
+          info.outputPath('schema.json'),
+          JSON.stringify({ schema, inputs, raw, error: String(error) }, null, 2),
+        )
+        throw error
+      })
+    await writeFile(
+      info.outputPath('schema.json'),
+      JSON.stringify({ schema, inputs, raw, result }, null, 2),
+    )
+    expect(inputs).toEqual([{ [key]: '123' }])
+    expect(result.messages.at(-1)?.text).toContain(code)
+    expect(
+      result.messages.filter(AIMessage.isInstance).flatMap((message) => message.contentBlocks),
+    ).toContainEqual(expect.objectContaining({ type: 'reasoning' }))
+  })
+}
+
+test('Qwen3.5 preserves encoded references before LangChain tool validation', async ({
+  page,
+}, info) => {
+  const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
+  await page.evaluate((id) => window.checks.load(id), modelId)
+  const schema = {
+    type: 'object',
+    properties: {
+      code: {
+        $ref: '#/properties/code/definitions/value%7E1text',
+        definitions: { 'value/text': { type: 'string' } },
+      },
+    },
+    required: ['code'],
+  } satisfies JSONSchema7
+  const inputs: unknown[] = []
+  const lookup = tool((input) => inputs.push(input), {
+    name: 'lookup',
+    description: 'Look up the secret for a code.',
+    schema,
+  })
+  const model = new BrowserChatWebLLM(page, {
+    modelId,
+    request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
+  })
+  const response = await model
+    .bindTools([lookup])
+    .invoke('Use lookup to look up code 123. Tell me its secret.')
+  expect(response.tool_calls).toMatchObject([{ name: 'lookup', args: { code: '123' } }])
+  await writeFile(info.outputPath('schema.json'), JSON.stringify({ schema, response }, null, 2))
+  // This failure also occurs without WebLLM or an adapter.
+  await expect(lookup.invoke({ code: '123' })).rejects.toThrow('Unresolved $ref')
+  expect(inputs).toEqual([])
 })
 
 for (const modelId of ['Qwen3.5-4B-q4f16_1-MLC', 'gemma-4-E2B-it-q4f16_1-MLC']) {
@@ -152,7 +291,11 @@ test('real vision model accepts LangChain standard image blocks', async ({ page 
     new HumanMessage({
       content: [
         { type: 'text', text: 'Return the color of this image.' },
-        { type: 'image', source_type: 'base64', data, mime_type: 'image/png' },
+        {
+          type: 'image',
+          data: new Uint8Array(Buffer.from(data, 'base64')),
+          mimeType: 'image/png',
+        },
       ],
     }),
   ])

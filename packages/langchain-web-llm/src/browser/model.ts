@@ -6,6 +6,10 @@ import {
 import { ChatGenerationChunk } from '@langchain/core/outputs'
 import type { CallbackManagerForLLMRun } from '@langchain/core/callbacks/manager'
 import { convertToOpenAITool } from '@langchain/core/utils/function_calling'
+import { restoreError } from '../../../../shared/web-llm/errors.js'
+import { modelError } from '../error.js'
+import { browserMessages } from './messages.js'
+import { stringifyJSON } from '../../../../shared/web-llm/json.js'
 import { WebLLMChatModel } from '../chat/base.js'
 import type { WebLLMModelOptions, ChatWebLLMOptions } from '../types.js'
 import type { BrowserPage, BrowserRequest } from './types.js'
@@ -28,28 +32,31 @@ export class BrowserChatWebLLM extends WebLLMChatModel {
   ): AsyncGenerator<ChatGenerationChunk> {
     const signal = options.signal
     signal?.throwIfAborted()
-    const { tool_choice, request, stop, response_format, maxRetries } = options
+    const { tool_choice, maxRetries } = options
     const input: BrowserRequest = {
       ...(this.onChunk && { includeChunks: true }),
-      config: { modelId: this.modelId, request: this.request, maxRetries: this.retries },
-      messages: messages.map((message) => message.toDict()),
+      config: {
+        modelId: this.modelId,
+        request: this.formatRequest(options),
+        maxRetries: this.retries,
+      },
+      messages: browserMessages(messages),
       options: {
         ...(options.tools && { tools: options.tools.map((tool) => convertToOpenAITool(tool)) }),
         ...(tool_choice !== undefined && { tool_choice }),
-        ...(request && { request }),
-        ...(stop && { stop }),
-        ...(response_format && { response_format }),
         ...(maxRetries !== undefined && { maxRetries }),
       },
     }
-    const id = await this.page.evaluate((request) => {
+    // Encode model inputs so browser transports keep reserved JSON keys intact.
+    const id = await this.page.evaluate((input) => {
+      const request: BrowserRequest = JSON.parse(input)
       const bridge = window.webllmLangChainBridge
       if (!bridge)
         throw new Error(
           'Expose createBrowserBridge(engine) as window.webllmLangChainBridge before using BrowserChatWebLLM.',
         )
       return bridge.start(request)
-    }, input)
+    }, stringifyJSON(input))
     let closing: Promise<void> | undefined
     const close = () =>
       (closing ??= this.page.evaluate((id) => {
@@ -71,16 +78,20 @@ export class BrowserChatWebLLM extends WebLLMChatModel {
           if (!bridge) throw new Error('The WebLLM browser bridge is no longer available.')
           return bridge.next(id)
         }, id)
+        for (const chunk of result.chunks ?? []) {
+          signal?.throwIfAborted()
+          this.onChunk?.(chunk)
+        }
         signal?.throwIfAborted()
-        for (const chunk of result.chunks ?? []) this.onChunk?.(chunk)
         if ('error' in result) {
           complete = true
-          throw Object.assign(new Error(result.error.message), { name: result.error.name })
+          throw modelError(restoreError(result.error))
         }
         if (result.done) {
           complete = true
           return
         }
+        if ('native' in result) continue
         const chunk = new ChatGenerationChunk({
           ...result.value,
           message: new AIMessageChunk<StandardMessageStructure>(result.value.message),
@@ -94,6 +105,7 @@ export class BrowserChatWebLLM extends WebLLMChatModel {
             undefined,
             { chunk },
           )
+        signal?.throwIfAborted()
         yield chunk
       }
     } catch (error) {

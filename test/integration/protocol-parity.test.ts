@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages'
 import {
   Message,
+  CachePointBlock,
   TextBlock,
   ReasoningBlock,
   ToolUseBlock,
@@ -36,29 +37,74 @@ const nativeTool = {
   function: { name: declaration.name, description: declaration.description, parameters: schema },
 }
 
+function record(modelId: string) {
+  const { engine, create } = setup(chunk({ content: '42' }, 'stop'))
+  const raw = vi.spyOn(engine.completions, 'create').mockImplementation(async () =>
+    (async function* () {
+      yield {
+        id: 'raw',
+        object: 'text_completion' as const,
+        created: 0,
+        model: modelId,
+        choices: [
+          {
+            index: 0,
+            text: '<|channel>thought\nDone<channel|>42',
+            finish_reason: 'stop' as const,
+            logprobs: null,
+          },
+        ],
+      }
+    })(),
+  )
+  return { engine, create, raw }
+}
+
 describe('shared model protocols', () => {
+  for (const content of [[], [new CachePointBlock({ cacheType: 'default' })]]) {
+    it.each(ids)(
+      `%s preserves an empty user turn with ${content.length} cache hints`,
+      async (modelId) => {
+        const { engine, create, raw } = record(modelId)
+        const request = {
+          max_tokens: 4096,
+          extra_body: { enable_thinking: !modelId.startsWith('Qwen2.5-') },
+        }
+        const strands = new WebLLMModel({ engine, modelId, request })
+        const lc = new ChatWebLLM({ engine, modelId, request })
+        const thought = new ReasoningBlock({ text: 'Earlier thought.' })
+        const history = [
+          new Message({ role: 'user', content: [new TextBlock('First question.')] }),
+          new Message({ role: 'assistant', content: [thought, new TextBlock('Earlier answer.')] }),
+          new Message({ role: 'user', content }),
+        ]
+        await collect(
+          strands.stream(history, { systemPrompt: 'Caller system', toolSpecs: [declaration] }),
+        )
+        await lc.bindTools([nativeTool]).invoke([
+          new SystemMessage('Caller system'),
+          new HumanMessage('First question.'),
+          new AIMessage({
+            content: [
+              { type: 'reasoning', reasoning: 'Earlier thought.' },
+              { type: 'text', text: 'Earlier answer.' },
+            ],
+          }),
+          new HumanMessage(''),
+        ])
+        if (modelId.startsWith('gemma-'))
+          expect(raw.mock.calls[1]?.[0]).toEqual(raw.mock.calls[0]?.[0])
+        else expect(create.mock.calls[1]?.[0]).toEqual(create.mock.calls[0]?.[0])
+        expect(history[1]!.content[0]).toBe(thought)
+        expect(history[2]!.content).toEqual(content)
+      },
+    )
+  }
+
   it.each(ids)(
     '%s sends the same canonical tool history through Strands and LangChain',
     async (modelId) => {
-      const { engine, create } = setup(chunk({ content: '42' }, 'stop'))
-      const raw = vi.spyOn(engine.completions, 'create').mockImplementation(async () =>
-        (async function* () {
-          yield {
-            id: 'raw',
-            object: 'text_completion' as const,
-            created: 0,
-            model: modelId,
-            choices: [
-              {
-                index: 0,
-                text: '<|channel>thought\nDone<channel|>42',
-                finish_reason: 'stop' as const,
-                logprobs: null,
-              },
-            ],
-          }
-        })(),
-      )
+      const { engine, create, raw } = record(modelId)
       const request = {
         max_tokens: 4096,
         extra_body: { enable_thinking: !modelId.startsWith('Qwen2.5-') },
