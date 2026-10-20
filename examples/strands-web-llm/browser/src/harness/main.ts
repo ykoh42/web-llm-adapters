@@ -24,8 +24,11 @@ window.harness = {
     try {
       await window.webllmBridge?.close()
     } finally {
-      await loaded?.close()
-      loaded = undefined
+      try {
+        await loaded?.close()
+      } finally {
+        loaded = undefined
+      }
     }
   },
 }

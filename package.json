@@ -26,7 +26,7 @@
     "check:startup": "node scripts/check-startup.mjs",
     "test:extensions": "node examples/strands-web-llm/browser/scripts/setup-extension.ts && playwright test --config playwright.extension.config.ts",
     "test:install": "npm run test:install --workspaces --if-present",
-    "check:release": "npm run check && npm run test:install && npm run test:browser && npm run test:extensions && npm run test:langchain",
+    "check:release": "npm run check && npm run test:install && npm run test:browser && npm run test:extensions && npm run test:langchain && playwright test --config playwright.pi.config.ts",
     "dev:strands": "npm run build --workspace strands-web-llm && npm run dev --workspace @web-llm-adapters/strands-browser",
     "preview:strands": "npm run preview --workspace @web-llm-adapters/strands-browser",
     "test:standard": "npm run test:standard --workspace langchain-web-llm",

@@ -10,7 +10,8 @@ export function streamHooks(
 ): Pick<ProtocolInput, 'prepare' | 'open'> {
   return {
     prepare: async (payload) => {
-      const changed = (await call.onPayload?.(payload, model)) ?? payload
+      const returned = await call.onPayload?.(payload, model)
+      const changed = returned === undefined ? payload : returned
       signal?.throwIfAborted()
       if (
         typeof changed !== 'object' ||

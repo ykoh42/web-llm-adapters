@@ -86,6 +86,34 @@ describe('Pi provider lifecycle', () => {
     expect(order).toEqual(['payload', 'chunk'])
   })
 
+  it('keeps the original request when a payload callback returns undefined', async () => {
+    const { models, model, create } = setup()
+    await models.completeSimple(model, context)
+    const result = await models.completeSimple(model, context, {
+      onPayload: async () => undefined,
+    })
+    expect(result.stopReason).toBe('stop')
+    expect(create).toHaveBeenCalledTimes(2)
+    expect(create.mock.calls[1]?.[0]).toEqual(create.mock.calls[0]?.[0])
+  })
+
+  it.each([null, false, 0, ''])(
+    'rejects invalid payload replacement %j before generation and releases the engine',
+    async (replacement) => {
+      const { models, model, create } = setup()
+      const result = await models.completeSimple(model, context, {
+        onPayload: async () => replacement,
+      })
+      expect(result).toMatchObject({
+        stopReason: 'error',
+        errorMessage: 'onPayload must preserve the loaded model and one streaming response.',
+      })
+      expect(create).not.toHaveBeenCalled()
+      expect((await models.completeSimple(model, context)).stopReason).toBe('stop')
+      expect(create).toHaveBeenCalledTimes(1)
+    },
+  )
+
   it('does not open the engine after a payload callback aborts', async () => {
     const { models, model, create } = setup()
     const controller = new AbortController()
