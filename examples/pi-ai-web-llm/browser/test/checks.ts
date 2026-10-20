@@ -52,7 +52,7 @@ async function cancelAndRecover() {
   }
 }
 
-const piChecks = { load, run, cancelAndRecover }
+const piChecks = { load, run, cancelAndRecover, provider }
 Object.assign(window, { piChecks })
 declare global {
   interface Window {

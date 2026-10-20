@@ -3,6 +3,8 @@
 ## Unreleased
 
 - Forward browser `onFailedAttempt` handlers, including async decisions, cancellation, and error updates, without changing model input or output.
+- Honor `disableStreaming` and preserve browser embedding retry policies and error metadata.
+- Release local failed-attempt callbacks on cancellation, including zero-retry calls.
 
 ## 0.1.0
 

@@ -3,7 +3,6 @@ import {
   coerceMessageLikeToMessage,
   type StandardMessageStructure,
 } from '@langchain/core/messages'
-import { serializeError } from '../../../../shared/web-llm/errors.js'
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
 import type { WebLLMChunk } from '../types.js'
 import { WebLLMEmbeddings } from '../embeddings/model.js'
@@ -29,11 +28,15 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
   let closed = false
   const nativeCalls = new Set<Promise<unknown>>()
   const bridge: BrowserBridge = {
-    async embed({ config, texts, type }) {
+    async embed({ config, texts, type, hostRetries }) {
       let call: Promise<number[][]> | undefined
       try {
         if (closed) throw new Error('The browser bridge is closed.')
-        const model = new WebLLMEmbeddings({ ...config, engine })
+        const model = new WebLLMEmbeddings({
+          ...config,
+          engine,
+          ...(hostRetries && { maxRetries: 0, onFailedAttempt: () => {} }),
+        })
         if (type === 'query' && texts.length !== 1)
           throw new Error('An embedding query needs one text.')
         call =
@@ -43,7 +46,7 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
         nativeCalls.add(call)
         return await call
       } catch (error) {
-        return { error: serializeError(error) }
+        return { error: serializeBrowserError(error) }
       } finally {
         if (call) nativeCalls.delete(call)
       }

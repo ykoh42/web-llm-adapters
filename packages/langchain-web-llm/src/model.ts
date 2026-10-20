@@ -29,10 +29,9 @@ export class ChatWebLLM extends WebLLMChatModel {
     options.signal?.throwIfAborted()
     const request = this.formatRequest(options)
     const choice = formatChoice(options.tool_choice)
-    const retries = options.maxRetries ?? this.retries
     const chunks = protocolStream({
       engine: this.engine,
-      caller: options.signal && retries > 0 ? this.createCaller() : this.caller,
+      caller: options.signal ? this.createCaller(options.signal) : this.caller,
       modelId: this.modelId,
       history: formatMessages(messages),
       tools: formatTools(options.tools),

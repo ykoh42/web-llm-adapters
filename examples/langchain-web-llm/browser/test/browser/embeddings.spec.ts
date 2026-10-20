@@ -136,7 +136,10 @@ test('real embedding batches keep native vectors after an injected transient fai
         const result = await Reflect.apply(target, self, args)
         if (input[0] === 'A car.' && !failed) {
           failed = true
-          throw new TypeError('Failed to fetch', { cause: new SyntaxError('Lost batch response') })
+          throw Object.assign(
+            new TypeError('Failed to fetch', { cause: new SyntaxError('Lost batch response') }),
+            { code: 'GPU_BUSY', retryAfterMs: 1 },
+          )
         }
         return result
       },
@@ -161,7 +164,12 @@ test('real embedding batches keep native vectors after an injected transient fai
   ])
   expect(failures).toHaveLength(1)
   expect(failures[0]).toBeInstanceOf(TypeError)
-  expect(failures[0]).toMatchObject({ message: 'Failed to fetch', cause: expect.any(SyntaxError) })
+  expect(failures[0]).toMatchObject({
+    message: 'Failed to fetch',
+    cause: expect.any(SyntaxError),
+    code: 'GPU_BUSY',
+    retryAfterMs: 1,
+  })
   const native = await page.evaluate(
     async ({ modelId, documents }) => {
       const vectors: number[][] = []

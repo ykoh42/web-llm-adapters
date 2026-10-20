@@ -1,4 +1,7 @@
 import type { Api, Model } from '@earendil-works/pi-ai'
+import { resolveSamplingParams } from '@earendil-works/pi-ai/api/simple-options'
+import { clampThinkingLevel } from '@earendil-works/pi-ai/models'
+import { normalizeResponseFormat } from '../../../shared/web-llm/response.js'
 import type { WebLLMRequest, WebLLMStreamOptions } from './types.js'
 
 export function requestOptions(
@@ -15,8 +18,7 @@ export function requestOptions(
     ...(call.temperature !== undefined && { temperature: call.temperature }),
     max_tokens:
       call.maxTokens ?? call.request?.max_tokens ?? defaults.max_tokens ?? model.maxTokens,
-    ...model.samplingParams,
-    ...call.samplingParams,
+    ...resolveSamplingParams(model, call.reasoning ?? 'off', call.samplingParams),
   })
   for (const key of [
     'model',
@@ -35,8 +37,11 @@ export function requestOptions(
   if (call.reasoning !== undefined || (simple && model.reasoning))
     request.extra_body = {
       ...request.extra_body,
-      enable_thinking: call.reasoning !== undefined,
+      enable_thinking:
+        call.reasoning !== undefined && clampThinkingLevel(model, call.reasoning) !== 'off',
     }
+  if (request.response_format)
+    request.response_format = normalizeResponseFormat(request.response_format)
   return request
 }
 

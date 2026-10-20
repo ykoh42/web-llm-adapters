@@ -1,4 +1,3 @@
-import type { ErrorInfo } from '../../../../shared/web-llm/errors.js'
 import type { BrowserPacket } from '../../../../shared/browser/stream.js'
 import type { BrowserError } from './errors.js'
 import type { FailedAttempt } from './failed-attempts.js'
@@ -41,7 +40,9 @@ export interface BrowserBridge {
     config: Omit<WebLLMEmbeddingsOptions, 'engine'>
     texts: string[]
     type: 'query' | 'document'
-  }): Promise<number[][] | { error: ErrorInfo }>
+    /** The host caller owns retries and failed-attempt handlers. */
+    hostRetries?: boolean
+  }): Promise<number[][] | { error: BrowserError }>
   start(request: BrowserRequest): Promise<string>
   /** Returns model output or a native chunk batch. */
   next(id: string): Promise<BrowserResult>

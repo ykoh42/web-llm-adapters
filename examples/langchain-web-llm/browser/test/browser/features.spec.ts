@@ -16,6 +16,46 @@ test('uses a Web Worker by default', async ({ page }) => {
   await expect(page.getByLabel('Web Worker')).toBeChecked()
 })
 
+test('disableStreaming buffers real output without changing the native request', async ({
+  page,
+}) => {
+  const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
+  await page.evaluate((id) => window.checks.load(id, true), modelId)
+  await page.evaluate(() => {
+    const engine = window.checks.engine()
+    const original = engine.chat.completions.create.bind(engine.chat.completions)
+    const requests: unknown[] = []
+    Object.assign(window, { streamingRequests: requests })
+    engine.chat.completions.create = new Proxy(original, {
+      apply(target, self, args) {
+        requests.push(structuredClone(args[0]))
+        return Reflect.apply(target, self, args)
+      },
+    })
+  })
+  const outputs: string[] = []
+  for (const disableStreaming of [false, true]) {
+    const model = new BrowserChatWebLLM(page, {
+      modelId,
+      disableStreaming,
+      request: { ...sampling(modelId, false), max_tokens: 64, seed: 7 },
+    })
+    const messages = []
+    for await (const message of await model.stream('Reply with just the number 4.'))
+      messages.push(message)
+    if (disableStreaming) expect(messages).toHaveLength(1)
+    else expect(messages.length).toBeGreaterThan(1)
+    outputs.push(messages.map((message) => message.text).join(''))
+  }
+  const requests = await page.evaluate(
+    () => (window as unknown as { streamingRequests: unknown[] }).streamingRequests,
+  )
+  expect(requests).toHaveLength(2)
+  expect(requests[1]).toEqual(requests[0])
+  expect(outputs[0]).toContain('4')
+  expect(outputs[1]).toBe(outputs[0])
+})
+
 function lookupSchema(code: JSONSchema7, key = 'code') {
   return { type: 'object', properties: { [key]: code }, required: [key] } satisfies JSONSchema7
 }

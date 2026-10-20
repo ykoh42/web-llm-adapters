@@ -33,6 +33,7 @@ import { normalizeResponseFormat } from '../../../../shared/web-llm/response.js'
 import { stringifyJSON } from '../../../../shared/web-llm/json.js'
 import type { WebLLMModelOptions, WebLLMCallOptions, WebLLMRequest } from '../types.js'
 import { readEvents } from './stream.js'
+import { waitForCallback } from '../../../../shared/web-llm/callback.js'
 
 export abstract class WebLLMChatModel extends BaseChatModel<
   WebLLMCallOptions,
@@ -56,6 +57,7 @@ export abstract class WebLLMChatModel extends BaseChatModel<
   }: WebLLMModelOptions) {
     super({ ...params, maxRetries: params.maxRetries ?? 0 })
     if (!modelId) throw new Error('modelId must name a loaded WebLLM model.')
+    this.disableStreaming = params.disableStreaming ?? false
     this.modelId = modelId
     this.retries = params.maxRetries ?? 0
     this.callerParams = {
@@ -77,8 +79,20 @@ export abstract class WebLLMChatModel extends BaseChatModel<
     return structuredClone(this.modelProfile)
   }
 
-  protected createCaller(): AsyncCaller {
-    return new AsyncCaller(this.callerParams)
+  protected createCaller(signal: AbortSignal): AsyncCaller {
+    const onFailedAttempt = this.callerParams.onFailedAttempt
+    return new AsyncCaller({
+      ...this.callerParams,
+      ...(onFailedAttempt && {
+        onFailedAttempt: (error: unknown) => {
+          signal.throwIfAborted()
+          return waitForCallback(
+            Promise.resolve().then(() => onFailedAttempt(error)),
+            signal,
+          )
+        },
+      }),
+    })
   }
 
   static override lc_name() {

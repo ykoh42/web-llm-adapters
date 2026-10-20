@@ -1,6 +1,7 @@
 import type { Api, Model } from '@earendil-works/pi-ai'
 import type { ProtocolInput } from '../../../shared/web-llm/protocol.js'
 import type { WebLLMStreamOptions } from './types.js'
+import { waitForCallback } from '../../../shared/web-llm/callback.js'
 
 export function streamHooks(
   model: Model<Api>,
@@ -10,7 +11,9 @@ export function streamHooks(
 ): Pick<ProtocolInput, 'prepare' | 'open'> {
   return {
     prepare: async (payload) => {
-      const returned = await call.onPayload?.(payload, model)
+      const returned = call.onPayload
+        ? await waitForCallback(Promise.resolve(call.onPayload(payload, model)), signal)
+        : undefined
       const changed = returned === undefined ? payload : returned
       signal?.throwIfAborted()
       if (
@@ -37,7 +40,10 @@ export function streamHooks(
               const item = await iterator.next()
               if (!item.done) {
                 signal?.throwIfAborted()
-                await call.onProviderStreamEvent?.(item.value, model)
+                await waitForCallback(
+                  Promise.resolve(call.onProviderStreamEvent?.(item.value, model)),
+                  signal,
+                )
                 signal?.throwIfAborted()
               }
               return item

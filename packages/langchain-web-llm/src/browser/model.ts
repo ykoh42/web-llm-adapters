@@ -6,7 +6,7 @@ import {
 import { ChatGenerationChunk } from '@langchain/core/outputs'
 import type { CallbackManagerForLLMRun } from '@langchain/core/callbacks/manager'
 import { convertToOpenAITool } from '@langchain/core/utils/function_calling'
-import { waitForCallback } from './failed-attempts.js'
+import { waitForCallback } from '../../../../shared/web-llm/callback.js'
 import { restoreBrowserError, serializeBrowserError } from './errors.js'
 import { browserMessages } from './messages.js'
 import { stringifyJSON } from '../../../../shared/web-llm/json.js'

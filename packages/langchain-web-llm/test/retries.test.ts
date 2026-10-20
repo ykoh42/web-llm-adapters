@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getRetryable, stampRetryable } from '@langchain/core/errors'
 import {
   BrowserChatWebLLM,
+  ChatWebLLM,
   createBrowserBridge,
   type BrowserBridge,
   type BrowserPage,
@@ -30,6 +31,35 @@ afterEach(async () => {
   } finally {
     vi.unstubAllGlobals()
   }
+})
+
+describe('local failed-attempt cancellation', () => {
+  it.each([0, 1])('releases a pending handler with maxRetries=%i', async (maxRetries) => {
+    const { engine, create } = setup(chunk({ content: 'Recovered' }, 'stop'))
+    const hold = pause()
+    const controller = new AbortController()
+    const onFailedAttempt = vi.fn(async () => hold.wait)
+    const model = new ChatWebLLM({
+      engine,
+      modelId: 'test-model',
+      maxRetries,
+      maxConcurrency: 1,
+      onFailedAttempt,
+    })
+    create.mockRejectedValueOnce(new Error('Opening failed'))
+    const pending = model.invoke('Hi', { signal: controller.signal })
+    const rejected = expect(pending).rejects.toHaveProperty('name', 'AbortError')
+    try {
+      await vi.waitFor(() => expect(onFailedAttempt).toHaveBeenCalledOnce())
+      controller.abort()
+      await rejected
+      expect((await model.invoke('Recover')).text).toBe('Recovered')
+    } finally {
+      hold.resume()
+    }
+    expect(create).toHaveBeenCalledTimes(2)
+    expect(onFailedAttempt).toHaveBeenCalledOnce()
+  })
 })
 
 describe('browser failed-attempt callbacks', () => {

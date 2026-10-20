@@ -1,5 +1,4 @@
-import { restoreError } from '../../../../shared/web-llm/errors.js'
-import { modelError } from '../error.js'
+import { restoreBrowserError } from './errors.js'
 import { appendVectors } from '../embeddings/vectors.js'
 import { Embeddings } from '@langchain/core/embeddings'
 import type { WebLLMEmbeddingsOptions } from '../embeddings/model.js'
@@ -49,6 +48,7 @@ export class BrowserWebLLMEmbeddings extends Embeddings {
     const vectors: number[][] = []
     for (let offset = 0; offset < input.length; offset += this.config.batchSize) {
       const request = {
+        hostRetries: true,
         config: this.config,
         texts: input.slice(offset, offset + this.config.batchSize),
         type,
@@ -62,7 +62,7 @@ export class BrowserWebLLMEmbeddings extends Embeddings {
             )
           return bridge.embed(request)
         }, request)
-        if (!Array.isArray(result)) throw modelError(restoreError(result.error))
+        if (!Array.isArray(result)) throw restoreBrowserError(result.error)
         return result
       })
       appendVectors(vectors, batch)
