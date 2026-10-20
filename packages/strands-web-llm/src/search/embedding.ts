@@ -20,7 +20,6 @@ export interface WebLLMEmbeddingSearchOptions {
 interface IndexedText {
   content: string
   vector: readonly number[]
-  scale: number
   sumSquares: number
 }
 
@@ -59,7 +58,7 @@ export class WebLLMEmbeddingSearchStrategy implements SearchStrategy {
 
       vectors.delete(key)
       const [vector] = this.#readVectors(await this.#embed([content], 'document'), 1)
-      vectors.set(key, { content, vector: vector!, ...vectorMetrics(vector!) })
+      vectors.set(key, { content, vector: vector!, sumSquares: scaleVector(vector!) })
     })
   }
 
@@ -87,10 +86,7 @@ export class WebLLMEmbeddingSearchStrategy implements SearchStrategy {
       }
 
       const queryVector = this.#readVectors(await this.#embed([query], 'query'), 1)[0]!
-      const queryMetrics = vectorMetrics(queryVector)
-      const normalizedQuery = queryVector.map((value) =>
-        queryMetrics.scale ? value / queryMetrics.scale : 0,
-      )
+      const querySumSquares = scaleVector(queryVector)
       const missing = new Map<string, string[]>()
 
       for (const { key, content } of documents) {
@@ -124,8 +120,8 @@ export class WebLLMEmbeddingSearchStrategy implements SearchStrategy {
         )
         batch.forEach(([content, keys], index) => {
           const vector = vectors[index]!
-          const metrics = vectorMetrics(vector)
-          for (const key of keys) cached.set(key, { content, vector, ...metrics })
+          const sumSquares = scaleVector(vector)
+          for (const key of keys) cached.set(key, { content, vector, sumSquares })
         })
       }
 
@@ -138,7 +134,7 @@ export class WebLLMEmbeddingSearchStrategy implements SearchStrategy {
         .map(({ key, data }) => ({
           key,
           ...(data && { data }),
-          score: cosine(normalizedQuery, queryMetrics.sumSquares, cached.get(key)!),
+          score: cosine(queryVector, querySumSquares, cached.get(key)!),
         }))
         .filter(({ score }) => (this.#minScore === undefined ? score > 0 : score >= this.#minScore))
         .sort((left, right) => right.score - left.score)
@@ -199,28 +195,27 @@ async function readText(storage: Storage, key: string, includeData: boolean) {
   return { key, content, ...(includeData && { data }) }
 }
 
-function vectorMetrics(vector: readonly number[]) {
+// Scale private copies once instead of on every cached search.
+function scaleVector(vector: number[]) {
   let scale = 0
   for (const value of vector) scale = Math.max(scale, Math.abs(value))
 
   let sumSquares = 0
-  if (scale) {
-    for (const value of vector) {
-      const scaled = value / scale
-      sumSquares += scaled * scaled
-    }
+  for (let index = 0; index < vector.length; index++) {
+    const value = scale ? vector[index]! / scale : 0
+    vector[index] = value
+    sumSquares += value * value
   }
-  return { scale, sumSquares }
+  return sumSquares
 }
 
 function cosine(query: readonly number[], querySumSquares: number, document: IndexedText) {
   if (query.length !== document.vector.length)
     throw new TypeError('Query and document embeddings must have the same dimensions.')
-  if (!querySumSquares || !document.scale) return 0
+  if (!querySumSquares || !document.sumSquares) return 0
 
   let dot = 0
-  for (let index = 0; index < query.length; index++)
-    dot += query[index]! * (document.vector[index]! / document.scale)
+  for (let index = 0; index < query.length; index++) dot += query[index]! * document.vector[index]!
 
   const score = dot / Math.sqrt(querySumSquares * document.sumSquares)
   return Math.max(-1, Math.min(1, score))

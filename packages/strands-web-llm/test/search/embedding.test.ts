@@ -94,6 +94,22 @@ describe('WebLLMEmbeddingSearchStrategy', () => {
     expect(embed.mock.calls.map(([, type]) => type)).toEqual(['document', 'query', 'query'])
   })
 
+  it('keeps non-unit embedding arrays unchanged across indexing and repeated searches', async () => {
+    const query = Object.freeze([3, 4])
+    const document = Object.freeze([6, 8])
+    const strategy = new WebLLMEmbeddingSearchStrategy({
+      embed: async (texts, type) => texts.map(() => (type === 'query' ? query : document)),
+      includeData: false,
+    })
+    const storage = new InMemoryStorage({ searchStrategy: strategy })
+    await storage.write('note', encoder.encode('Stored note.'))
+
+    for (let index = 0; index < 2; index++)
+      expect(await storage.search('query')).toEqual([{ key: 'note', score: 1 }])
+    expect(query).toEqual([3, 4])
+    expect(document).toEqual([6, 8])
+  })
+
   it('keeps earlier batches when the embedder reuses document vectors', async () => {
     const storage = new InMemoryStorage()
     for (let index = 0; index < 64; index++)
