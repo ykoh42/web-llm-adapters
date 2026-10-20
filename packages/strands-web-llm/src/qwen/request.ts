@@ -19,16 +19,17 @@ export function qwenRequest(
   options: StreamOptions,
 ): ChatCompletionRequestStreaming {
   const tools = options.toolSpecs ?? []
-  const hasToolHistory = messages.some((message) =>
-    message.content.some(
-      (block) => block.type === 'toolUseBlock' || block.type === 'toolResultBlock',
-    ),
-  )
   if (tools.length && hasStructuredResponse(config))
     throw new ModelError('Qwen tool calls cannot use a structured response format.')
   if (
     config.modelId === 'Qwen3-1.7B-q4f16_1-MLC' &&
-    (tools.length > 0 || (options.toolChoice && !('auto' in options.toolChoice)) || hasToolHistory)
+    (tools.length > 0 ||
+      (options.toolChoice && !('auto' in options.toolChoice)) ||
+      messages.some((message) =>
+        message.content.some(
+          (block) => block.type === 'toolUseBlock' || block.type === 'toolResultBlock',
+        ),
+      ))
   )
     throw new ModelError('Tool calling is not supported for Qwen3-1.7B-q4f16_1-MLC.')
 

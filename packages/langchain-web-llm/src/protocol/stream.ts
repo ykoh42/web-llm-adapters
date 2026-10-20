@@ -69,11 +69,15 @@ export function protocolStream({
   if (choice === 'none') tools = []
   const thinking = request.extra_body?.enable_thinking === true
   if (gemma) history = trimThoughts(history)
-  const hasHistory = history.some(
-    (message) =>
-      message.role === 'tool' ||
-      (message.role === 'assistant' && (message.tool_calls?.length || message.reasoning)),
-  )
+  const gemmaProtocol =
+    gemma &&
+    (tools.length > 0 ||
+      thinking ||
+      history.some(
+        (message) =>
+          message.role === 'tool' ||
+          (message.role === 'assistant' && (message.tool_calls?.length || message.reasoning)),
+      ))
   const sampling = {
     ...request,
     model: modelId,
@@ -85,7 +89,7 @@ export function protocolStream({
     sampling.extra_body = { ...sampling.extra_body }
     delete sampling.extra_body.enable_thinking
   }
-  if (gemma && (tools.length || thinking || hasHistory)) {
+  if (gemmaProtocol) {
     if (structured || request.extra_body?.resumable?.enabled || request.ignore_eos)
       throw new Error(
         'Gemma protocol mode does not support constrained response_format, resume, or ignore_eos.',
