@@ -74,8 +74,7 @@ The script verifies pinned source archives and build inputs, applies
 separate at both depths, and builds under `.cache/runtime-build`. It downloads
 compiler sources, not model weights. The output has a `.build.json` record;
 compiler output can make rebuilt bytes differ. The shipped file's hash is in
-[manifest.json](manifest.json). Upstream notices and licenses are retained in
-[NOTICE.txt](NOTICE.txt) and `licenses/`.
+[manifest.json](manifest.json).
 
 Before replacing a runtime, verify its cache behavior and run the real Harness
 tests. Ordinary CI checks hashes and package contents without using a GPU.

@@ -10,5 +10,3 @@ The first load fetches WebLLM's runtime and model files; the browser caches them
 | `strands-web-llm`   | [Usage and support](packages/strands-web-llm/README.md)   | [Strands SDK and Harness](examples/strands-web-llm/README.md)     | [0.1.1](https://www.npmjs.com/package/strands-web-llm/v/0.1.1)   |
 
 Model support depends on WebLLM's exact `model_id` and quantization. Each package lists its verified models and features.
-
-MIT.

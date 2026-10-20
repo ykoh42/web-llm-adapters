@@ -21,7 +21,6 @@ The first load fetches WebLLM's runtime and model files; later runs use the brow
 | Thinking modes and sampling | [advanced.ts](src/examples/advanced.ts)                                  | Separate reasoning; compare sampling and timing                |
 | JSON and grammar            | [chat.ts](src/examples/chat.ts), [advanced.ts](src/examples/advanced.ts) | JSON schema, token probabilities, grammar, and structural tags |
 | Images and audio            | [media.ts](src/examples/media.ts)                                        | Image bytes, WAV, and PCM input                                |
-| Native WebLLM APIs          | [native.ts](src/examples/native.ts)                                      | Embeddings, raw completions, and generation save/resume        |
 
 **Response** shows answer text; **Details** shows reasoning, tools, and metadata.
 Choose models from the package's [verified model table](../../../packages/strands-web-llm/README.md#models).
@@ -29,21 +28,7 @@ The demo already configures Gemma's [required runtime](../../../shared/runtime/R
 Audio examples check input handling; they do not establish speech transcription accuracy.
 
 <details>
-<summary>Engine and extension checks</summary>
-
-Open <http://127.0.0.1:4173/engine.html> for WebLLM setup and compatibility checks:
-
-| Check                                     | Source                                  |
-| ----------------------------------------- | --------------------------------------- |
-| Multiple loaded models                    | [models.ts](src/checks/models.ts)       |
-| Custom token sampling                     | [processor.ts](src/checks/processor.ts) |
-| Progress, GPU info, history, stats, reset | [state.ts](src/checks/state.ts)         |
-| Config, Wasm, and tokenizer integrity     | [integrity.ts](src/checks/integrity.ts) |
-
-The Hermes tool batch checks WebLLM's native tool API; it ends after tool execution.
-The integrity check computes hashes; applications should pin trusted hashes.
-Cache deletion requires unloading. Cross-origin cache uses the Cross-Origin Storage extension
-in Main thread mode; shared deletion is unavailable.
+<summary>Chrome extension</summary>
 
 Selecting Cross-origin Storage switches the engine to Main thread mode.
 To try the Chrome extension worker, run `npm run build`, open `chrome://extensions`,

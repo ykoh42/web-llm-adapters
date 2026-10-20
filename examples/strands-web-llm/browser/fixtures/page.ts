@@ -2,9 +2,10 @@ import type { Page } from '@playwright/test'
 import { expect } from '../../fixtures/browser.js'
 export { test, expect } from '../../fixtures/browser.js'
 
-export async function load(page: Page, example: string, engine = 'worker') {
+export async function load(page: Page, example: string, engine = 'worker', modelId?: string) {
   await page.getByLabel('Example', { exact: true }).selectOption(example)
   await page.getByLabel('Engine', { exact: true }).selectOption(engine)
+  if (modelId) await page.getByLabel('Model', { exact: true }).selectOption(modelId)
   await page.getByRole('button', { name: 'Load model', exact: true }).click()
   await expect
     .poll(

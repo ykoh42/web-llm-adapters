@@ -1,7 +1,9 @@
+import { MLCEngine, prebuiltAppConfig } from '@mlc-ai/web-llm'
+import { runtimeConfig } from '../../../src/engine/runtime.js'
 import type { ChatCompletionChunk } from '@mlc-ai/web-llm'
-import type { ExampleInput } from './output.js'
+import type { ExampleInput } from '../../../src/examples/output.js'
 
-export async function embeddings(input: ExampleInput) {
+async function embeddings(input: ExampleInput) {
   const result = await input.engine.embeddings.create({
     model: input.modelId,
     input: input.prompt,
@@ -13,7 +15,7 @@ export async function embeddings(input: ExampleInput) {
   input.info(result.usage)
 }
 
-export async function completions(input: ExampleInput) {
+async function completions(input: ExampleInput) {
   // This API uses a raw prompt without a chat template. It also allows multiple choices.
   const result = await input.engine.completions.create({
     model: input.modelId,
@@ -27,7 +29,7 @@ export async function completions(input: ExampleInput) {
   input.info(result.usage)
 }
 
-export async function resume(input: ExampleInput) {
+async function resume(input: ExampleInput) {
   const sessionId = crypto.randomUUID()
   let parts = 0
   const chunks = await input.engine.chat.completions.create({
@@ -64,5 +66,50 @@ async function showChunks(chunks: AsyncIterable<ChatCompletionChunk>, input: Exa
     const text = chunk.choices[0]?.delta.content
     if (text) input.write(text)
     if (chunk.usage) input.info(chunk.usage)
+  }
+}
+
+const cases = {
+  embeddings: {
+    modelId: 'snowflake-arctic-embed-s-q0f32-MLC-b4',
+    prompt: 'A small browser agent.',
+    contextWindow: 512,
+    run: embeddings,
+  },
+  completions: {
+    modelId: 'gemma-4-E2B-it-q4f16_1-MLC',
+    prompt: 'The sky is',
+    contextWindow: 2048,
+    run: completions,
+  },
+  resume: {
+    modelId: 'gemma-4-E2B-it-q4f16_1-MLC',
+    prompt: 'Count from 1 to 30, with spaces between numbers. Do not explain.',
+    contextWindow: 2048,
+    run: resume,
+  },
+}
+
+export async function native(name: keyof typeof cases) {
+  const check = cases[name]
+  const engine = new MLCEngine({ appConfig: runtimeConfig(prebuiltAppConfig) })
+  const reports: unknown[] = []
+  let text = ''
+  try {
+    await engine.reload(check.modelId, { context_window_size: check.contextWindow })
+    await check.run({
+      engine,
+      modelId: check.modelId,
+      prompt: check.prompt,
+      file: undefined,
+      signal: new AbortController().signal,
+      write: (part) => {
+        text += part
+      },
+      info: (value) => reports.push(value),
+    })
+    return { text, reports }
+  } finally {
+    await engine.unload()
   }
 }

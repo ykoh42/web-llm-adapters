@@ -8,7 +8,6 @@ interface Example {
   run: (input: ExampleInput) => Promise<void>
   accept?: string
   contextWindow?: number
-  native?: boolean
 }
 
 const gemma = 'gemma-4-E2B-it-q4f16_1-MLC'
@@ -112,30 +111,5 @@ export const examples: Example[] = [
     accept: 'audio/*',
     contextWindow: 8192,
     run: async (input) => (await import('./media.js')).rawAudio(input),
-  },
-  {
-    id: 'embeddings',
-    name: 'Native embeddings',
-    model: 'snowflake-arctic-embed-s-q0f32-MLC-b4',
-    contextWindow: 512,
-    prompt: 'A small browser agent.',
-    native: true,
-    run: async (input) => (await import('./native.js')).embeddings(input),
-  },
-  {
-    id: 'completions',
-    name: 'Native text completion',
-    model: gemma,
-    prompt: 'The sky is',
-    native: true,
-    run: async (input) => (await import('./native.js')).completions(input),
-  },
-  {
-    id: 'resume',
-    name: 'Native save + resume',
-    model: gemma,
-    prompt: 'Count from 1 to 30, with spaces between numbers. Do not explain.',
-    native: true,
-    run: async (input) => (await import('./native.js')).resume(input),
   },
 ]

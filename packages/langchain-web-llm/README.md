@@ -135,5 +135,3 @@ Chat retries default to 0 and apply only while opening a stream. Context-limit e
 For custom vision models in Deep Agents, set `profile.imageInputs` and `profile.imageToolMessage` to `true`. Tool images are sent in the next user turn.
 
 Use `model.engine` and `withEngine(engine, callback)` for other native APIs; consume streams inside the callback. You own model loading, the engine, workers, and browser page. Native calls on one engine run in order. Cancellation interrupts generation without unloading the model.
-
-[MIT](LICENSE). The bundled runtime includes its upstream licenses and notices.

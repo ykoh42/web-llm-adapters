@@ -118,8 +118,6 @@ runButton.onclick = async () => {
   const example = selectedExample()
   controller = new AbortController()
   const { signal } = controller
-  const stop = () => engine.interruptGenerate()
-  if (example.native) signal.addEventListener('abort', stop, { once: true })
   busy = true
   updateButtons()
   output.textContent = ''
@@ -143,7 +141,6 @@ runButton.onclick = async () => {
     if (signal.aborted) status.textContent = 'Stopped'
     else showError(error)
   } finally {
-    signal.removeEventListener('abort', stop)
     controller = undefined
     busy = false
     updateButtons()

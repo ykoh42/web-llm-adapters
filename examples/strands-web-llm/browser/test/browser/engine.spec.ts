@@ -1,13 +1,13 @@
 import type { Page } from '@playwright/test'
 import { test, expect } from '../../fixtures/page.js'
-import type { models } from '../../src/checks/models.js'
-import type { processor } from '../../src/checks/processor.js'
-import type { state } from '../../src/checks/state.js'
-import type { integrity } from '../../src/checks/integrity.js'
+import type { models } from './checks/models.js'
+import type { processor } from './checks/processor.js'
+import type { state } from './checks/state.js'
+import type { integrity } from './checks/integrity.js'
 
 async function run(page: Page, name: string) {
-  await page.goto('http://127.0.0.1:4173/engine.html')
-  await page.getByLabel('Example').selectOption(name)
+  await page.goto('http://127.0.0.1:4173/test/browser/engine.html')
+  await page.getByLabel('Check').selectOption(name)
   await page.getByRole('button', { name: 'Run', exact: true }).click()
   await expect(page.getByRole('status')).toHaveText('Done', { timeout: 12 * 60 * 1000 })
   return (await page.getByLabel('Result').textContent())!
@@ -59,4 +59,28 @@ test('a custom manifest model verifies config, Wasm and tokenizer checksums', as
     expect(failure.actual).not.toBe(failure.expected)
     expect(failure.url).toMatch(/^https:/)
   }
+})
+
+test('native generation resumes after an interruption', async ({ page }) => {
+  const result: { text: string; reports: unknown[] } = JSON.parse(await run(page, 'resume'))
+  expect(result.text).toContain('30')
+  const details = JSON.stringify(result.reports, null, 2)
+  expect(details).toContain('"recoveredText"')
+  expect(details).toMatch(/"recoveryMode": "(kv|token_replay)"/)
+})
+
+test('native text completion returns two choices', async ({ page }) => {
+  const result: { text: string; reports: unknown[] } = JSON.parse(await run(page, 'completions'))
+  expect(result.text.split('\n\n---\n\n')).toHaveLength(2)
+})
+
+test('native embeddings return a finite vector', async ({ page }) => {
+  const result: { text: string; reports: unknown[] } = JSON.parse(await run(page, 'embeddings'))
+  const vector = JSON.parse(result.text) as {
+    dimensions: number
+    firstValues: number[]
+  }
+  expect(vector.dimensions).toBe(384)
+  expect(vector.firstValues).toHaveLength(8)
+  expect(vector.firstValues.every(Number.isFinite)).toBe(true)
 })

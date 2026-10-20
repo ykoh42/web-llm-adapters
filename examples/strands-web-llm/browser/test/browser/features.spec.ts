@@ -53,23 +53,6 @@ test('grammar limits the answer to a color', async ({ page }) => {
   await unload(page)
 })
 
-test('native generation resumes after an interruption', async ({ page }) => {
-  await load(page, 'resume')
-  await run(page)
-  await expect(page.getByLabel('Response')).toContainText('30')
-  const details = await page.getByLabel('Details', { exact: true }).textContent()
-  expect(details).toContain('"recoveredText"')
-  expect(details).toMatch(/"recoveryMode": "(kv|token_replay)"/)
-  await unload(page)
-})
-
-test('native text completion returns two choices', async ({ page }) => {
-  await load(page, 'completions')
-  await run(page)
-  expect((await page.getByLabel('Response').textContent())!.split('\n\n---\n\n')).toHaveLength(2)
-  await unload(page)
-})
-
 for (const example of ['audio', 'raw-audio']) {
   test(`${example} processes WAV input`, async ({ page }) => {
     await load(page, example)
@@ -80,24 +63,10 @@ for (const example of ['audio', 'raw-audio']) {
   })
 }
 
-test('native embeddings return a finite vector', async ({ page }) => {
-  await load(page, 'embeddings')
-  await run(page)
-  const result = JSON.parse((await page.getByLabel('Response').textContent())!) as {
-    dimensions: number
-    firstValues: number[]
-  }
-  expect(result.dimensions).toBe(384)
-  expect(result.firstValues).toHaveLength(8)
-  expect(result.firstValues.every(Number.isFinite)).toBe(true)
-  await unload(page)
-})
-
 for (const backend of ['cache', 'indexeddb', 'opfs']) {
   test(`${backend} stores and deletes a cached model`, async ({ page }) => {
     await page.getByLabel('Cache', { exact: true }).selectOption(backend)
-    await load(page, 'embeddings')
-    await run(page)
+    await load(page, 'chat', 'worker', 'Qwen3-0.6B-q4f16_1-MLC')
     await expect(
       page.getByRole('button', { name: 'Delete cached model', exact: true }),
     ).toBeDisabled()

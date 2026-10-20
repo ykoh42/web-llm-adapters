@@ -3,20 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Native engine examples</title>
+    <title>WebLLM compatibility checks</title>
   </head>
   <body>
-    <h1>Native engine examples</h1>
+    <h1>WebLLM compatibility checks</h1>
     <p><a href="/">Strands examples</a></p>
     <p>
-      Each example loads its own engine and unloads it when finished. The first run downloads
-      models.
+      Each check loads its own engine and unloads it when finished. The first run downloads models.
     </p>
-    <label for="check">Example</label>
+    <label for="check">Check</label>
     <select id="check"></select>
     <button id="run">Run</button>
     <p id="status" role="status">Ready</p>
     <pre id="output" aria-label="Result" style="white-space: pre-wrap"></pre>
-    <script type="module" src="/src/checks/main.ts"></script>
+    <script type="module" src="/test/browser/checks/main.ts"></script>
   </body>
 </html>

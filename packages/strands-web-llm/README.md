@@ -217,5 +217,3 @@ See the [native engine interface](https://github.com/mlc-ai/web-llm/blob/v0.2.86
 and [Strands provider contract](https://strandsagents.com/docs/user-guide/sdk/model-providers/custom_model_provider/).
 
 </details>
-
-[MIT](LICENSE). The bundled runtime retains its [upstream licenses and notices](https://github.com/ykoh42/web-llm-adapters/blob/main/shared/runtime/NOTICE.txt).
