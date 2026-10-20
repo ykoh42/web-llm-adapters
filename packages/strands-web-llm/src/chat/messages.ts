@@ -112,16 +112,16 @@ export function hasToolContext(message: Message | undefined, trailingBlocks = 0)
 export function lastQueryIndex(messages: Message[], trailingBlocks = 0): number {
   const lastMessage = messages.at(-1)
   const toolContext = hasToolContext(lastMessage, trailingBlocks)
-  let last = -1
-  for (const [index, message] of messages.entries()) {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!
     if (
       message.role === 'user' &&
       !(toolContext && message === lastMessage) &&
       !isToolReply(message.content)
     )
-      last = index
+      return index
   }
-  return last
+  return -1
 }
 
 function isToolReply(content: readonly ContentBlock[]): boolean {

@@ -39,6 +39,70 @@ const result: Message = {
 }
 
 describe('Pi transcript conversion', () => {
+  it('preserves system section and tool order after updates and removals', () => {
+    const { model } = setup()
+    const tool = (name: string, description = name) => ({
+      name,
+      description,
+      parameters: Type.Object({}),
+    })
+    const context = normalizeContext({
+      systemPrompt: 'Base',
+      tools: [tool('lookup'), tool('removed'), tool('search')],
+      messages: [
+        {
+          role: 'system',
+          content: 'Extra',
+          sections: { first: 'Old', removed: 'Remove me', last: 'Last' },
+          timestamp: 1,
+        },
+        { role: 'user', content: 'Hello', timestamp: 2 },
+        {
+          role: 'system',
+          content: '',
+          sections: { first: 'First', removed: null, added: 'Added' },
+          toolsRemoved: [{ name: 'removed' }],
+          toolsAdded: [tool('lookup', 'Updated lookup'), tool('added')],
+          timestamp: 3,
+        },
+      ],
+    })
+    const before = structuredClone(context)
+    expect(formatContext(context, model)).toEqual({
+      history: [
+        { role: 'system', content: 'Base\n\nExtra\n\nFirst\n\nLast\n\nAdded' },
+        { role: 'user', content: 'Hello' },
+      ],
+      tools: [
+        { name: 'lookup', description: 'Updated lookup' },
+        { name: 'search', description: 'search' },
+        { name: 'added', description: 'added' },
+      ].map((declaration) => ({
+        ...declaration,
+        inputSchema: { type: 'object', properties: {} },
+      })),
+    })
+    expect(context).toEqual(before)
+  })
+
+  it.each([
+    { messages: [], history: [] },
+    {
+      messages: [{ role: 'system', content: '', timestamp: 0 }],
+      history: [{ role: 'system', content: '' }],
+    },
+    {
+      messages: [{ role: 'user', content: '', timestamp: 0 }],
+      history: [{ role: 'user', content: '' }],
+    },
+  ] satisfies { messages: Message[]; history: { role: string; content: string }[] }[])(
+    'preserves empty transcript and message content %#',
+    ({ messages, history }) => {
+      const { model } = setup()
+      expect(formatContext(normalizeContext({ messages }), model)).toEqual({ history, tools: [] })
+    },
+  )
+
   it('preserves mixed assistant blocks and call order without mutating the transcript', () => {
     const { model } = setup()
     const secondCall = { ...toolCall, id: 'call-2', arguments: { code: 'B8' } }

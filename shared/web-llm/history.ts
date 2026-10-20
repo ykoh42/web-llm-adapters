@@ -55,9 +55,9 @@ export function qwenHistory(
 }
 
 function lastUser(history: GemmaMessage[]) {
-  let last = -1
-  for (const [index, message] of history.entries()) if (message.role === 'user') last = index
-  return last
+  for (let index = history.length - 1; index >= 0; index--)
+    if (history[index]!.role === 'user') return index
+  return -1
 }
 
 function withoutReasoning(message: GemmaMessage): GemmaMessage {

@@ -1,7 +1,8 @@
 import { load } from './engine.js'
 
 const status = document.querySelector<HTMLParagraphElement>('#status')!
-const answer = document.querySelector<HTMLPreElement>('#answer')!
+const answer = document.createTextNode('')
+document.querySelector<HTMLPreElement>('#answer')!.replaceChildren(answer)
 const details = document.querySelector<HTMLPreElement>('#details')!
 const select = document.querySelector<HTMLSelectElement>('#model')!
 const thinking = document.querySelector<HTMLInputElement>('#thinking')!
@@ -13,7 +14,7 @@ async function run(prompt: string, enabled = thinking.checked) {
   cancel = () => agent.abort()
   agent.subscribe((event) => {
     if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta')
-      answer.textContent += event.assistantMessageEvent.delta
+      answer.appendData(event.assistantMessageEvent.delta)
   })
   try {
     await agent.prompt(prompt)
@@ -42,7 +43,7 @@ document.querySelector<HTMLButtonElement>('#cancel')!.onclick = () => cancel?.()
 document.querySelector<HTMLFormElement>('#chat')!.onsubmit = (event) => {
   event.preventDefault()
   busy(true)
-  answer.textContent = ''
+  answer.data = ''
   details.textContent = ''
   status.textContent = 'Running'
   void run(document.querySelector<HTMLInputElement>('#message')!.value)

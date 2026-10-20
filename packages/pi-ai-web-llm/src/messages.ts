@@ -9,9 +9,9 @@ import type {
 } from '@earendil-works/pi-ai'
 import {
   collapseSystemMessages,
-  getCurrentTools,
-  getCurrentSystemPrompt,
+  getInitialSystemMessage,
 } from '@earendil-works/pi-ai/utils/transcript'
+import { getSystemMessageText } from '@earendil-works/pi-ai/utils/text'
 import type { ChatCompletionContentPart } from '@mlc-ai/web-llm'
 import type { GemmaMessage } from '../../../shared/web-llm/gemma/prompt.js'
 import { formatUserContent } from '../../../shared/web-llm/content.js'
@@ -22,7 +22,7 @@ export function formatContext(context: TranscriptContext, model: Model<Api>) {
   const history: GemmaMessage[] = []
   const calls: ToolHistory = { pending: new Map(), seen: new Set() }
   const transcript = collapseSystemMessages(context)
-  const tools = formatTools(getCurrentTools(transcript.messages))
+  const tools = formatTools(getInitialSystemMessage(transcript.messages)?.toolsAdded ?? [])
   let toolImages: ChatCompletionContentPart[] = []
   const flushImages = () => {
     if (toolImages.length) history.push({ role: 'user', content: toolImages })
@@ -41,7 +41,7 @@ export function formatContext(context: TranscriptContext, model: Model<Api>) {
     if (message.role === 'system') {
       history.push({
         role: 'system',
-        content: getCurrentSystemPrompt(transcript.messages),
+        content: getSystemMessageText(message),
       })
     } else if (message.role === 'user') {
       history.push({

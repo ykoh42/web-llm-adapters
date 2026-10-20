@@ -14,7 +14,8 @@ const prompt = document.querySelector<HTMLTextAreaElement>('#prompt')!
 const file = document.querySelector<HTMLInputElement>('#file')!
 const status = document.querySelector<HTMLParagraphElement>('#status')!
 const progress = document.querySelector<HTMLProgressElement>('#progress')!
-const output = document.querySelector<HTMLPreElement>('#output')!
+const output = document.createTextNode('')
+document.querySelector<HTMLPreElement>('#output')!.replaceChildren(output)
 const details = document.querySelector<HTMLPreElement>('#details')!
 const reports: unknown[] = []
 let loaded: Awaited<ReturnType<typeof import('./engine/load.js').openEngine>> | undefined
@@ -120,7 +121,7 @@ runButton.onclick = async () => {
   const { signal } = controller
   busy = true
   updateButtons()
-  output.textContent = ''
+  output.data = ''
   details.textContent = ''
   reports.length = 0
   status.textContent = 'Running…'
@@ -132,7 +133,7 @@ runButton.onclick = async () => {
       file: file.files?.[0],
       signal,
       write: (text) => {
-        output.textContent += text
+        output.appendData(text)
       },
       info,
     })

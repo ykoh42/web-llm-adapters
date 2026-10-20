@@ -11,9 +11,58 @@ import {
   ToolUseBlock,
 } from '@strands-agents/sdk'
 import { ModelType, postInitAndCheckFieldsChatCompletion, prebuiltAppConfig } from '@mlc-ai/web-llm'
-import { formatMessages } from '../../src/chat/messages.js'
+import { formatMessages, lastQueryIndex } from '../../src/chat/messages.js'
 import { WebLLMModel } from '../../src/index.js'
 import { chunk, collect, setup } from '../../fixtures/engine.js'
+
+describe('last user query', () => {
+  const question = new Message({ role: 'user', content: [new TextBlock('Find the code.')] })
+  const answer = new Message({ role: 'assistant', content: [new TextBlock('Checking.')] })
+  const result = new ToolResultBlock({
+    toolUseId: 'lookup',
+    status: 'success',
+    content: [new TextBlock('42')],
+  })
+  const reply = new Message({ role: 'user', content: [result] })
+  const hints = new Message({
+    role: 'user',
+    content: [result, new CachePointBlock({ cacheType: 'default' })],
+  })
+  const context = new Message({
+    role: 'user',
+    content: [result, new TextBlock('Current task context.')],
+  })
+
+  it.each([
+    { name: 'empty history', messages: [], trailing: 0, index: -1 },
+    { name: 'assistant only', messages: [answer], trailing: 0, index: -1 },
+    { name: 'tool reply only', messages: [reply], trailing: 0, index: -1 },
+    { name: 'tool loop', messages: [question, answer, reply], trailing: 0, index: 0 },
+    { name: 'tool cache hints', messages: [question, answer, hints], trailing: 1, index: 0 },
+    { name: 'injected context', messages: [question, answer, context], trailing: 1, index: 0 },
+    {
+      name: 'user text after a result',
+      messages: [question, answer, context],
+      trailing: 0,
+      index: 2,
+    },
+    { name: 'new question', messages: [question, answer, reply, question], trailing: 1, index: 3 },
+  ])(
+    'finds the query in $name without changing frozen history',
+    ({ messages, trailing, index }) => {
+      const original = JSON.stringify(messages)
+      for (const message of messages) {
+        for (const block of message.content) Object.freeze(block)
+        Object.freeze(message.content)
+        Object.freeze(message)
+      }
+      Object.freeze(messages)
+
+      expect(lastQueryIndex(messages, trailing)).toBe(index)
+      expect(JSON.stringify(messages)).toBe(original)
+    },
+  )
+})
 
 describe('messages', () => {
   it('preserves an explicitly empty system prompt', () => {
