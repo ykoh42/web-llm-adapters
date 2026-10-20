@@ -5,7 +5,7 @@ import {
   type ContentBlock,
   type ToolCall,
 } from '@langchain/core/messages'
-import type { ChatCompletionContentPart, ChatCompletionMessageParam } from '@mlc-ai/web-llm'
+import type { ChatCompletionContentPart } from '@mlc-ai/web-llm'
 import type { GemmaMessage } from '../../../../shared/web-llm/gemma/prompt.js'
 import { formatUserContent } from '../../../../shared/web-llm/content.js'
 import { stringifyJSON } from '../../../../shared/web-llm/json.js'
@@ -189,15 +189,7 @@ function base64Data(value: unknown): string | undefined {
   return parts.join('')
 }
 
-export function nativeMessages(messages: GemmaMessage[]): ChatCompletionMessageParam[] {
-  return messages.map((message) => {
-    const native = { ...message }
-    delete native.reasoning
-    delete native.response
-    delete native.context
-    return native
-  })
-}
+export { nativeMessages } from '../../../../shared/web-llm/history.js'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)

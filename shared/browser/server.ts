@@ -26,12 +26,10 @@ const types: Record<string, string> = {
 createServer(async (request, response) => {
   try {
     const pathname = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname)
-    const langchain = pathname.startsWith('/langchain/')
-    const directory = resolve(
-      root,
-      `examples/${langchain ? 'langchain' : 'strands'}-web-llm/browser/dist`,
-    )
-    const relative = langchain ? pathname.slice('/langchain/'.length) : pathname.slice(1)
+    const prefix = ['/langchain/', '/pi/'].find((value) => pathname.startsWith(value))
+    const adapter = prefix === '/pi/' ? 'pi-ai' : prefix === '/langchain/' ? 'langchain' : 'strands'
+    const directory = resolve(root, `examples/${adapter}-web-llm/browser/dist`)
+    const relative = pathname.slice(prefix?.length ?? 1)
     const file = resolve(directory, relative || 'index.html')
     if (!file.startsWith(directory + sep)) {
       response.writeHead(403).end()

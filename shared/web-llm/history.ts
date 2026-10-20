@@ -1,9 +1,9 @@
 import type { ChatCompletionMessageParam } from '@mlc-ai/web-llm'
-import type { GemmaMessage } from '../../../../shared/web-llm/gemma/prompt.js'
-import type { ToolSpec, ToolChoice } from '../../../../shared/web-llm/types.js'
-import * as qwen from '../../../../shared/web-llm/qwen/tools.js'
-import * as qwen35 from '../../../../shared/web-llm/qwen35/tools.js'
-import { appendQwenTurns, formatQwenAssistant } from '../../../../shared/web-llm/qwen/history.js'
+import type { GemmaMessage } from './gemma/prompt.js'
+import type { ToolSpec, ToolChoice } from './types.js'
+import * as qwen from './qwen/tools.js'
+import * as qwen35 from './qwen35/tools.js'
+import { appendQwenTurns, formatQwenAssistant } from './qwen/history.js'
 
 export function trimThoughts(history: GemmaMessage[]) {
   const last = lastUser(history)
@@ -64,4 +64,14 @@ function withoutReasoning(message: GemmaMessage): GemmaMessage {
   const copy = { ...message }
   delete copy.reasoning
   return copy
+}
+
+export function nativeMessages(messages: GemmaMessage[]): ChatCompletionMessageParam[] {
+  return messages.map((message) => {
+    const native = { ...message }
+    delete native.reasoning
+    delete native.response
+    delete native.context
+    return native
+  })
 }

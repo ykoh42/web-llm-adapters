@@ -5,6 +5,7 @@ import { stdout } from 'node:process'
 const root = resolve(import.meta.dirname, '..')
 const limit = 40_000
 const examples = [
+  ['Pi AI', 'examples/pi-ai-web-llm/browser/dist'],
   ['LangChain', 'examples/langchain-web-llm/browser/dist'],
   ['Strands', 'examples/strands-web-llm/browser/dist'],
 ]

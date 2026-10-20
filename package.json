@@ -12,7 +12,7 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "typecheck": "tsc --noEmit && npm run typecheck --workspaces --if-present",
-    "build:adapters": "npm run build --workspace langchain-web-llm --workspace strands-web-llm",
+    "build:adapters": "npm run build --workspace langchain-web-llm --workspace strands-web-llm --workspace pi-ai-web-llm",
     "test": "npm run build:adapters && vitest run",
     "test:watch": "npm run build:adapters && vitest",
     "test:coverage": "npm run build:adapters && vitest run --coverage",
@@ -33,7 +33,9 @@
     "test:langchain": "npm run build && playwright test --config playwright.langchain.config.ts",
     "dev:langchain": "npm run build --workspace langchain-web-llm && npm run dev --workspace @web-llm-adapters/langchain-browser",
     "test:langchain:standard": "node packages/langchain-web-llm/scripts/standard.ts && REAL_MODELS=1 vitest run --config vitest.standard.config.ts",
-    "check:release:langchain": "npm run check && npm run test:install --workspace langchain-web-llm && playwright test --config playwright.langchain.config.ts && npm run test:langchain:standard"
+    "check:release:langchain": "npm run check && npm run test:install --workspace langchain-web-llm && playwright test --config playwright.langchain.config.ts && npm run test:langchain:standard",
+    "dev:pi": "npm run build --workspace pi-ai-web-llm && npm run dev --workspace @web-llm-adapters/pi-ai-browser",
+    "test:pi": "npm run build --workspace pi-ai-web-llm --workspace @web-llm-adapters/pi-ai-browser && playwright test --config playwright.pi.config.ts"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",

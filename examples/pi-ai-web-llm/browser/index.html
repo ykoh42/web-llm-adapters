@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Pi AI + WebLLM</title>
+  </head>
+  <body>
+    <main>
+      <h1>Pi AI + WebLLM</h1>
+      <label
+        >Model
+        <select id="model">
+          <option>Qwen3.5-4B-q4f16_1-MLC</option>
+          <option>gemma-4-E2B-it-q4f16_1-MLC</option>
+          <option>Qwen3-8B-q4f16_1-MLC</option>
+          <option>Qwen2.5-3B-Instruct-q4f16_1-MLC</option>
+        </select></label
+      >
+      <label><input type="checkbox" id="worker" checked /> Web Worker</label>
+      <button id="load">Load model</button>
+      <p id="status">Load a model to start. The first load fetches WebLLM and model files.</p>
+      <label><input type="checkbox" id="thinking" checked /> Thinking</label>
+      <form id="chat">
+        <label
+          >Message <input id="message" required value="Look up A7 and tell me the answer."
+        /></label>
+        <button>Send</button> <button type="button" id="cancel" disabled>Cancel</button>
+      </form>
+      <pre id="answer"></pre>
+      <details>
+        <summary>Thinking and tools</summary>
+        <pre id="details"></pre>
+      </details>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
