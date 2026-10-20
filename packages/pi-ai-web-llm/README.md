@@ -2,7 +2,7 @@
 
 Use a loaded [WebLLM](https://github.com/mlc-ai/web-llm) engine as a custom provider for Pi AI and Pi Agent Core, entirely inside the browser.
 
-Not published yet. Run the [browser example](../../examples/pi-ai-web-llm/README.md) from this repository. After publication:
+Install the package, or run the [browser example](../../examples/pi-ai-web-llm/README.md) from this repository:
 
 ```sh
 npm install pi-ai-web-llm @earendil-works/pi-ai @mlc-ai/web-llm
