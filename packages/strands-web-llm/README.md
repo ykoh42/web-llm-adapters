@@ -6,7 +6,7 @@ WebGPU browser while tools run in your application.
 ## Install
 
 ```sh
-npm install strands-web-llm @mlc-ai/web-llm @strands-agents/sdk
+npm install strands-web-llm
 ```
 
 ## Browser

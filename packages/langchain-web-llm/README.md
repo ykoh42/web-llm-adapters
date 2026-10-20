@@ -3,7 +3,7 @@
 Run [WebLLM](https://github.com/mlc-ai/web-llm) models locally with WebGPU through LangChain, LangGraph, and Deep Agents.
 
 ```sh
-npm install langchain-web-llm @langchain/core @mlc-ai/web-llm
+npm install langchain-web-llm
 ```
 
 ## Use
