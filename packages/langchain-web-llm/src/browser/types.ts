@@ -1,5 +1,7 @@
 import type { ErrorInfo } from '../../../../shared/web-llm/errors.js'
 import type { BrowserPacket } from '../../../../shared/browser/stream.js'
+import type { BrowserError } from './errors.js'
+import type { FailedAttempt } from './failed-attempts.js'
 import type { WebLLMEmbeddingsOptions } from '../embeddings/model.js'
 import type {
   AIMessageChunkFields,
@@ -14,6 +16,7 @@ export interface BrowserPage {
 }
 export interface BrowserRequest {
   includeChunks?: boolean
+  includeFailedAttempts?: boolean
   config: WebLLMModelOptions
   messages: MessageFieldWithRole[]
   options: Pick<
@@ -26,7 +29,9 @@ export interface BrowserChunk {
   message: AIMessageChunkFields<StandardMessageStructure>
   generationInfo?: Record<string, unknown>
 }
-type BrowserResult = (BrowserPacket<BrowserChunk, WebLLMChunk> | { error: ErrorInfo }) & {
+type BrowserResult = (
+  BrowserPacket<BrowserChunk, WebLLMChunk> | FailedAttempt | { error: BrowserError }
+) & {
   chunks?: WebLLMChunk[]
 }
 
@@ -40,6 +45,8 @@ export interface BrowserBridge {
   start(request: BrowserRequest): Promise<string>
   /** Returns model output or a native chunk batch. */
   next(id: string): Promise<BrowserResult>
+  /** Resume opening the stream after the caller's failed-attempt handler returns. */
+  retry(id: string, error: BrowserError): void
   stop(id: string): Promise<void>
   close(): Promise<void>
 }

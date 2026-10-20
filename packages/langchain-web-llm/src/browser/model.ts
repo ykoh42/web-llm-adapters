@@ -6,8 +6,8 @@ import {
 import { ChatGenerationChunk } from '@langchain/core/outputs'
 import type { CallbackManagerForLLMRun } from '@langchain/core/callbacks/manager'
 import { convertToOpenAITool } from '@langchain/core/utils/function_calling'
-import { restoreError } from '../../../../shared/web-llm/errors.js'
-import { modelError } from '../error.js'
+import { waitForCallback } from './failed-attempts.js'
+import { restoreBrowserError, serializeBrowserError } from './errors.js'
 import { browserMessages } from './messages.js'
 import { stringifyJSON } from '../../../../shared/web-llm/json.js'
 import { WebLLMChatModel } from '../chat/base.js'
@@ -17,12 +17,14 @@ import type { BrowserPage, BrowserRequest } from './types.js'
 /** Keep the agent and tools in Node.js while WebLLM runs in a caller-controlled browser. */
 export class BrowserChatWebLLM extends WebLLMChatModel {
   private readonly onChunk: ChatWebLLMOptions['onChunk']
+  private readonly onFailedAttempt: WebLLMModelOptions['onFailedAttempt']
   constructor(
     private readonly page: BrowserPage,
     { onChunk, ...options }: WebLLMModelOptions & Pick<ChatWebLLMOptions, 'onChunk'>,
   ) {
     super(options)
     this.onChunk = onChunk
+    this.onFailedAttempt = options.onFailedAttempt
   }
 
   override async *_streamResponseChunks(
@@ -35,6 +37,7 @@ export class BrowserChatWebLLM extends WebLLMChatModel {
     const { tool_choice, maxRetries } = options
     const input: BrowserRequest = {
       ...(this.onChunk && { includeChunks: true }),
+      ...(this.onFailedAttempt && { includeFailedAttempts: true }),
       config: {
         modelId: this.modelId,
         request: this.formatRequest(options),
@@ -85,7 +88,24 @@ export class BrowserChatWebLLM extends WebLLMChatModel {
         signal?.throwIfAborted()
         if ('error' in result) {
           complete = true
-          throw modelError(restoreError(result.error))
+          throw restoreBrowserError(result.error)
+        }
+        if ('failedAttempt' in result) {
+          const error = restoreBrowserError(result.failedAttempt)
+          await waitForCallback(
+            Promise.resolve().then(() => this.onFailedAttempt!(error)),
+            signal,
+          )
+          signal?.throwIfAborted()
+          await this.page.evaluate(
+            ({ id, error }) => {
+              const bridge = window.webllmLangChainBridge
+              if (!bridge) throw new Error('The WebLLM browser bridge is no longer available.')
+              bridge.retry(id, error)
+            },
+            { id, error: serializeBrowserError(error) },
+          )
+          continue
         }
         if (result.done) {
           complete = true

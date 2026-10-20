@@ -10,14 +10,18 @@ import { WebLLMEmbeddings } from '../embeddings/model.js'
 import { ChatWebLLM } from '../model.js'
 import type { BrowserBridge, BrowserChunk } from './types.js'
 import { browserStream, type BrowserPacket } from '../../../../shared/browser/stream.js'
+import { failedAttempts, type FailedAttempt } from './failed-attempts.js'
+import { serializeBrowserError, type BrowserError } from './errors.js'
 
 /** Serve a caller-owned engine on a private browser page. Closing does not unload it. */
 export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
+  type Read = BrowserPacket<BrowserChunk, WebLLMChunk> | FailedAttempt
   interface Call {
     chunks: WebLLMChunk[]
     stream: AsyncGenerator<BrowserChunk>
-    next: () => Promise<BrowserPacket<BrowserChunk, WebLLMChunk>>
-    pending?: Promise<BrowserPacket<BrowserChunk, WebLLMChunk>>
+    next: () => Promise<Read>
+    pending?: Promise<Read>
+    retry?: (error: BrowserError) => void
     controller: AbortController
     closing?: Promise<void>
   }
@@ -44,16 +48,20 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
         if (call) nativeCalls.delete(call)
       }
     },
-    async start({ config, messages, options, includeChunks }) {
+    async start({ config, messages, options, includeChunks, includeFailedAttempts }) {
       if (closed) throw new Error('The browser bridge is closed.')
       const id = crypto.randomUUID()
       const controller = new AbortController()
       const chunks: WebLLMChunk[] = []
       const output = includeChunks ? browserStream<BrowserChunk, WebLLMChunk>(chunks) : undefined
+      const failures = includeFailedAttempts
+        ? failedAttempts<BrowserPacket<BrowserChunk, WebLLMChunk>>(controller.signal)
+        : undefined
       const model = new ChatWebLLM({
         ...config,
         engine,
         ...(output && { onChunk: output.push }),
+        ...(failures && { onFailedAttempt: failures.handle }),
       })
       async function* stream(): AsyncGenerator<BrowserChunk> {
         for await (const chunk of model._streamResponseChunks(
@@ -77,11 +85,13 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
         }
       }
       const source = stream()
+      const read = output ? () => output.next(source) : () => source.next()
       calls.set(id, {
         stream: source,
         controller,
         chunks,
-        next: output ? () => output.next(source) : () => source.next(),
+        next: failures ? () => failures.next(read) : read,
+        ...(failures && { retry: failures.retry }),
       })
       return id
     },
@@ -99,10 +109,13 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
       } catch (error) {
         calls.delete(id)
         return {
-          error: serializeError(error),
+          error: serializeBrowserError(error),
           ...(call?.chunks.length && { chunks: call.chunks.splice(0) }),
         }
       }
+    },
+    retry(id, error) {
+      calls.get(id)?.retry?.(error)
     },
     stop(id) {
       const call = calls.get(id)

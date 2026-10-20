@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Forward browser `onFailedAttempt` handlers, including async decisions, cancellation, and error updates, without changing model input or output.
+
 ## 0.1.0
 
 - Add WebLLM chat, tools, thinking, and embeddings for LangChain, LangGraph, and Deep Agents.

@@ -202,10 +202,12 @@ for (const modelId of ['Qwen3.5-4B-q4f16_1-MLC', 'gemma-4-E2B-it-q4f16_1-MLC']) 
     expect(observed.at(-1)?.finish).toBe('tool_calls')
     let firstStopped = false
     let liveReasoning = false
+    const failures: unknown[] = []
     const model = new BrowserChatWebLLM(page, {
       modelId,
       profile: await page.evaluate(() => window.checks.model(true).profile),
       request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
+      onFailedAttempt: (error: unknown) => failures.push(error),
       onChunk: (chunk) => {
         if (chunk.choices[0]?.finish_reason) firstStopped = true
       },
@@ -246,6 +248,7 @@ for (const modelId of ['Qwen3.5-4B-q4f16_1-MLC', 'gemma-4-E2B-it-q4f16_1-MLC']) 
     )
     expect(codes).toEqual(['A7'])
     expect(chunks.map((message) => message.text).join('')).toContain('42')
+    expect(failures).toEqual([])
   })
 }
 

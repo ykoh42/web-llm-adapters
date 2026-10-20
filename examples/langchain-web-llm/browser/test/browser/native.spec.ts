@@ -284,8 +284,11 @@ test('Hermes retries after native request preprocessing without changing the too
     const engine = window.checks.engine()
     const original = engine.chat.completions.create.bind(engine.chat.completions)
     let first = true
+    const requests: ChatCompletionRequestStreaming[] = []
+    Object.assign(window, { retryRequests: requests })
     engine.chat.completions.create = new Proxy(original, {
       async apply(target, self, args) {
+        requests.push(structuredClone(args[0]))
         const stream = await Reflect.apply(target, self, args)
         if (first) {
           first = false
@@ -296,9 +299,18 @@ test('Hermes retries after native request preprocessing without changing the too
       },
     })
   })
+  const onFailedAttempt = async (error: Error) => {
+    expect(error.message).toBe('Opening failed after preprocessing')
+    expect(
+      await page.evaluate(
+        () => (window as unknown as { retryRequests: unknown[] }).retryRequests.length,
+      ),
+    ).toBe(1)
+  }
   const model = new BrowserChatWebLLM(page, {
     modelId,
     maxRetries: 1,
+    onFailedAttempt,
     request: { temperature: 0, max_tokens: 256 },
   })
   const result = await model
@@ -320,7 +332,63 @@ test('Hermes retries after native request preprocessing without changing the too
 
   expect(result.tool_calls).toMatchObject([{ name: 'lookup', args: { code: 'A7' } }])
   expect(result.text).toBe('')
+  const requests = await page.evaluate(
+    () => (window as unknown as { retryRequests: ChatCompletionRequestStreaming[] }).retryRequests,
+  )
+  expect(requests).toHaveLength(2)
+  expect(requests[1]).toEqual(requests[0])
 })
+
+for (const outcome of ['throw', 'cancel'] as const) {
+  test(`a failed-attempt callback can ${outcome} and reuse a real WebLLM engine`, async ({
+    page,
+  }) => {
+    const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
+    await page.evaluate((id) => window.checks.load(id, true), modelId)
+    await page.evaluate(() => {
+      const engine = window.checks.engine()
+      const original = engine.chat.completions.create.bind(engine.chat.completions)
+      let first = true
+      engine.chat.completions.create = new Proxy(original, {
+        async apply(target, self, args) {
+          if (first) {
+            first = false
+            throw new Error('Opening failed')
+          }
+          return Reflect.apply(target, self, args)
+        },
+      })
+    })
+    const stopped = new Error('Do not retry')
+    const controller = new AbortController()
+    let called = false
+    let finish!: () => void
+    const hold = new Promise<void>((resolve) => (finish = resolve))
+    const model = new BrowserChatWebLLM(page, {
+      modelId,
+      maxRetries: 1,
+      request: { ...sampling(modelId, false), max_tokens: 128, seed: 7 },
+      onFailedAttempt: async () => {
+        called = true
+        if (outcome === 'throw') throw stopped
+        await hold
+      },
+    })
+    const pending = model.invoke('Hello', { signal: controller.signal })
+    const failed =
+      outcome === 'throw'
+        ? expect(pending).rejects.toBe(stopped)
+        : expect(pending).rejects.toHaveProperty('name', 'AbortError')
+    try {
+      await expect.poll(() => called).toBe(true)
+      if (outcome === 'cancel') controller.abort()
+      await failed
+      expect((await model.invoke('What is 3 + 3? Reply briefly.')).text).toContain('6')
+    } finally {
+      finish()
+    }
+  })
+}
 
 test('native WebLLM tool arguments reach LangChain unchanged', async ({ page }, info) => {
   const modelId = 'Hermes-3-Llama-3.1-8B-q4f16_1-MLC'
