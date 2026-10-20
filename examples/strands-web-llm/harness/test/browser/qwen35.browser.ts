@@ -5,8 +5,8 @@ import { createHarness } from '@strands-agents/harness'
 import { Agent, BeforeModelCallEvent, FunctionTool, type JSONSchema } from '@strands-agents/sdk'
 import { expect, test } from '../../../fixtures/browser.js'
 import { BrowserModel } from 'strands-web-llm'
-import { sampling } from '../../../shared/sampling.js'
-import { sharedSchema } from '../../../../shared/schema.js'
+import { sampling } from '../../../sampling.js'
+import { sharedSchema } from '../../../../../test/support/schema.js'
 
 function lookupSchema(code: JSONSchema, key = 'code') {
   return { type: 'object', properties: { [key]: code }, required: [key] } satisfies JSONSchema

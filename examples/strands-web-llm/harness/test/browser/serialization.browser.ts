@@ -12,7 +12,7 @@ import type {
   CompletionCreateParamsStreaming,
 } from '@mlc-ai/web-llm'
 import { test, expect } from '../../../fixtures/browser.js'
-import { sampling } from '../../../shared/sampling.js'
+import { sampling } from '../../../sampling.js'
 
 type NativeRequest = ChatCompletionRequestStreaming | CompletionCreateParamsStreaming
 

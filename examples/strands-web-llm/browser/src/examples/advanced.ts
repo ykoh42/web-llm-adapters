@@ -1,7 +1,7 @@
 import { Agent } from '@strands-agents/sdk'
 import { WebLLMModel } from 'strands-web-llm'
 import { runAgent, type ExampleInput } from './output.js'
-import { sampling as modelSampling } from '../../../shared/sampling.js'
+import { sampling as modelSampling } from '../../../sampling.js'
 
 export async function tags(input: ExampleInput) {
   const model = new WebLLMModel({

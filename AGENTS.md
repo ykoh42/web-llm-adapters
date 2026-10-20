@@ -1,5 +1,6 @@
 - Write simple, textbook-quality code: plain names, short functions, flat flow.
 - Prefer the latest stable TS/JS syntax supported by the target runtime.
-- Fully bridge WebLLM and Strands via recommended APIs; keep fixes small and packages independent.
-- Keep model input faithful; add only protocol-required content.
-- Verify real WebLLM–Strands flows; preserve outputs, report limits, and avoid filler, fakes, and fallbacks.
+- Fully bridge WebLLM and each framework via recommended APIs; keep fixes small.
+- Keep packages independent and examples self-contained.
+- Preserve model input and output; add only protocol-required content.
+- Verify real WebLLM flows; report limits without filler, fakes, or fallbacks.

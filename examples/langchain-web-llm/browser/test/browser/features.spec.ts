@@ -9,8 +9,8 @@ import { BrowserChatWebLLM, BrowserWebLLMEmbeddings } from 'langchain-web-llm'
 import { writeFile } from 'node:fs/promises'
 import type { WebLLMChunk } from 'langchain-web-llm'
 import { test, expect } from '../../../fixtures/browser.js'
-import { sampling } from '../../../../shared/sampling.js'
-import { sharedSchema } from '../../../../shared/schema.js'
+import { sampling } from '../../../sampling.js'
+import { sharedSchema } from '../../../../../test/support/schema.js'
 
 test('uses a Web Worker by default', async ({ page }) => {
   await expect(page.getByLabel('Web Worker')).toBeChecked()

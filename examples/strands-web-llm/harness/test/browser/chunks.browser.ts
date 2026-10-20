@@ -1,8 +1,8 @@
 import { Message, TextBlock, ToolUseBlock } from '@strands-agents/sdk'
 import { BrowserModel } from 'strands-web-llm'
 import { test, expect } from '../../../fixtures/browser.js'
-import { sampling } from '../../../shared/sampling.js'
-import { watchNativeFinish } from '../../../../shared/native-stream.js'
+import { sampling } from '../../../sampling.js'
+import { watchNativeFinish } from '../../../../../test/support/native-stream.js'
 
 test('native tool chunks arrive before WebLLM finishes generating arguments', async ({ page }) => {
   const modelId = 'Qwen3.5-4B-q4f16_1-MLC'

@@ -7,8 +7,8 @@ import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from '@langcha
 import type { BindToolsInput } from '@langchain/core/language_models/chat_models'
 import { writeFile } from 'node:fs/promises'
 import { test, expect } from '../../../fixtures/browser.js'
-import { sampling } from '../../../../shared/sampling.js'
-import { sharedSchema } from '../../../../shared/schema.js'
+import { sampling } from '../../../sampling.js'
+import { sharedSchema } from '../../../../../test/support/schema.js'
 
 type NativeRequest = ChatCompletionRequestStreaming | CompletionCreateParamsStreaming
 interface Workload {

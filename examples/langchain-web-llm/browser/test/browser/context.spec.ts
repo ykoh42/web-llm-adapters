@@ -3,7 +3,7 @@ import { HumanMessage, AIMessage } from '@langchain/core/messages'
 import { createDeepAgent, createSummarizationMiddleware, StateBackend } from 'deepagents'
 import { BrowserChatWebLLM } from 'langchain-web-llm'
 import { test, expect } from '../../../fixtures/browser.js'
-import { sampling } from '../../../../shared/sampling.js'
+import { sampling } from '../../../sampling.js'
 
 for (const worker of [false, true]) {
   test(`native context overflow keeps its LangChain type with worker ${worker}`, async ({

@@ -4,10 +4,10 @@ import { createDeepAgent } from 'deepagents'
 import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages'
 import { BrowserChatWebLLM, type WebLLMChunk } from 'langchain-web-llm'
 import { test, expect } from '../../../fixtures/browser.js'
-import { sampling } from '../../../../shared/sampling.js'
+import { sampling } from '../../../sampling.js'
 import { writeFile } from 'node:fs/promises'
 import type { ChatCompletionRequestStreaming } from '@mlc-ai/web-llm'
-import { breakToolStream } from '../../../../shared/stream-failure.js'
+import { breakToolStream } from '../../../../../test/support/stream-failure.js'
 
 for (const modelId of ['Hermes-3-Llama-3.1-8B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC']) {
   test(`${modelId} accepts an empty system prompt for chat and native tools`, async ({ page }) => {

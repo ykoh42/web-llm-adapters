@@ -1,4 +1,4 @@
-import { sampling } from '../../../../shared/sampling.js'
+import { sampling } from '../../../sampling.js'
 import { createDeepAgent } from 'deepagents'
 import { BrowserChatWebLLM, type WebLLMChunk } from 'langchain-web-llm'
 import { test, expect } from '../../../fixtures/browser.js'

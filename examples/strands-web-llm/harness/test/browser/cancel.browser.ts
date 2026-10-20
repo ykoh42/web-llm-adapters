@@ -7,7 +7,7 @@ import {
 } from '@strands-agents/sdk'
 import { BrowserModel } from 'strands-web-llm'
 import { test, expect } from '../../../fixtures/browser.js'
-import { sampling } from '../../../shared/sampling.js'
+import { sampling } from '../../../sampling.js'
 
 for (const modelId of [
   'Qwen3.5-4B-q4f16_1-MLC',

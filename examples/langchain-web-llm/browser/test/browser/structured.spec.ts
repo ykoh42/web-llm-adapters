@@ -5,7 +5,7 @@ import { AIMessage } from '@langchain/core/messages'
 import { writeFile } from 'node:fs/promises'
 import { BrowserChatWebLLM } from 'langchain-web-llm'
 import { test, expect } from '../../../fixtures/browser.js'
-import { sampling } from '../../../../shared/sampling.js'
+import { sampling } from '../../../sampling.js'
 
 test('Qwen thinking executes a tool before returning an agent response schema', async ({
   page,

@@ -1,4 +1,4 @@
-import { sampling } from '../../../shared/sampling.js'
+import { sampling } from '../../sampling.js'
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
 type LangChainAdapter = typeof import('langchain-web-llm')
 import runtimeUrl from 'langchain-web-llm/runtime/gemma-4-e2b.wasm?url'

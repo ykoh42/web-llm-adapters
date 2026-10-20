@@ -5,7 +5,7 @@ import { createHarness } from '@strands-agents/harness'
 import { BeforeModelCallEvent, FunctionTool } from '@strands-agents/sdk'
 import { expect, test } from '../../../fixtures/browser.js'
 import { BrowserModel } from 'strands-web-llm'
-import { sampling } from '../../../shared/sampling.js'
+import { sampling } from '../../../sampling.js'
 
 for (const modelId of ['Qwen3-0.6B-q4f16_1-MLC', 'Qwen3-4B-q4f16_1-MLC', 'Qwen3-8B-q4f16_1-MLC']) {
   test(`${modelId} thinking calls a Harness tool, uses its result, and answers`, async ({

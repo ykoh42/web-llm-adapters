@@ -6,7 +6,7 @@ import { BrowserModel } from 'strands-web-llm'
 import { useTool } from './tool-choice.ts'
 import { createEmbeddingMemory, createMemory, embeddingModelId } from './memory.ts'
 import { createRead } from './tools/read.ts'
-import { sampling } from '../../shared/sampling.ts'
+import { sampling } from '../../sampling.ts'
 
 const { values, positionals } = parseArgs({
   options: {
