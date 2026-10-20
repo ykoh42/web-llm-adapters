@@ -1,11 +1,6 @@
 import { ModelError, type Message, type StreamOptions } from '@strands-agents/sdk'
 import type { ChatCompletionMessageParam } from '@mlc-ai/web-llm'
-import {
-  formatAssistant,
-  formatUser,
-  lastQueryIndex,
-  rejectSignedToolCalls,
-} from '../chat/messages.js'
+import { formatText, formatUser, lastQueryIndex, rejectSignedToolCalls } from '../chat/messages.js'
 import { appendQwenTurns, formatQwenAssistant } from '../../../../shared/web-llm/qwen/history.js'
 import { formatCall as jsonCall } from '../../../../shared/web-llm/qwen/tools.js'
 import { formatCall as xmlCall } from '../../../../shared/web-llm/qwen35/tools.js'
@@ -40,7 +35,7 @@ export function qwenHistory(
         `${format.xml ? 'Qwen3.5' : 'Qwen'} cannot use signed or redacted reasoning.`,
       )
     const content = message.content.filter((block) => block.type !== 'reasoningBlock')
-    const text = formatAssistant(content.filter((block) => block.type !== 'toolUseBlock')).content
+    const text = formatText(content.filter((block) => block.type !== 'toolUseBlock'))
     const calls = content
       .filter((block) => block.type === 'toolUseBlock')
       .map((call) => formatCall(call.name, call.input))
@@ -50,7 +45,7 @@ export function qwenHistory(
         : ''
     output.push({
       role: 'assistant',
-      content: formatQwenAssistant(text ?? '', thought, calls, format.xml),
+      content: formatQwenAssistant(text, thought, calls, format.xml),
     })
     previousWasToolResult = false
   }

@@ -1,4 +1,5 @@
 import {
+  ImageBlock,
   Message,
   ReasoningBlock,
   TextBlock,
@@ -9,6 +10,35 @@ import { expect, it } from 'vitest'
 import { qwenRequest } from '../../src/qwen/request.js'
 import { qwen35Request } from '../../src/qwen35/request.js'
 import { ModelType, postInitAndCheckFieldsChatCompletion } from '@mlc-ai/web-llm'
+
+it.each([
+  { modelId: 'Qwen3-4B-q4f16_1-MLC', request: qwenRequest },
+  { modelId: 'Qwen3.5-4B-q4f16_1-MLC', request: qwen35Request },
+])(
+  '$modelId keeps validation order when history has several invalid blocks',
+  ({ modelId, request }) => {
+    const image = new ImageBlock({
+      format: 'png',
+      source: { url: 'https://example.com/image.png' },
+    })
+    const thought = new ReasoningBlock({ text: 'Plan.', signature: 'signed' })
+    const call = new ToolUseBlock({ toolUseId: 'call', name: 'lookup', input: { value: NaN } })
+    const signed = new ToolUseBlock({
+      toolUseId: 'signed',
+      name: 'lookup',
+      input: {},
+      reasoningSignature: 'signed',
+    })
+    for (const { content, error } of [
+      { content: [image, call], error: 'imageBlock here' },
+      { content: [image, thought, call], error: 'signed or redacted reasoning' },
+      { content: [image, thought, signed], error: 'tool calls with reasoning signatures' },
+    ])
+      expect(() => request({ modelId }, [new Message({ role: 'assistant', content })], {})).toThrow(
+        error,
+      )
+  },
+)
 
 it('allows automatic Qwen3 1.7B chat when no tools are registered', () => {
   const modelId = 'Qwen3-1.7B-q4f16_1-MLC'

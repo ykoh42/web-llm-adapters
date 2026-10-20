@@ -27,7 +27,7 @@ export function formatMessages(
 export function formatAssistant(content: ContentBlock[]): ChatCompletionAssistantMessageParam {
   rejectSignedToolCalls(content)
   const calls = content.filter((block) => block.type === 'toolUseBlock')
-  const text = textOnly(content.filter((block) => block.type !== 'toolUseBlock'))
+  const text = formatText(content.filter((block) => block.type !== 'toolUseBlock'))
   return {
     role: 'assistant',
     content: text,
@@ -55,7 +55,7 @@ export function formatUser(content: ContentBlock[]): ChatCompletionMessageParam[
   for (const block of content) {
     if (block.type !== 'toolResultBlock') continue
     const images = block.content.filter((part) => part.type === 'imageBlock').map(formatPart)
-    const text = textOnly(block.content.filter((part) => part.type !== 'imageBlock'))
+    const text = formatText(block.content.filter((part) => part.type !== 'imageBlock'))
     const result = block.status === 'error' ? (text ? `[ERROR] ${text}` : '[ERROR]') : text
     output.push({
       role: 'tool',
@@ -102,7 +102,7 @@ function isToolReply(content: readonly ContentBlock[]): boolean {
   )
 }
 
-function textOnly(blocks: readonly (ContentBlock | ToolResultContent)[]): string {
+export function formatText(blocks: readonly (ContentBlock | ToolResultContent)[]): string {
   return blocks
     .map((block) => {
       if (block.type === 'textBlock') return block.text
@@ -152,5 +152,5 @@ export function formatToolChoice(choice: ToolChoice): ChatCompletionToolChoiceOp
 /** Cache hints are harmless; unsupported system blocks must never disappear silently. */
 export function formatSystemPrompt(prompt?: SystemPrompt): string | undefined {
   if (prompt === undefined || typeof prompt === 'string') return prompt
-  return textOnly(prompt)
+  return formatText(prompt)
 }
