@@ -2,10 +2,65 @@ import { MemoryManager } from '@strands-agents/sdk'
 import { InMemoryStorage, LocalFileStorage } from '@strands-agents/sdk/storage'
 import { FileMemoryStore } from '@strands-agents/sdk/vended-memory-stores/file-memory-store'
 import { BrowserModel, WebLLMEmbeddingSearchStrategy, type WebLLMChunk } from 'strands-web-llm'
-import { writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { expect, test } from '../../../fixtures/browser.js'
 import { createEmbeddingMemory, embeddingModelId } from '../../src/memory.js'
 import { finalText, openHarness } from '../../fixtures/harness.js'
+
+declare global {
+  interface Window {
+    memoryVectorReuses: number
+  }
+}
+
+test('memory example keeps real vectors after queued work reuses the native arrays', async ({
+  page,
+}) => {
+  await page.goto('http://127.0.0.1:4173/harness.html')
+  await page.waitForFunction(() => Boolean(window.harness))
+  await page.evaluate((id) => window.harness.open(id, 512), embeddingModelId)
+  const dir = await mkdtemp(join(tmpdir(), 'web-llm-memory-'))
+  try {
+    await page.evaluate(() =>
+      window.webllmBridge.withEngine((engine) => {
+        const create = engine.embeddings.create.bind(engine.embeddings)
+        const buffers: number[][] = []
+        window.memoryVectorReuses = 0
+        engine.embeddings.create = async (request) => {
+          const response = await create(request)
+          const data = response.data.map((item) => {
+            const buffer = (buffers[item.index] ??= [])
+            buffer.splice(0, buffer.length, ...item.embedding)
+            return { ...item, embedding: buffer }
+          })
+          void window.webllmBridge.withEngine(() => {
+            for (const buffer of buffers) buffer.fill(0)
+            window.memoryVectorReuses++
+          })
+          return { ...response, data }
+        }
+      }),
+    )
+    const memory = createEmbeddingMemory(page, 'gemma-4-E2B-it-q4f16_1-MLC', 8192, dir)
+    const content = 'A basket of fresh apples.'
+    await memory.add(content)
+    const results = await memory.search('fruit')
+    expect(
+      await page.evaluate(() => window.webllmBridge.withEngine(() => window.memoryVectorReuses)),
+    ).toBe(2)
+    expect(results).toHaveLength(1)
+    expect(results[0]?.content).toBe(content)
+    expect(Number(results[0]?.metadata?.score)).toBeGreaterThan(0)
+  } finally {
+    try {
+      await page.evaluate(() => window.harness.close())
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }
+})
 
 test('FileMemoryStore reuses real WebLLM vectors after copies and renames', async ({ page }) => {
   await page.goto('http://127.0.0.1:4173/harness.html')

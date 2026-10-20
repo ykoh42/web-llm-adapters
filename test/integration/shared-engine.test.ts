@@ -5,7 +5,7 @@ import { Message, TextBlock } from '@strands-agents/sdk'
 // Package exports load separate release bundles, each with its own copy of the queue code.
 import { WebLLMModel, withEngine as strandsAccess } from 'strands-web-llm'
 import { ChatWebLLM, withEngine as langchainAccess } from 'langchain-web-llm'
-import { chunk, pause, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
+import { chunk, chunks, pause, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
 
 type Client = 'strands' | 'langchain'
 
@@ -133,6 +133,58 @@ for (const client of ['strands', 'langchain'] as const) {
     } finally {
       hold.resume()
       await Promise.all([active, waiting])
+    }
+  })
+
+  it(`${client} and ${other} keep queued requests in order after several cancellations`, async () => {
+    const { engine, create, stop } = setup()
+    create.mockImplementation(async (request) =>
+      chunks(chunk({ content: String(request.messages.at(-1)?.content) }, 'stop')),
+    )
+    const opened = pause()
+    const hold = pause()
+    const active = strandsAccess(engine, async () => {
+      opened.resume()
+      await hold.wait
+    })
+    await opened.wait
+    const jobs: { controller: AbortController; result: ReturnType<typeof settle>; text: string }[] =
+      []
+    try {
+      for (let index = 0; index < 12; index++) {
+        const controller = new AbortController()
+        const text = 'Request ' + index
+        jobs.push({
+          controller,
+          text,
+          result: settle(read(index % 2 ? client : other, engine, text, controller.signal)),
+        })
+        await turn()
+      }
+      const cancelled = [1, 2, 5, 8]
+      const reasons = [new Error('Cancel waiter'), 'Cancelled', null, 0]
+      for (const [index, position] of cancelled.entries()) {
+        jobs[position]!.controller.abort(reasons[index])
+        const result = await jobs[position]!.result
+        expect('error' in result).toBe(true)
+        if ('error' in result) expect(result.error).toBe(reasons[index])
+      }
+      expect(create).not.toHaveBeenCalled()
+      expect(stop).not.toHaveBeenCalled()
+      hold.resume()
+      await active
+      for (const [index, job] of jobs.entries()) {
+        if (!cancelled.includes(index)) expect(await job.result).toEqual({ text: job.text })
+      }
+      const expected = jobs.filter((_, index) => !cancelled.includes(index)).map((job) => job.text)
+      expect(create.mock.calls.map(([request]) => request.messages.at(-1)?.content)).toEqual(
+        expected,
+      )
+      expect(stop).not.toHaveBeenCalled()
+      expect(await read(client, engine, 'Recovered')).toBe('Recovered')
+    } finally {
+      hold.resume()
+      await Promise.all([active, ...jobs.map((job) => job.result)])
     }
   })
 
