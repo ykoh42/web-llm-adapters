@@ -23,6 +23,13 @@ export async function* readEvents(
   let responseMetadata: Record<string, unknown> = {}
   let finishReason: FinishReason | undefined
   let messageStarted = false
+  let nextIndex = 0
+
+  function nextBlockIndex(): number {
+    // Blocks are never removed, so occupied indices stay occupied.
+    while (blocks.has(nextIndex)) nextIndex++
+    return nextIndex
+  }
 
   for await (const chunk of chunks) {
     signal?.throwIfAborted()
@@ -37,13 +44,13 @@ export async function* readEvents(
 
     const content = message.content
     if (typeof content === 'string' && content) {
-      const index = lastTextIndex ?? nextBlockIndex(blocks)
+      const index = lastTextIndex ?? nextBlockIndex()
       yield* appendContent(blocks, index, 'text', content, signal)
       lastTextIndex = index
     } else if (Array.isArray(content)) {
       for (const part of content) {
         if (!isRecord(part)) continue
-        const index = typeof part.index === 'number' ? part.index : nextBlockIndex(blocks)
+        const index = typeof part.index === 'number' ? part.index : nextBlockIndex()
         if (part.type === 'text' && typeof part.text === 'string' && part.text) {
           yield* appendContent(blocks, index, 'text', part.text, signal)
           lastTextIndex = index
@@ -60,7 +67,7 @@ export async function* readEvents(
     for (const toolChunk of message.tool_call_chunks ?? []) {
       const call = message.tool_calls?.find((item) => item.id === toolChunk.id)
       if (!call) throw new Error('WebLLM returned an invalid tool call.')
-      const index = nextBlockIndex(blocks)
+      const index = nextBlockIndex()
       yield {
         event: 'content-block-start',
         index,
@@ -149,12 +156,6 @@ function* appendContent(
     }
   }
   signal?.throwIfAborted()
-}
-
-function nextBlockIndex(blocks: Map<number, EventBlock>): number {
-  let index = 0
-  while (blocks.has(index)) index++
-  return index
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

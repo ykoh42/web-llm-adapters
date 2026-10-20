@@ -1,5 +1,9 @@
-import type { ChatCompletionChunk, ChatCompletionMessageParam } from '@mlc-ai/web-llm'
-import { ModelError } from './types.js'
+import type {
+  ChatCompletionChunk,
+  ChatCompletionMessageParam,
+  ChatCompletionTool,
+} from '@mlc-ai/web-llm'
+import { ModelError, type ToolSpec } from './types.js'
 import { stringifyJSON } from './json.js'
 import { singleChoice, stopReason, type StreamChunk, type ChunkOptions } from './stream/chunks.js'
 
@@ -129,6 +133,17 @@ function sameJSON(left: unknown, right: unknown): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+export function nativeTools(tools: ToolSpec[]): ChatCompletionTool[] {
+  return tools.map((tool) => ({
+    type: 'function',
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: { ...(tool.inputSchema ?? { type: 'object', properties: {} }) },
+    },
+  }))
 }
 
 /** WebLLM reads assistant content but ignores tool_calls when rebuilding native history. */

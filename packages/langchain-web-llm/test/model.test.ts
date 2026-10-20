@@ -8,6 +8,7 @@ import {
 } from '@langchain/core/messages'
 import { tool } from '@langchain/core/tools'
 import { CallbackManager } from '@langchain/core/callbacks/manager'
+import { ChatGenerationChunk } from '@langchain/core/outputs'
 import type { ChatModelStreamEvent } from '@langchain/core/language_models/event'
 import { ChatPromptTemplate } from '@langchain/core/prompts'
 import { RunnableLambda } from '@langchain/core/runnables'
@@ -311,6 +312,72 @@ describe('LangChain model', () => {
       .filter((event) => event.event === 'content-block-start')
       .map((event) => event.index)
     expect(new Set(blockIndexes).size).toBe(blockIndexes.length)
+  })
+
+  it('keeps sparse content indices separate from tool calls without changing output', async () => {
+    const { model } = setup()
+    const messages = [
+      new AIMessageChunk({
+        content: [
+          { type: 'reasoning', reasoning: 'Thought', index: 3 },
+          { type: 'text', text: '  Answer', index: 1 },
+        ],
+      }),
+      new AIMessageChunk({
+        content: '',
+        tool_call_chunks: [
+          { index: 8, id: 'first', name: 'lookup', args: '{"code":"A7"}' },
+          { index: 9, id: 'second', name: 'lookup', args: '{"code":"A8"}' },
+        ],
+      }),
+      new AIMessageChunk({ content: ' tail\n' }),
+      new AIMessageChunk({ content: [{ type: 'reasoning', reasoning: 'After' }] }),
+      new AIMessageChunk({ content: '', response_metadata: { finish_reason: 'tool_calls' } }),
+    ]
+    vi.spyOn(model, '_streamResponseChunks').mockImplementation(async function* () {
+      for (const message of messages) yield new ChatGenerationChunk({ text: '', message })
+    })
+
+    const stream = model.streamEvents('Hi')
+    const events = await collect(stream)
+    const result = await stream
+
+    expect(
+      events.filter((event) => event.event === 'content-block-start').map((event) => event.index),
+    ).toEqual([3, 1, 0, 2, 4])
+    expect(events.filter((event) => event.event === 'content-block-finish')).toEqual([
+      {
+        event: 'content-block-finish',
+        index: 3,
+        content: { type: 'reasoning', reasoning: 'Thought' },
+      },
+      {
+        event: 'content-block-finish',
+        index: 1,
+        content: { type: 'text', text: '  Answer tail\n' },
+      },
+      {
+        event: 'content-block-finish',
+        index: 0,
+        content: { type: 'tool_call', id: 'first', name: 'lookup', args: { code: 'A7' } },
+      },
+      {
+        event: 'content-block-finish',
+        index: 2,
+        content: { type: 'tool_call', id: 'second', name: 'lookup', args: { code: 'A8' } },
+      },
+      {
+        event: 'content-block-finish',
+        index: 4,
+        content: { type: 'reasoning', reasoning: 'After' },
+      },
+    ])
+    expect(result.text).toBe('  Answer tail\n')
+    expect(result.tool_calls).toMatchObject([
+      { id: 'first', name: 'lookup', args: { code: 'A7' } },
+      { id: 'second', name: 'lookup', args: { code: 'A8' } },
+    ])
+    expect(events.at(-1)).toMatchObject({ event: 'message-finish', reason: 'tool_use' })
   })
 
   it.each([

@@ -1,7 +1,7 @@
 import type { Message, StreamOptions } from '@strands-agents/sdk'
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
 import type { WebLLMModelConfig, WebLLMModelOptions } from '../types.js'
-import { streamCall } from '../engine/call.js'
+import { streamCall } from '../../../../shared/web-llm/engine/call.js'
 import { readStream } from '../stream/read.js'
 import { gemmaRequest } from './request.js'
 import { gemmaChunks } from '../../../../shared/web-llm/gemma/stream.js'

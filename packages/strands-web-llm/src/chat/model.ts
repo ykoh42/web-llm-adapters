@@ -2,10 +2,10 @@ import { ModelError, type Message, type StreamOptions } from '@strands-agents/sd
 import type { ChatCompletionRequestStreaming, MLCEngineInterface } from '@mlc-ai/web-llm'
 import type { WebLLMModelConfig, WebLLMModelOptions } from '../types.js'
 import { generationOptions } from '../request.js'
-import { formatMessages, formatTools, formatToolChoice } from './messages.js'
-import { streamCall } from '../engine/call.js'
+import { formatMessages, formatToolChoice } from './messages.js'
+import { streamCall } from '../../../../shared/web-llm/engine/call.js'
 import { readStream } from '../stream/read.js'
-import { nativeChunks, nativeHistory } from '../../../../shared/web-llm/native.js'
+import { nativeChunks, nativeHistory, nativeTools } from '../../../../shared/web-llm/native.js'
 
 /** Native WebLLM chat, including its Hermes tool format. */
 export function chatStream(
@@ -30,7 +30,7 @@ export function chatStream(
       Boolean(options.toolSpecs?.length),
     ),
   }
-  if (options.toolSpecs?.length) request.tools = formatTools(options.toolSpecs)
+  if (options.toolSpecs?.length) request.tools = nativeTools(options.toolSpecs)
   if (options.toolChoice) request.tool_choice = formatToolChoice(options.toolChoice)
   return streamCall(
     engine,

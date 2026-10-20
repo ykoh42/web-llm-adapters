@@ -1,17 +1,6 @@
 import { ModelError, type ToolSpec, type ToolChoice } from '../types.js'
-import type { ChatCompletionTool } from '@mlc-ai/web-llm'
 import { stringifyJSON } from '../json.js'
-
-function formatTools(tools: ToolSpec[]): ChatCompletionTool[] {
-  return tools.map((tool) => ({
-    type: 'function',
-    function: {
-      name: tool.name,
-      description: tool.description,
-      parameters: { ...(tool.inputSchema ?? { type: 'object', properties: {} }) },
-    },
-  }))
-}
+import { nativeTools } from '../native.js'
 
 export function toolPrompt(tools: ToolSpec[], choice?: ToolChoice) {
   if (choice && !('auto' in choice) && !tools.length)
@@ -25,7 +14,7 @@ export function toolPrompt(tools: ToolSpec[], choice?: ToolChoice) {
     'You have access to the following functions:',
     '',
     '<tools>',
-    ...formatTools(tools).map(templateJson),
+    ...nativeTools(tools).map(templateJson),
     '</tools>',
     '',
     'If you choose to call a function ONLY reply in the following format with NO suffix:',

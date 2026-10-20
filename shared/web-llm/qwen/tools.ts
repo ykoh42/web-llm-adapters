@@ -1,17 +1,6 @@
 import { ModelError, type ToolSpec, type ToolChoice } from '../types.js'
-import type { ChatCompletionTool } from '@mlc-ai/web-llm'
 import { stringifyJSON } from '../json.js'
-
-function formatTools(tools: ToolSpec[]): ChatCompletionTool[] {
-  return tools.map((tool) => ({
-    type: 'function',
-    function: {
-      name: tool.name,
-      description: tool.description,
-      parameters: { ...(tool.inputSchema ?? { type: 'object', properties: {} }) },
-    },
-  }))
-}
+import { nativeTools } from '../native.js'
 
 // Keep Hermes JSON compact: spacing changes Qwen3 tool-loop behavior in WebLLM.
 export function formatCall(name: string, input: unknown) {
@@ -32,7 +21,7 @@ export function toolPrompt(tools: ToolSpec[], choice?: ToolChoice) {
     '',
     'You are provided with function signatures within <tools></tools> XML tags:',
     '<tools>',
-    ...formatTools(tools).map((tool) => stringifyJSON(tool)),
+    ...nativeTools(tools).map((tool) => stringifyJSON(tool)),
     '</tools>',
     '',
     'For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:',

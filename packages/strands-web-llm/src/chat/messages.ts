@@ -1,10 +1,9 @@
 import { ModelError, type Message, type SystemPrompt, type ToolChoice } from '@strands-agents/sdk'
-import type { ContentBlock, ToolResultContent, ToolSpec } from '@strands-agents/sdk'
+import type { ContentBlock, ToolResultContent } from '@strands-agents/sdk'
 import type {
   ChatCompletionContentPart,
   ChatCompletionAssistantMessageParam,
   ChatCompletionMessageParam,
-  ChatCompletionTool,
   ChatCompletionToolChoiceOption,
 } from '@mlc-ai/web-llm'
 import { formatUserContent } from '../../../../shared/web-llm/content.js'
@@ -142,17 +141,6 @@ function formatPart(block: ContentBlock): ChatCompletionContentPart {
     }
   }
   throw new ModelError(`WebLLM cannot use this ${block.type}. Use image URLs/bytes or WAV bytes.`)
-}
-
-export function formatTools(tools: ToolSpec[]): ChatCompletionTool[] {
-  return tools.map((tool) => ({
-    type: 'function',
-    function: {
-      name: tool.name,
-      description: tool.description,
-      parameters: { ...(tool.inputSchema ?? { type: 'object', properties: {} }) },
-    },
-  }))
 }
 
 export function formatToolChoice(choice: ToolChoice): ChatCompletionToolChoiceOption {

@@ -10,7 +10,7 @@ import { isQwen35 } from '../../../../shared/web-llm/qwen35/models.js'
 import { isTextFormat } from '../../../../shared/web-llm/response.js'
 import { streamCall } from '../../../../shared/web-llm/engine/call.js'
 import type { StreamChunk } from '../../../../shared/web-llm/stream/chunks.js'
-import { nativeChunks, nativeHistory } from '../../../../shared/web-llm/native.js'
+import { nativeChunks, nativeHistory, nativeTools } from '../../../../shared/web-llm/native.js'
 import type { ToolSpec, ToolChoice } from '../../../../shared/web-llm/types.js'
 import { modelError } from '../error.js'
 import { nativeMessages } from '../chat/messages.js'
@@ -174,15 +174,7 @@ export function protocolStream({
     ...sampling,
     messages: nativeHistory(nativeMessages(history), modelId, Boolean(tools.length)),
   }
-  if (tools.length)
-    native.tools = tools.map((tool) => ({
-      type: 'function',
-      function: {
-        name: tool.name,
-        description: tool.description,
-        parameters: { ...(tool.inputSchema ?? { type: 'object', properties: {} }) },
-      },
-    }))
+  if (tools.length) native.tools = nativeTools(tools)
   if (choice === 'none') native.tool_choice = 'none'
   else if (choice && 'any' in choice)
     throw new Error('WebLLM does not support required tool choice for this model.')
