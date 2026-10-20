@@ -1,5 +1,5 @@
 import { ModelError, type Message, type SystemPrompt, type ToolChoice } from '@strands-agents/sdk'
-import type { ContentBlock, ToolResultContent } from '@strands-agents/sdk'
+import type { ContentBlock, ToolResultBlock, ToolResultContent } from '@strands-agents/sdk'
 import type {
   ChatCompletionContentPart,
   ChatCompletionAssistantMessageParam,
@@ -48,19 +48,28 @@ export function rejectSignedToolCalls(content: readonly ContentBlock[]) {
     throw new ModelError('WebLLM cannot replay tool calls with reasoning signatures.')
 }
 
-export function formatUser(content: ContentBlock[]): ChatCompletionMessageParam[] {
-  const output: ChatCompletionMessageParam[] = []
+export function formatUser(
+  content: ContentBlock[],
+  structuredResults = false,
+): (ChatCompletionMessageParam & { response?: unknown })[] {
+  const output: (ChatCompletionMessageParam & { response?: unknown })[] = []
   const toolImageMessages: ChatCompletionMessageParam[] = []
   // Tool results must precede user text injected into the same Strands message.
   for (const block of content) {
     if (block.type !== 'toolResultBlock') continue
     const images = block.content.filter((part) => part.type === 'imageBlock').map(formatPart)
-    const text = formatText(block.content.filter((part) => part.type !== 'imageBlock'))
+    const response =
+      structuredResults && block.status !== 'error' ? structuredResult(block) : undefined
+    const text =
+      response !== undefined
+        ? ''
+        : formatText(block.content.filter((part) => part.type !== 'imageBlock'))
     const result = block.status === 'error' ? (text ? `[ERROR] ${text}` : '[ERROR]') : text
     output.push({
       role: 'tool',
       tool_call_id: block.toolUseId,
       content: result,
+      ...(response !== undefined && { response }),
     })
     if (images.length) toolImageMessages.push({ role: 'user', content: images })
   }
@@ -71,6 +80,26 @@ export function formatUser(content: ContentBlock[]): ChatCompletionMessageParam[
   if (parts.length || !output.length)
     output.push({ role: 'user', content: formatUserContent(parts) })
   return output
+}
+
+function structuredResult(block: ToolResultBlock): unknown {
+  const first = block.content[0]
+  if (block.content.length === 1 && first?.type === 'jsonBlock')
+    return JSON.parse(stringifyJSON(first.json))
+  if (block.content.length < 2 || block.content.every((part) => part.type === 'textBlock'))
+    return undefined
+  formatText(
+    block.content.filter((part) => part.type !== 'jsonBlock' && part.type !== 'imageBlock'),
+  )
+  const snapshots: unknown[] = JSON.parse(stringifyJSON(block.content.map((part) => part.toJSON())))
+  snapshots.forEach((snapshot, index) => {
+    if (
+      block.content[index]?.type === 'jsonBlock' &&
+      (typeof snapshot !== 'object' || snapshot === null || !Object.hasOwn(snapshot, 'json'))
+    )
+      throw new TypeError('JSON values must be serializable.')
+  })
+  return snapshots
 }
 
 export function hasToolContext(message: Message | undefined, trailingBlocks = 0): boolean {

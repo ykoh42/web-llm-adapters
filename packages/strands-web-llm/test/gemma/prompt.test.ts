@@ -257,7 +257,7 @@ describe('Gemma tool prompts', () => {
     rows.length = 3
     const json = { rows }
     const date = new Date('2026-10-20T00:00:00.000Z')
-    const serialize = vi.fn(() => 'label')
+    const serialize = vi.fn(() => 'changed').mockReturnValueOnce('label')
     Object.assign(json, { date, custom: { toJSON: serialize } })
     const reply = new Message({
       role: 'user',
@@ -276,7 +276,59 @@ describe('Gemma tool prompts', () => {
     expect(toolPrompt([user('Find x'), call, reply], tools, {})).toContain(response)
     expect(json).toHaveProperty('date', date)
     expect(Object.hasOwn(rows, 1)).toBe(false)
-    if (!mixed) expect(serialize).toHaveBeenCalledOnce()
+    expect(serialize).toHaveBeenCalledOnce()
+  })
+
+  it('keeps SDK serialization overrides in mixed tool results', () => {
+    class WrappedJson extends JsonBlock {
+      override toJSON() {
+        return { json: { wrapped: this.json } }
+      }
+    }
+    const reply = new Message({
+      role: 'user',
+      content: [
+        new ToolResultBlock({
+          toolUseId: 'a',
+          status: 'success',
+          content: [new WrappedJson({ json: { answer: 42 } }), new TextBlock('Report it.')],
+        }),
+      ],
+    })
+    expect(toolPrompt([user('Find x'), call, reply], tools, {})).toContain(
+      'value:[{json:{wrapped:{answer:42}}},{text:<|"|>Report it.<|"|>}]',
+    )
+  })
+
+  it('keeps sparse mixed tool results as JSON nulls', () => {
+    const content = [new JsonBlock({ json: { answer: 42 } }), new TextBlock('Report it.')]
+    content.length = 3
+    const reply = new Message({
+      role: 'user',
+      content: [new ToolResultBlock({ toolUseId: 'a', status: 'success', content })],
+    })
+    expect(toolPrompt([user('Find x'), call, reply], tools, {})).toContain(
+      'value:[{json:{answer:42}},{text:<|"|>Report it.<|"|>},null]',
+    )
+    expect(Object.hasOwn(content, 2)).toBe(false)
+  })
+
+  it('rejects a mixed JSON result that disappears during serialization', () => {
+    const json = {}
+    Object.assign(json, { toJSON: () => undefined })
+    const reply = new Message({
+      role: 'user',
+      content: [
+        new ToolResultBlock({
+          toolUseId: 'a',
+          status: 'success',
+          content: [new JsonBlock({ json }), new TextBlock('Report it.')],
+        }),
+      ],
+    })
+    expect(() => toolPrompt([user('Find x'), call, reply], tools, {})).toThrow(
+      'JSON values must be serializable.',
+    )
   })
 
   it('closes old turns, continues after tools and preserves later user input', () => {

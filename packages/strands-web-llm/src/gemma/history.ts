@@ -7,7 +7,6 @@ import {
   hasToolContext,
   lastQueryIndex,
 } from '../chat/messages.js'
-import { stringifyJSON } from '../../../../shared/web-llm/json.js'
 
 type GemmaMessage = ChatCompletionMessageParam & {
   reasoning?: string
@@ -42,19 +41,7 @@ function assistantTurn(message: Message): GemmaMessage {
 }
 
 function userTurn(message: Message, folded: boolean): GemmaMessage[] {
-  const turns: GemmaMessage[] = formatUser(message.content)
-  const results = message.content.filter((block) => block.type === 'toolResultBlock')
-  for (const [index, block] of results.entries()) {
-    if (block.status === 'error') continue
-    // formatUser always emits tool results first, in their original order.
-    const turn = turns[index]!
-    if (turn.role !== 'tool') throw new ModelError('Gemma received an invalid tool result.')
-    const first = block.content[0]
-    if (block.content.length === 1 && first?.type === 'jsonBlock')
-      turn.response = JSON.parse(turn.content)
-    else if (block.content.length > 1 && block.content.some((item) => item.type !== 'textBlock'))
-      turn.response = JSON.parse(stringifyJSON(block.content.map((item) => item.toJSON())))
-  }
+  const turns: GemmaMessage[] = formatUser(message.content, true)
   if (folded) foldReminder(turns)
   return turns
 }

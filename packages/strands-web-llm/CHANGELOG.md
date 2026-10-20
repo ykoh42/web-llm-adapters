@@ -14,6 +14,7 @@
 - Snapshot queued inputs; preserve JSON keys, error causes, and usage across browser transport.
 - Stop callbacks and pending output on cancellation; close streams before reusing the engine.
 - Reduce media serialization, browser transport, and embedding search overhead.
+- Avoid repeated JSON serialization in mixed tool results.
 - Deliver native browser chunks while tool arguments are still being generated.
 - Bound embedding batches and storage reads; isolate caches, copy reusable vectors, and reject mismatched dimensions before caching.
 - Reuse cached text across copies, renames, and content swaps during search.
