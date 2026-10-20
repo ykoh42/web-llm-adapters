@@ -29,6 +29,7 @@ export function pcmAudio(samples: Float32Array, sampleRate: number): AudioBlock 
   view.setUint32(44, samples.length, true)
   label(48, 'data')
   view.setUint32(52, samples.byteLength, true)
-  samples.forEach((sample, index) => view.setFloat32(56 + index * 4, sample, true))
+  const count = samples.length
+  for (let index = 0; index < count; index++) view.setFloat32(56 + index * 4, samples[index]!, true)
   return new AudioBlock({ format: 'wav', source: { bytes } })
 }

@@ -27,6 +27,17 @@ it('preserves float32 PCM and sample rate through Strands message storage and in
   expect(decoded).toEqual([...new Float32Array([-1, -0.12345678, 0, 0.12345678, 1])])
 })
 
+it('preserves subarray bounds, negative zero, and subnormal samples as little-endian bytes', () => {
+  const samples = new Float32Array([9, -0, 1e-45, 1 / 3, -1e-45, 8]).subarray(1, 5)
+  const audio = pcmAudio(samples, 16000)
+  if (audio.source.type !== 'audioSourceBytes') throw new Error('Expected audio bytes')
+
+  expect([...audio.source.bytes.slice(56)]).toEqual([
+    0, 0, 0, 128, 1, 0, 0, 0, 171, 170, 170, 62, 1, 0, 0, 128,
+  ])
+  expect(samples).toEqual(new Float32Array([-0, 1e-45, 1 / 3, -1e-45]))
+})
+
 it.each([0, -1, 1.5, NaN, Infinity, 0x40000000])('rejects invalid sample rate %s', (rate) => {
   expect(() => pcmAudio(new Float32Array([0]), rate)).toThrow('Sample rate')
 })
