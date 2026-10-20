@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.0
 
 - Add WebLLM chat, tools, thinking, and embeddings for LangChain, LangGraph, and Deep Agents.
 - Keep Node.js tools and private artifacts local; stream browser responses through standard callbacks.

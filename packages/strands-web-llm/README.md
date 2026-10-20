@@ -3,8 +3,6 @@
 A community WebLLM provider for Strands SDK and Harness. Run inference in a
 WebGPU browser while tools run in your application.
 
-This guide covers unreleased **0.1.1**; npm currently has **0.1.0**.
-
 ## Install
 
 ```sh

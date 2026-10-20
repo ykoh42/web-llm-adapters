@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.1 (unreleased)
+## 0.1.1
 
 - Preserve input text, empty turns, output block order, and thinking across Harness tool loops.
 - Normalize bare JSON mode and match native Gemma, Qwen, and Hermes tool history and output.
