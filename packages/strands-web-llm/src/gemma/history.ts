@@ -5,7 +5,7 @@ import {
   formatAssistant,
   formatUser,
   hasToolContext,
-  isToolReply,
+  lastQueryIndex,
 } from '../chat/messages.js'
 import { stringifyJSON } from '../../../../shared/web-llm/json.js'
 
@@ -69,13 +69,7 @@ function foldReminder(turns: GemmaMessage[]) {
 
 /** Remove only thoughts that Gemma drops after a new user turn. */
 export function trimThoughts(messages: Message[], dynamicTrailingBlocks = 0): Message[] {
-  const last = messages.at(-1)
-  const folded = hasToolContext(last, dynamicTrailingBlocks)
-  let lastUser = -1
-  for (const [index, message] of messages.entries()) {
-    if (message.role === 'user' && !(folded && message === last) && !isToolReply(message.content))
-      lastUser = index
-  }
+  const lastUser = lastQueryIndex(messages, dynamicTrailingBlocks)
   return messages.map((message, index) => {
     if (message.role !== 'assistant') return message
     const thoughts = message.content.filter((block) => block.type === 'reasoningBlock')

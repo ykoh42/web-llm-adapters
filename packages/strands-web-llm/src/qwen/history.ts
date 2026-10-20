@@ -3,8 +3,7 @@ import type { ChatCompletionMessageParam } from '@mlc-ai/web-llm'
 import {
   formatAssistant,
   formatUser,
-  hasToolContext,
-  isToolReply,
+  lastQueryIndex,
   rejectSignedToolCalls,
 } from '../chat/messages.js'
 import { appendQwenTurns, formatQwenAssistant } from '../../../../shared/web-llm/qwen/history.js'
@@ -19,7 +18,7 @@ export function qwenHistory(
   const output: ChatCompletionMessageParam[] = []
   if (format.systemPrompt !== undefined)
     output.push({ role: 'system', content: format.systemPrompt })
-  const lastQuery = lastQwenQuery(messages, options.dynamicTrailingBlocks)
+  const lastQuery = lastQueryIndex(messages, options.dynamicTrailingBlocks)
   const formatCall = format.xml ? xmlCall : jsonCall
   let previousWasToolResult = false
   for (const [index, message] of messages.entries()) {
@@ -56,19 +55,4 @@ export function qwenHistory(
     previousWasToolResult = false
   }
   return output
-}
-
-function lastQwenQuery(messages: Message[], trailingBlocks = 0) {
-  const lastMessage = messages.at(-1)
-  const toolContext = hasToolContext(lastMessage, trailingBlocks)
-  let last = -1
-  for (const [index, message] of messages.entries()) {
-    if (
-      message.role === 'user' &&
-      !(toolContext && message === lastMessage) &&
-      !isToolReply(message.content)
-    )
-      last = index
-  }
-  return last
 }

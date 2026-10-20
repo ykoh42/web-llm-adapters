@@ -81,7 +81,22 @@ export function hasToolContext(message: Message | undefined, trailingBlocks = 0)
   return context.some((block) => block.type === 'textBlock') && isToolReply(before)
 }
 
-export function isToolReply(content: readonly ContentBlock[]): boolean {
+export function lastQueryIndex(messages: Message[], trailingBlocks = 0): number {
+  const lastMessage = messages.at(-1)
+  const toolContext = hasToolContext(lastMessage, trailingBlocks)
+  let last = -1
+  for (const [index, message] of messages.entries()) {
+    if (
+      message.role === 'user' &&
+      !(toolContext && message === lastMessage) &&
+      !isToolReply(message.content)
+    )
+      last = index
+  }
+  return last
+}
+
+function isToolReply(content: readonly ContentBlock[]): boolean {
   return (
     content.some((block) => block.type === 'toolResultBlock') &&
     content.every((block) => block.type === 'toolResultBlock' || block.type === 'cachePointBlock')
