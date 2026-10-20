@@ -9,10 +9,10 @@ export type GemmaMessage = ChatCompletionMessageParam & {
   context?: string
 }
 
-export function gemmaPrompt(history: GemmaMessage[], tools: ToolSpec[], thinking = false) {
+export function gemmaPrompt(history: readonly GemmaMessage[], tools: ToolSpec[], thinking = false) {
   const first = history[0]
   const system = first?.role === 'system' ? first.content.trim() : ''
-  if (first?.role === 'system') history.shift()
+  const start = first?.role === 'system' ? 1 : 0
   let prompt = '<|turn>system\n' + (thinking ? '<|think|>\n' : '') + system
   for (const tool of tools) {
     prompt +=
@@ -27,7 +27,8 @@ export function gemmaPrompt(history: GemmaMessage[], tools: ToolSpec[], thinking
   prompt += '<turn|>\n'
   const pending = new Map<string, string>()
   let modelOpen = false
-  for (const [index, message] of history.entries()) {
+  for (let index = start; index < history.length; index++) {
+    const message = history[index]!
     if (
       'name' in message &&
       message.name !== undefined &&
