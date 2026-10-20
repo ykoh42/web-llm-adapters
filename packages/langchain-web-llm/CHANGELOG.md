@@ -5,6 +5,7 @@
 - Add WebLLM chat, tools, thinking, and embeddings for LangChain, LangGraph, and Deep Agents.
 - Keep Node.js tools and private artifacts local; stream browser responses through standard callbacks.
 - Deliver native browser chunks while tool arguments are still being generated.
+- Reduce image and WAV byte encoding overhead.
 - Preserve input text, JSON keys, media bytes, and output order without filler.
 - Normalize bare JSON mode and model protocols; preserve interrupted output and reject malformed calls and invalid JSON.
 - Avoid duplicate Hermes calls after JSON keys are reordered.

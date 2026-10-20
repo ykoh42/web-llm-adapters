@@ -175,6 +175,9 @@ export function formatPart(value: unknown): ChatCompletionContentPart {
 function base64Data(value: unknown): string | undefined {
   if (typeof value === 'string') return value
   if (!(value instanceof Uint8Array)) return undefined
+  if (!value.length) return ''
+  const prototype: Uint8Array & { toBase64?: () => string } = Uint8Array.prototype
+  if (typeof prototype.toBase64 === 'function') return prototype.toBase64.call(value)
 
   const parts: string[] = []
   for (let index = 0; index < value.length; index += 0x6000)
