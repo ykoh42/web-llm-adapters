@@ -15,7 +15,7 @@ export function formatMessages(messages: BaseMessage[]): GemmaMessage[] {
     toolImages = []
   }
   for (const message of messages) {
-    const role = message.getType()
+    const role = message.type
     // Keep all tool results together before adding their images as a user turn.
     if (role !== 'tool') flushImages()
     if (role === 'system') {
