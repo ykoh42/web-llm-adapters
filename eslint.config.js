@@ -1,7 +1,8 @@
 import js from '@eslint/js'
+import { defineConfig } from 'eslint/config'
 import ts from 'typescript-eslint'
 
-export default ts.config(
+export default defineConfig(
   {
     ignores: [
       '**/dist/**',
