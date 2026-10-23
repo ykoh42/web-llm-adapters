@@ -4,6 +4,11 @@ await checkInstall({
   root: new URL('../', import.meta.url),
   peerImports: ['@strands-agents/sdk'],
   forbiddenImports: ['@langchain/'],
+  compatibilityDependencies: [
+    ['@strands-agents/sdk@1.20.0', '@mlc-ai/web-llm@0.2.85'],
+    ['@strands-agents/sdk@1.22.0', '@mlc-ai/web-llm@0.2.86'],
+  ],
+  consumerDependencies: ['@strands-agents/sdk@1.20.0', '@mlc-ai/web-llm@0.2.85'],
   source: `
 import assert from 'node:assert/strict'
 import { Agent, FunctionTool } from '@strands-agents/sdk'
@@ -75,7 +80,7 @@ const strategy = new WebLLMEmbeddingSearchStrategy({
   includeData: false,
   embed: async (texts) => texts.map(() => [1, 0]),
 })
-const storage = new InMemoryStorage({ searchStrategy: strategy })
+const storage = new InMemoryStorage(strategy)
 await storage.write('note', new TextEncoder().encode('Cloud facts'))
 const match = (await storage.search('cloud'))[0]
 assert.equal(match?.key, 'note')

@@ -32,8 +32,8 @@
     "prepack": "tsdown --logLevel error"
   },
   "peerDependencies": {
-    "@mlc-ai/web-llm": "~0.2.86",
-    "@strands-agents/sdk": "~1.22.0"
+    "@mlc-ai/web-llm": "~0.2.85",
+    "@strands-agents/sdk": "^1.20.0"
   },
   "devDependencies": {
     "@mlc-ai/web-llm": "0.2.86",

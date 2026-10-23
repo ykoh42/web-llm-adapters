@@ -4,7 +4,11 @@ await checkInstall({
   root: new URL('../', import.meta.url),
   peerImports: ['@langchain/core/messages'],
   forbiddenImports: ['@strands-agents/'],
-  consumerDependencies: ['@langchain/core@1.2.20'],
+  compatibilityDependencies: [
+    ['@langchain/core@1.2.20', '@mlc-ai/web-llm@0.2.85'],
+    ['@langchain/core@1.3.0', '@mlc-ai/web-llm@0.2.86'],
+  ],
+  consumerDependencies: ['@langchain/core@1.2.20', '@mlc-ai/web-llm@0.2.85'],
   source: `
 import assert from 'node:assert/strict'
 import { MLCEngine } from '@mlc-ai/web-llm'

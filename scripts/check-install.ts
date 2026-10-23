@@ -16,6 +16,7 @@ interface InstallCheck {
   peerImports: string[]
   forbiddenImports: string[]
   source: string
+  compatibilityDependencies: string[][]
   consumerDependencies?: string[]
 }
 
@@ -27,6 +28,7 @@ export async function checkInstall({
   peerImports,
   forbiddenImports,
   source,
+  compatibilityDependencies,
   consumerDependencies = [],
 }: InstallCheck): Promise<void> {
   const directory = fileURLToPath(root)
@@ -51,32 +53,38 @@ export async function checkInstall({
       join(temporary, 'package.json'),
       JSON.stringify({ private: true, type: 'module' }),
     )
-    run('npm', [
-      'install',
-      '--ignore-scripts',
-      '--no-fund',
-      '--no-audit',
-      join(temporary, pack.filename),
-    ])
     const packageRoot = join(temporary, 'node_modules', name)
-    await checkPrivateFiles(packageRoot, pack.files)
-    const installed = await readFile(join(packageRoot, 'dist/index.js'), 'utf8')
-    for (const other of forbiddenImports)
-      if (installed.includes(other)) throw new Error(`${name} depends on another framework.`)
-    await checkRuntime(packageRoot)
-    run(process.execPath, [
-      '--input-type=module',
-      '--eval',
-      [name, ...peerImports, '@mlc-ai/web-llm']
-        .map((specifier) => `await import(${JSON.stringify(specifier)})`)
-        .join(';'),
-    ])
-    // Audit the user's install before adding tools used only by these checks.
-    const audit = JSON.parse(run('npm', ['audit', '--omit=dev', '--json']))
-    if (audit.metadata.vulnerabilities.total)
-      throw new Error('Published dependencies failed npm audit.')
-    console.log(`${name}: dependency audit passed.`)
     await writeFile(join(temporary, 'consumer.ts'), source)
+
+    for (const dependencies of compatibilityDependencies) {
+      run('npm', [
+        'install',
+        '--ignore-scripts',
+        '--no-fund',
+        '--no-audit',
+        join(temporary, pack.filename),
+        ...dependencies,
+      ])
+      await checkDependencyVersions(temporary, dependencies)
+      await checkPrivateFiles(packageRoot, pack.files)
+      const installed = await readFile(join(packageRoot, 'dist/index.js'), 'utf8')
+      for (const other of forbiddenImports)
+        if (installed.includes(other)) throw new Error(`${name} depends on another framework.`)
+      await checkRuntime(packageRoot)
+      run(process.execPath, [
+        '--input-type=module',
+        '--eval',
+        [name, ...peerImports, '@mlc-ai/web-llm']
+          .map((specifier) => `await import(${JSON.stringify(specifier)})`)
+          .join(';'),
+      ])
+      run(process.execPath, ['consumer.ts'])
+      const audit = JSON.parse(run('npm', ['audit', '--omit=dev', '--json']))
+      if (audit.metadata.vulnerabilities.total)
+        throw new Error('Published dependencies failed npm audit.')
+      console.log(`${name}: compatibility install and dependency audit passed.`)
+    }
+
     for (const version of consumerTypeScriptVersions) {
       run('npm', [
         'install',
@@ -107,6 +115,19 @@ export async function checkInstall({
     )
   } finally {
     await rm(temporary, { recursive: true, force: true })
+  }
+}
+
+async function checkDependencyVersions(directory: string, dependencies: string[]): Promise<void> {
+  for (const dependency of dependencies) {
+    const separator = dependency.lastIndexOf('@')
+    if (separator < 1) continue
+    const name = dependency.slice(0, separator)
+    const expected = dependency.slice(separator + 1)
+    const packageFile = join(directory, 'node_modules', ...name.split('/'), 'package.json')
+    const installed: { version: string } = JSON.parse(await readFile(packageFile, 'utf8'))
+    if (installed.version !== expected)
+      throw new Error(`Expected ${name} ${expected}, found ${installed.version}.`)
   }
 }
 

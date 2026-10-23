@@ -4,6 +4,7 @@
 
 - Handle nested type exclusions in Qwen3.5 tool schemas.
 - Update Pi to 1.4.0 and use its official IndexedDB storage in the Durable example.
+- Support Pi AI 1.3.0 and newer compatible 1.x releases, plus WebLLM 0.2.85 and newer compatible patch releases.
 - Preserve deeply nested Gemma tool values without overflowing the writer.
 - Avoid duplicate native tool calls in deeply nested history.
 - Support Qwen templates with prefilled thinking through `thinkingPrefilled`.

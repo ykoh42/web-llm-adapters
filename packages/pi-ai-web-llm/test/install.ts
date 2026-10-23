@@ -4,7 +4,23 @@ await checkInstall({
   root: new URL('../', import.meta.url),
   peerImports: ['@earendil-works/pi-ai/models', '@earendil-works/pi-ai/api/simple-options'],
   forbiddenImports: ['@strands-agents/', '@langchain/'],
-  consumerDependencies: ['@earendil-works/pi-agent-core@1.4.0'],
+  compatibilityDependencies: [
+    [
+      '@earendil-works/pi-ai@1.3.0',
+      '@earendil-works/pi-agent-core@1.3.0',
+      '@mlc-ai/web-llm@0.2.85',
+    ],
+    [
+      '@earendil-works/pi-ai@1.4.0',
+      '@earendil-works/pi-agent-core@1.4.0',
+      '@mlc-ai/web-llm@0.2.86',
+    ],
+  ],
+  consumerDependencies: [
+    '@earendil-works/pi-ai@1.3.0',
+    '@earendil-works/pi-agent-core@1.3.0',
+    '@mlc-ai/web-llm@0.2.85',
+  ],
   source: `
 import assert from 'node:assert/strict'
 import { MLCEngine } from '@mlc-ai/web-llm'
