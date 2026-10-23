@@ -6,7 +6,7 @@
 - Exclude discarded Qwen reasoning from token estimates.
 - Handle nested type exclusions in Qwen3.5 tool schemas.
 - Update Strands SDK to 1.22.0 and the Harness example to 0.3.1.
-- Support Strands SDK 1.19.0 and newer compatible 1.x releases, plus WebLLM 0.2.79 and newer compatible patch releases.
+- Support Strands SDK 1.18.0 and newer compatible 1.x releases, plus WebLLM 0.2.79 and newer compatible patch releases.
 - Preserve deeply nested Gemma tool values without overflowing the writer.
 - Avoid duplicate native tool calls in deeply nested history.
 - Support Qwen templates with prefilled thinking through `thinkingPrefilled`.

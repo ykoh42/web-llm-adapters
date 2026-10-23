@@ -33,7 +33,7 @@
     "test:install": "node test/install.ts"
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": "^1.2.0",
+    "@earendil-works/pi-ai": "^1.0.2",
     "@mlc-ai/web-llm": "~0.2.79"
   },
   "devDependencies": {

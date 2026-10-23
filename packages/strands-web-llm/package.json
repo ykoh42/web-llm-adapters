@@ -33,7 +33,7 @@
   },
   "peerDependencies": {
     "@mlc-ai/web-llm": "~0.2.79",
-    "@strands-agents/sdk": "^1.19.0"
+    "@strands-agents/sdk": "^1.18.0"
   },
   "devDependencies": {
     "@mlc-ai/web-llm": "0.2.86",
