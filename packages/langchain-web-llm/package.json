@@ -34,8 +34,8 @@
     "test:install": "node test/install.ts"
   },
   "peerDependencies": {
-    "@langchain/core": "^1.2.20",
-    "@mlc-ai/web-llm": "~0.2.85"
+    "@langchain/core": "^1.2.8",
+    "@mlc-ai/web-llm": "~0.2.79"
   },
   "devDependencies": {
     "@langchain/core": "1.3.0",

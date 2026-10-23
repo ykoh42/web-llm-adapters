@@ -33,8 +33,8 @@
     "test:install": "node test/install.ts"
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": "^1.3.0",
-    "@mlc-ai/web-llm": "~0.2.85"
+    "@earendil-works/pi-ai": "^1.2.0",
+    "@mlc-ai/web-llm": "~0.2.79"
   },
   "devDependencies": {
     "@earendil-works/pi-agent-core": "1.4.0",

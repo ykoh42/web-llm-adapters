@@ -6,8 +6,8 @@
 - Preserve non-Error callback failures as causes in browser models.
 - Match Qwen3.5 argument types to tool schemas with unset optional fields.
 - Accept `ChatMessage` with user, assistant, system, and LangChain human/ai roles.
-- Support LangChain Core 1.2.20 and newer compatible 1.x releases.
-- Support WebLLM 0.2.85 and newer compatible patch releases.
+- Support LangChain Core 1.2.8 and newer compatible 1.x releases.
+- Support WebLLM 0.2.79 and newer compatible patch releases.
 - Report unsupported mid-conversation system and tool capabilities.
 - Preserve deeply nested Gemma tool values without overflowing the writer.
 - Avoid duplicate native tool calls in deeply nested history.

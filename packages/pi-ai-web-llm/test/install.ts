@@ -6,9 +6,9 @@ await checkInstall({
   forbiddenImports: ['@strands-agents/', '@langchain/'],
   compatibilityDependencies: [
     [
-      '@earendil-works/pi-ai@1.3.0',
-      '@earendil-works/pi-agent-core@1.3.0',
-      '@mlc-ai/web-llm@0.2.85',
+      '@earendil-works/pi-ai@1.2.0',
+      '@earendil-works/pi-agent-core@1.2.0',
+      '@mlc-ai/web-llm@0.2.79',
     ],
     [
       '@earendil-works/pi-ai@1.4.0',
@@ -17,9 +17,9 @@ await checkInstall({
     ],
   ],
   consumerDependencies: [
-    '@earendil-works/pi-ai@1.3.0',
-    '@earendil-works/pi-agent-core@1.3.0',
-    '@mlc-ai/web-llm@0.2.85',
+    '@earendil-works/pi-ai@1.2.0',
+    '@earendil-works/pi-agent-core@1.2.0',
+    '@mlc-ai/web-llm@0.2.79',
   ],
   source: `
 import assert from 'node:assert/strict'

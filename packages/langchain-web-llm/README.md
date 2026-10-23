@@ -96,6 +96,8 @@ Load the browser engine with `context_window_size: 32768` for this example. The 
 
 Keep text blocks together in media messages. Browser transport carries PCM as float WAV without changing samples or sample rate.
 
+Tested with LangChain Core **1.2.8** and **1.3.0**, and WebLLM **0.2.79** and **0.2.86**.
+
 For Qwen agents with tools and a response schema, use `responseFormat: toolStrategy(schema)` ([`toolStrategy`](https://reference.langchain.com/javascript/langchain/index/toolStrategy) from `langchain`); native JSON cannot be combined with Qwen tools.
 
 Use Gemma agent response schemas without other tools.

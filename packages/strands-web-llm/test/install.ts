@@ -5,10 +5,10 @@ await checkInstall({
   peerImports: ['@strands-agents/sdk'],
   forbiddenImports: ['@langchain/'],
   compatibilityDependencies: [
-    ['@strands-agents/sdk@1.20.0', '@mlc-ai/web-llm@0.2.85'],
+    ['@strands-agents/sdk@1.19.0', '@mlc-ai/web-llm@0.2.79'],
     ['@strands-agents/sdk@1.22.0', '@mlc-ai/web-llm@0.2.86'],
   ],
-  consumerDependencies: ['@strands-agents/sdk@1.20.0', '@mlc-ai/web-llm@0.2.85'],
+  consumerDependencies: ['@strands-agents/sdk@1.19.0', '@mlc-ai/web-llm@0.2.79'],
   source: `
 import assert from 'node:assert/strict'
 import { Agent, FunctionTool } from '@strands-agents/sdk'

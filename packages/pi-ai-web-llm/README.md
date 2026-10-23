@@ -156,6 +156,6 @@ Tool-capable models passed Agent Core and Durable tool loops. Checks also cover 
 | `Qwen2.5-3B-Instruct-q4f16_1-MLC`     | Yes   | No       | No     |
 | `Phi-3.5-vision-instruct-q4f16_1-MLC` | No    | No       | Yes    |
 
-Tested with Pi AI and Pi Agent Core 1.3.0 and 1.4.0, and WebLLM 0.2.85 and 0.2.86. The package supports compatible Pi AI 1.x and WebLLM 0.2.x patch releases in its declared ranges.
+Tested with Pi AI and Pi Agent Core **1.2.0** and **1.4.0**, and WebLLM **0.2.79** and **0.2.86**. Model availability depends on the installed WebLLM version.
 
 For Qwen3.5, declare object/array types to preserve XML in JSON. History cannot preserve `>` in top-level argument names or `<parameter=` / `</parameter>` in raw strings.

@@ -154,7 +154,7 @@ Other vision IDs and speech understanding are unverified. Video is unsupported.
 
 ## Support
 
-Tested with WebLLM **0.2.85** and **0.2.86**, and Strands SDK **1.20.0** and **1.22.0**. The package supports compatible WebLLM 0.2.x patch and Strands SDK 1.x releases in its declared ranges. Harness **0.3.1** is used by the integration example.
+Tested with WebLLM **0.2.79** and **0.2.86**, and Strands SDK **1.19.0** and **1.22.0**. Model availability depends on the installed WebLLM version. Harness **0.3.1** is used by the integration example.
 Features depend on the exact model above.
 
 For Gemma 4, `request.extra_body.preserve_thinking: true` also keeps earlier tool-call reasoning; the default keeps only the current user turn.
