@@ -175,7 +175,7 @@ function formatPart(block: ContentBlock): ChatCompletionContentPart {
 export function formatToolChoice(choice: ToolChoice): ChatCompletionToolChoiceOption {
   if ('auto' in choice) return 'auto'
   if ('tool' in choice) return { type: 'function', function: { name: choice.tool.name } }
-  throw new ModelError('WebLLM does not support toolChoice.any. Choose auto or a named tool.')
+  throw new ModelError('toolChoice.any needs exactly one tool for this model.')
 }
 
 /** Cache hints are harmless; unsupported system blocks must never disappear silently. */

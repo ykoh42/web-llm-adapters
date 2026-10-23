@@ -7,6 +7,56 @@ import { BrowserChatWebLLM } from 'langchain-web-llm'
 import { test, expect } from '../../../fixtures/browser.js'
 import { sampling } from '../../../sampling.js'
 
+test('Llama uses native JSON for default structured output and agent responses', async ({
+  page,
+}, info) => {
+  const modelId = 'Llama-3.2-1B-Instruct-q4f16_1-MLC'
+  const prompt = 'Return JSON with answer set to six times seven.'
+  await page.evaluate((id) => window.checks.load(id), modelId)
+  const local = await page.evaluate(async (prompt) => {
+    const result = await window.checks
+      .model()
+      .withStructuredOutput(
+        {
+          type: 'object',
+          properties: { answer: { type: 'number' } },
+          required: ['answer'],
+        },
+        { includeRaw: true },
+      )
+      .invoke(prompt)
+    return {
+      parsed: result.parsed,
+      text: result.raw.text,
+      native: await window.checks.engine().getMessage(),
+    }
+  }, prompt)
+  expect(local.parsed).toEqual({ answer: 42 })
+  expect(local.text).toBe(local.native)
+
+  const results = [local]
+  for (const client of ['direct', 'agent']) {
+    const model = new BrowserChatWebLLM(page, {
+      modelId,
+      request: { max_tokens: 4096, seed: 7 },
+    })
+    const schema = z.object({ answer: z.number() })
+    const result =
+      client === 'direct'
+        ? await model.withStructuredOutput(schema, { includeRaw: true }).invoke(prompt)
+        : await createAgent({ model, responseFormat: schema }).invoke({
+            messages: [{ role: 'user', content: prompt }],
+          })
+    const parsed = 'parsed' in result ? result.parsed : result.structuredResponse
+    const raw = 'raw' in result ? result.raw : result.messages.at(-1)!
+    const native = await page.evaluate(() => window.checks.engine().getMessage())
+    expect(parsed).toEqual({ answer: 42 })
+    expect(raw.text).toBe(native)
+    results.push({ parsed, text: raw.text, native })
+  }
+  await writeFile(info.outputPath('native-json.json'), JSON.stringify(results, null, 2))
+})
+
 test('Qwen thinking executes a tool before returning an agent response schema', async ({
   page,
 }, info) => {

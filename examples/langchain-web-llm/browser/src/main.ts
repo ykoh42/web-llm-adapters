@@ -17,7 +17,7 @@ let worker: Worker | undefined
 let adapter: LangChainAdapter | undefined
 
 async function load(id: string, useWorker = true) {
-  const [{ CreateMLCEngine, CreateWebWorkerMLCEngine, prebuiltAppConfig }, langChainAdapter] =
+  const [{ MLCEngine, CreateWebWorkerMLCEngine, prebuiltAppConfig }, langChainAdapter] =
     await Promise.all([import('@mlc-ai/web-llm'), import('langchain-web-llm')])
   if (engine) {
     const previousBridge = window.webllmLangChainBridge
@@ -62,9 +62,14 @@ async function load(id: string, useWorker = true) {
     if (useWorker) {
       worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
       engine = await CreateWebWorkerMLCEngine(worker, id, options)
-    } else engine = await CreateMLCEngine(id, options)
+    } else {
+      engine = new MLCEngine(options)
+      await engine.reload(id)
+    }
   } catch (error) {
+    await engine?.unload().catch((cleanupError: unknown) => console.error(cleanupError))
     worker?.terminate()
+    engine = undefined
     worker = undefined
     throw error
   }

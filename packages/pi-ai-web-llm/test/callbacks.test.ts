@@ -3,6 +3,27 @@ import { setup } from './helpers.js'
 
 const context = { messages: [{ role: 'user' as const, content: 'Hello', timestamp: 0 }] }
 
+it.each(['onPayload', 'onProviderStreamEvent'] as const)(
+  '%s reports an unreadable failure and releases the engine',
+  async (callback) => {
+    const { models, model, create } = setup()
+    const response = await models.completeSimple(model, context, {
+      [callback]: () => {
+        throw Object.create(null)
+      },
+    })
+
+    expect(response).toMatchObject({
+      stopReason: 'error',
+      errorMessage: 'The request failed with an unreadable error.',
+      content: [],
+    })
+    expect(create).toHaveBeenCalledTimes(callback === 'onPayload' ? 0 : 1)
+    expect((await models.completeSimple(model, context)).stopReason).toBe('stop')
+    expect(create).toHaveBeenCalledTimes(callback === 'onPayload' ? 1 : 2)
+  },
+)
+
 describe.each(['onPayload', 'onProviderStreamEvent'] as const)('%s cancellation', (callback) => {
   it.each([
     { mode: 'abort', late: 'resolve' },

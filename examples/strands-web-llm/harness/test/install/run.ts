@@ -89,11 +89,7 @@ try {
         include: [file],
       }),
     )
-    run(process.execPath, [
-      join(root, 'node_modules/typescript/bin/tsc'),
-      '--project',
-      'tsconfig.json',
-    ])
+    run(process.execPath, [join(root, 'node_modules/.bin/tsc6'), '--project', 'tsconfig.json'])
   }
   console.log('Run the installed package.')
   run(process.execPath, ['--test', 'consumer.ts'])

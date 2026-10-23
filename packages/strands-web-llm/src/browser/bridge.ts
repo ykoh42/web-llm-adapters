@@ -75,10 +75,14 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
         return result
       } catch (error) {
         calls.delete(id)
-        return {
+        const packet = {
           ...(call?.chunks.length && { chunks: call.chunks.splice(0) }),
           error: toBrowserError(error),
+          get errorJSON(): string {
+            return JSON.stringify(this.error)
+          },
         }
+        return packet
       }
     },
     stop(id: string): Promise<void> {

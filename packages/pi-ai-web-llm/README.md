@@ -2,10 +2,10 @@
 
 Use a loaded [WebLLM](https://github.com/mlc-ai/web-llm) engine as a custom provider for Pi AI, Pi Agent Core, and Pi Durable, entirely inside the browser.
 
-Install the package, or run the [Agent Core and Durable browser examples](../../examples/pi-ai-web-llm/README.md) from this repository:
+Install the package, or run the [Agent Core and Durable browser examples](https://github.com/ykoh42/web-llm-adapters/blob/main/examples/pi-ai-web-llm/README.md) from this repository:
 
 ```sh
-npm install pi-ai-web-llm @earendil-works/pi-ai @mlc-ai/web-llm
+npm install pi-ai-web-llm
 ```
 
 ## Use
@@ -69,9 +69,11 @@ The first load fetches WebLLM's runtime and model files. Inference runs locally.
 
 You own the engine, model loading, and Worker. Creating or replacing a provider does not load or unload a model. Match `contextWindow` to the engine's actual loading configuration. To register multiple engines, assign distinct `providerId` values. Calls sharing the same engine run in order, including calls from the other adapters in this repository.
 
+For other native APIs, import `withEngine` from `pi-ai-web-llm` and await all work inside `withEngine(engine, callback)`, including consuming streams.
+
 ## Pi Agent Core
 
-Register the provider as above, then pass the model collection's bound stream function:
+While the engine is loaded, pass `models.streamSimple.bind(models)` to the agent:
 
 ```ts
 import { Agent } from '@earendil-works/pi-agent-core'
@@ -83,11 +85,11 @@ const agent = new Agent({
 await agent.prompt('What is 2 + 2?')
 ```
 
-Install `@earendil-works/pi-agent-core` separately if you use this example. Pi executes and validates tools; the provider translates their definitions, calls, and results. The [runnable browser example](../../examples/pi-ai-web-llm/README.md) includes a complete `lookup` tool loop.
+Install `@earendil-works/pi-agent-core` separately. Pi validates and executes tools; [agent.ts](https://github.com/ykoh42/web-llm-adapters/blob/main/examples/pi-ai-web-llm/browser/src/agent.ts) shows a complete tool loop.
 
 ## Pi Durable
 
-Pass the registered model collection to Durable's Harness:
+While the engine is loaded, pass the registered `models` to Durable's Harness:
 
 ```ts
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context'
@@ -109,14 +111,14 @@ try {
 }
 ```
 
-Install `@earendil-works/pi-durable` and `@earendil-works/chord` separately. `MemoryStorage` keeps state in memory. The [runnable Durable example](../../examples/pi-ai-web-llm/README.md) adds a tool, browser persistence, and recovery after a page reload. Its storage belongs to the application; the provider still owns neither the engine nor the conversation.
+Install `@earendil-works/pi-durable` and `@earendil-works/chord` separately. `MemoryStorage` is temporary; the [Durable example](https://github.com/ykoh42/web-llm-adapters/blob/main/examples/pi-ai-web-llm/browser/src/durable-agent.ts) adds a tool, IndexedDB persistence, and reload recovery.
 
 ## Support
 
 | Feature                                      | Behavior                                                                                        |
 | -------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | Text, thinking, tool calls                   | Pi `AssistantMessageEvent` streams; model-dependent                                             |
-| Tool results and history                     | Pi 1.3 transcript system sections and tool updates are resolved before inference                |
+| Tool results and history                     | Transcript system sections and tool updates are resolved before inference                       |
 | Cancellation                                 | `signal` interrupts generation without unloading; queued cancellation leaves active calls alone |
 | Errors                                       | Terminal Pi `error` events retain received text and available usage                             |
 | Token usage                                  | Native WebLLM counts; API cost is zero; cache and thinking breakdowns are not estimated         |
@@ -126,27 +128,34 @@ Install `@earendil-works/pi-durable` and `@earendil-works/chord` separately. `Me
 
 Tool calls are published after native generation finishes and all calls have valid JSON object arguments. Truncated or malformed calls never become executable tool events. Pi still validates arguments against the tool schema before execution. Missing or mismatched tool results in replayed history produce errors; the adapter does not invent results.
 
-Images from tool results are sent as a user turn after the tool results, matching WebLLM's input format. Interleaved text around images cannot be preserved and is rejected. Images are not part of the verified model matrix below.
+Images from tool results are sent as a user turn after the tool results, matching WebLLM's input format. Text on both sides of an image is rejected in user messages. User image input is verified with `Phi-3.5-vision-instruct-q4f16_1-MLC`.
 
 ## Thinking and native options
 
-`streamSimple` and `completeSimple` follow Pi's thinking controls: omitted `reasoning` disables thinking; any supported Pi reasoning level enables it. Levels do not select different native token budgets. `Agent` therefore respects `thinkingLevel: 'off'`. Models that cannot reason reject an explicit reasoning request. Set `reasoning` on the provider options to override the model-family capability default.
+For Gemma 4, `request.extra_body.preserve_thinking: true` also keeps earlier tool-call reasoning; the default keeps only the current user turn.
 
-Full `stream` and `complete` calls preserve the native `request.extra_body.enable_thinking` default. Other native generation options can be set through `request` at construction or on full stream calls. Pi's `temperature`, `maxTokens`, and `samplingParams` also work; sampling parameters override named generation options. Request options cannot replace the provider's model, conversation, tools, or streaming mode.
+Set `thinkingPrefilled: true` at construction if your loaded Qwen template already opens `<think>`. This only controls output parsing; it does not change the engine or prompt.
+
+`streamSimple` and `completeSimple` follow Pi's thinking controls: omitted `reasoning` selects `off`; Pi chooses a supported level when needed. Levels do not select different native token budgets. `Agent` respects `thinkingLevel: 'off'` when the model supports it. Models that cannot reason reject an explicit reasoning request. Set `reasoning` on the provider options to override the model-family capability default.
+
+Full `stream` and `complete` calls preserve the native `request.extra_body.enable_thinking` default. Other native generation options can be set through `request` at construction or on full stream calls. Pi's `temperature` and `maxTokens` also work; `samplingParams` forwards WebLLM options and overrides named generation options, including thinking. Native `max_tokens: null` removes the output token cap. Request options cannot replace the provider's model, conversation, tools, or streaming mode.
 
 `onPayload` can inspect or replace the prepared native payload while preserving the loaded model and one streaming response. `onProviderStreamEvent` observes unchanged native chunks and is awaited in order. The provider-level `onChunk` is a synchronous native chunk observer. Callback failures fail the request and release the engine. HTTP-only options such as `fetch`, headers, retries, and `onResponse` do not apply to local inference. `timeoutMs` cancels a queued or active request.
 
-Qwen tools cannot be combined with native JSON output. Gemma 4 tool/thinking mode uses the bundled [runtime and protocol](../../shared/runtime/README.md) and accepts text and tool results only. Exact model artifacts determine support.
+Qwen tools cannot be combined with native JSON output. Gemma 4 tool/thinking mode uses the bundled [runtime and protocol](https://github.com/ykoh42/web-llm-adapters/blob/main/shared/runtime/README.md) and accepts text and tool results only. Exact model artifacts determine support.
 
 ## Verified models
 
-Real WebLLM Worker checks exercise Pi Agent Core and Pi Durable → tool call → tool result → final answer. Checks also cover native usage, cancellation and recovery, and Durable persistence across page reloads:
+Tool-capable models passed Agent Core and Durable tool loops. Checks also cover usage, cancellation, persistence, and Phi image input with error recovery.
 
-| WebLLM model ID                   | Tools | Thinking |
-| --------------------------------- | ----- | -------- |
-| `Qwen3.5-4B-q4f16_1-MLC`          | Yes   | Yes      |
-| `Qwen3-8B-q4f16_1-MLC`            | Yes   | Yes      |
-| `gemma-4-E2B-it-q4f16_1-MLC`      | Yes   | Yes      |
-| `Qwen2.5-3B-Instruct-q4f16_1-MLC` | Yes   | No       |
+| WebLLM model ID                       | Tools | Thinking | Images |
+| ------------------------------------- | ----- | -------- | ------ |
+| `Qwen3.5-4B-q4f16_1-MLC`              | Yes   | Yes      | No     |
+| `Qwen3-8B-q4f16_1-MLC`                | Yes   | Yes      | No     |
+| `gemma-4-E2B-it-q4f16_1-MLC`          | Yes   | Yes      | No     |
+| `Qwen2.5-3B-Instruct-q4f16_1-MLC`     | Yes   | No       | No     |
+| `Phi-3.5-vision-instruct-q4f16_1-MLC` | No    | No       | Yes    |
 
-Tested against `@earendil-works/pi-ai`, `@earendil-works/pi-agent-core`, and `@earendil-works/pi-durable` 1.3.0, and WebLLM 0.2.86. Model-selected arguments still require validation. Run `npm run test:pi` from the repository root to repeat the browser checks.
+Tested against `@earendil-works/pi-ai`, `@earendil-works/pi-agent-core`, and `@earendil-works/pi-durable` 1.4.0, and WebLLM 0.2.86.
+
+For Qwen3.5, declare object/array types to preserve XML in JSON. History cannot preserve `>` in top-level argument names or `<parameter=` / `</parameter>` in raw strings.

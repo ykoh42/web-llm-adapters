@@ -40,4 +40,5 @@ export function stopReason(reason: string | null | undefined): StopReason | unde
     case 'tool_calls':
       return 'toolUse'
   }
+  return undefined
 }

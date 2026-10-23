@@ -20,6 +20,7 @@ export async function* nativeChunks(
   { onChunk, signal }: ChunkOptions<ChatCompletionChunk> = {},
 ): AsyncGenerator<StreamChunk> {
   const calls = new Map<number, NativeCall>()
+  const ids = new Map<string, number>()
   let pending = ''
   let mode: 'start' | 'json' | 'text' = hasTools ? 'start' : 'text'
 
@@ -31,7 +32,13 @@ export async function* nativeChunks(
       const call: NativeCall = calls.get(delta.index) ?? { name: '', input: '' }
       if (call.id && delta.id && call.id !== delta.id)
         throw new ModelError('WebLLM changed a tool call ID while streaming.')
-      if (delta.id) call.id = delta.id
+      if (delta.id) {
+        const index = ids.get(delta.id)
+        if (index !== undefined && index !== delta.index)
+          throw new ModelError('WebLLM returned duplicate tool call IDs.')
+        ids.set(delta.id, delta.index)
+        call.id = delta.id
+      }
       call.name += delta.function?.name ?? ''
       call.input += delta.function?.arguments ?? ''
       calls.set(delta.index, call)
@@ -104,8 +111,11 @@ function matchesToolText(
       const call = calls[index]!
       if (!isRecord(item) || item.name !== call.name || !('arguments' in item)) return false
       const serialized = stringifyJSON(item.arguments)
-      const input: unknown = JSON.parse(call.input)
-      const same = serialized === stringifyJSON(input) || sameJSON(item.arguments, input)
+      let same = serialized === call.input
+      if (!same) {
+        const input: unknown = JSON.parse(call.input)
+        same = serialized === stringifyJSON(input) || sameJSON(item.arguments, input)
+      }
       return same && (allowExtraFields || Object.keys(item).length === 2)
     })
   } catch (cause) {
@@ -116,19 +126,25 @@ function matchesToolText(
 }
 
 function sameJSON(left: unknown, right: unknown): boolean {
-  if (left === right) return true
-  if (Array.isArray(left))
-    return (
-      Array.isArray(right) &&
-      left.length === right.length &&
-      left.every((value: unknown, index) => sameJSON(value, right[index]))
-    )
-  if (!isRecord(left) || !isRecord(right)) return false
-  const keys = Object.keys(left)
-  return (
-    keys.length === Object.keys(right).length &&
-    keys.every((key) => Object.hasOwn(right, key) && sameJSON(left[key], right[key]))
-  )
+  const pending: [unknown, unknown][] = [[left, right]]
+  while (pending.length) {
+    const [left, right] = pending.pop()!
+    if (left === right) continue
+    if (Array.isArray(left)) {
+      if (!Array.isArray(right) || left.length !== right.length) return false
+      for (let index = 0; index < left.length; index++)
+        if (left[index] !== right[index]) pending.push([left[index], right[index]])
+      continue
+    }
+    if (!isRecord(left) || !isRecord(right)) return false
+    const keys = Object.keys(left)
+    if (keys.length !== Object.keys(right).length) return false
+    for (const key of keys) {
+      if (!Object.hasOwn(right, key)) return false
+      if (left[key] !== right[key]) pending.push([left[key], right[key]])
+    }
+  }
+  return true
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

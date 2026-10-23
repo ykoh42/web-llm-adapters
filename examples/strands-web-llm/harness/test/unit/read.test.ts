@@ -109,7 +109,11 @@ it.each(['pdf', 'png'])(
 it.each(['gif', 'docx', 'wav'])('rejects unsupported %s media', async (format) => {
   const { tool, context } = setup()
   const path = join(dir, 'note.' + format)
-  await writeFile(path, new Uint8Array([1, 2, 3]))
+  const bytes =
+    format === 'gif'
+      ? Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64')
+      : new Uint8Array([1, 2, 3])
+  await writeFile(path, bytes)
   await expect(tool.invoke({ path }, context)).rejects.toThrow(/media format|Audio transcription/)
 })
 

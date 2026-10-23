@@ -6,8 +6,8 @@ The first load fetches WebLLM's runtime and model files; the browser caches them
 
 | Package             | Guide                                                     | Examples                                                          | npm                                                              |
 | ------------------- | --------------------------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `langchain-web-llm` | [Usage and support](packages/langchain-web-llm/README.md) | [LangChain and Deep Agents](examples/langchain-web-llm/README.md) | [0.1.0](https://www.npmjs.com/package/langchain-web-llm/v/0.1.0) |
-| `pi-ai-web-llm`     | [Usage and support](packages/pi-ai-web-llm/README.md)     | [Pi Agent Core and Pi Durable](examples/pi-ai-web-llm/README.md)  | [0.1.0](https://www.npmjs.com/package/pi-ai-web-llm/v/0.1.0)     |
-| `strands-web-llm`   | [Usage and support](packages/strands-web-llm/README.md)   | [Strands SDK and Harness](examples/strands-web-llm/README.md)     | [0.1.1](https://www.npmjs.com/package/strands-web-llm/v/0.1.1)   |
+| `langchain-web-llm` | [Usage and support](packages/langchain-web-llm/README.md) | [LangChain and Deep Agents](examples/langchain-web-llm/README.md) | [0.2.0](https://www.npmjs.com/package/langchain-web-llm/v/0.2.0) |
+| `pi-ai-web-llm`     | [Usage and support](packages/pi-ai-web-llm/README.md)     | [Pi Agent Core and Pi Durable](examples/pi-ai-web-llm/README.md)  | [0.2.0](https://www.npmjs.com/package/pi-ai-web-llm/v/0.2.0)     |
+| `strands-web-llm`   | [Usage and support](packages/strands-web-llm/README.md)   | [Strands SDK and Harness](examples/strands-web-llm/README.md)     | [0.2.0](https://www.npmjs.com/package/strands-web-llm/v/0.2.0)   |
 
 Model support depends on WebLLM's exact `model_id` and quantization. Each package lists its verified models and features.

@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test'
+import type { ConversationView, LiveState } from '@earendil-works/pi-durable'
 import { test, expect } from './browser.js'
 
 const url = 'http://127.0.0.1:4173/pi/durable/'
@@ -20,7 +21,7 @@ async function fresh(page: Page, modelId = defaultModel) {
         request.onerror = () => reject(request.error)
         request.onblocked = () => reject(new Error('The test database is still open.'))
       }),
-    `pi-webllm-${modelId}`,
+    `pi-webllm-v2-${modelId}`,
   )
   await load(page, modelId)
 }
@@ -40,16 +41,29 @@ for (const modelId of [
     await page.getByRole('button', { name: 'Send', exact: true }).click()
     await expect(page.locator('#status')).toHaveText('Done', { timeout: 120_000 })
     await expect(page.locator('#answer')).toContainText('ORCHID-42')
-    const before = JSON.parse((await page.locator('#details').textContent())!)
-    expect(before.entries.some((entry: { kind: string }) => entry.kind === 'pi.tool-result')).toBe(
-      true,
-    )
+    const before: ConversationView = JSON.parse((await page.locator('#details').textContent())!)
+    expect(before.entries.some((entry) => entry.kind === 'pi.tool-result')).toBe(true)
+    if (!modelId.startsWith('Qwen2.5-'))
+      expect(
+        before.entries
+          .flatMap((entry) => entry.model ?? [])
+          .some(
+            (message) =>
+              message.role === 'assistant' &&
+              message.content.some((part) => part.type === 'thinking' && part.thinking.trim()),
+          ),
+      ).toBe(true)
     expect(JSON.stringify(before.docs['pi.usage'])).toMatch(/"totalTokens":[1-9]/)
+    await load(page, modelId)
+    const reopened = JSON.parse((await page.locator('#details').textContent())!)
+    expect(reopened.entries).toEqual(before.entries)
+    expect(reopened.docs['pi.usage']).toEqual(before.docs['pi.usage'])
     await page.reload()
     await load(page, modelId)
     const restored = JSON.parse((await page.locator('#details').textContent())!)
     expect(restored.conversation.id).toBe(before.conversation.id)
     expect(restored.entries).toEqual(before.entries)
+    expect(restored.docs['pi.usage']).toEqual(before.docs['pi.usage'])
     await expect(page.locator('#answer')).toContainText('ORCHID-42')
     await page
       .locator('#message')
@@ -71,8 +85,27 @@ test('Durable can abort a running turn and use the same model again', async ({ p
     .locator('#message')
     .fill('Count from 1 to 1000. Use digits. Do not explain or use tools.')
   await page.getByRole('button', { name: 'Send', exact: true }).click()
-  await expect(page.locator('#answer')).toContainText('1', { timeout: 120_000 })
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  // Observe and cancel together, before the running turn can finish.
+  await page.waitForFunction(
+    () => {
+      const view = JSON.parse(document.querySelector('#details')!.textContent!) as ConversationView
+      const live = view.docs['pi.live'] as LiveState | undefined
+      const content = live?.generation?.message?.content
+      if (
+        !content?.some(
+          (part) =>
+            (part.type === 'text' && part.text) || (part.type === 'thinking' && part.thinking),
+        )
+      )
+        return false
+      const cancel = document.querySelector<HTMLButtonElement>('#cancel')!
+      if (cancel.disabled) return false
+      cancel.click()
+      return true
+    },
+    undefined,
+    { timeout: 120_000 },
+  )
   await expect(page.locator('#status')).toHaveText('Stopped', { timeout: 30_000 })
   await page.locator('#message').fill('Look up A7 and tell me the answer.')
   await page.getByRole('button', { name: 'Send', exact: true }).click()

@@ -76,6 +76,24 @@ describe('LangChain model', () => {
     expect((await model.invoke('Next')).text).toBe('Answer')
   })
 
+  it('skips token dispatch for handlers that ignore LLM events', async () => {
+    const { model } = setup(chunk({ content: 'Answer' }, 'stop'))
+    const onToken = vi.fn()
+    const callbacks = CallbackManager.fromHandlers({ handleLLMNewToken: onToken })
+    const [handler] = callbacks.handlers
+    if (handler) handler.ignoreLLM = true
+    const messages = [new HumanMessage('Hi')]
+    const [run] = await callbacks.handleChatModelStart(model.toJSON(), [messages])
+    if (!run) throw new Error('Missing callback run manager.')
+    const dispatch = vi.spyOn(run, 'handleLLMNewToken')
+
+    const output = await collect(model._streamResponseChunks(messages, {}, run))
+
+    expect(output.map((item) => item.text).join('')).toBe('Answer')
+    expect(dispatch).not.toHaveBeenCalled()
+    expect(onToken).not.toHaveBeenCalled()
+  })
+
   it('stops pending tool chunks when a consumer cancels', async () => {
     const { model, create } = setup(chunk({ content: 'Recovered' }, 'stop'))
     create.mockResolvedValueOnce(
@@ -400,6 +418,66 @@ describe('LangChain model', () => {
     },
   )
 
+  it('streams tool calls through LangChain Core accessors', async () => {
+    const { model } = setup(
+      chunk(
+        {
+          tool_calls: [{ index: 0, function: { name: 'lookup', arguments: '{"code":"A7"}' } }],
+        },
+        'tool_calls',
+      ),
+    )
+    const stream = model.streamEvents('Look up A7')
+
+    expect(await collect(stream.toolCalls)).toMatchObject([
+      { name: 'lookup', args: { code: 'A7' } },
+    ])
+  })
+
+  it('streams tool arguments with LangChain Core tool-call deltas', async () => {
+    const { model } = setup(
+      chunk(
+        {
+          tool_calls: [
+            {
+              index: 0,
+              id: 'call-1',
+              function: { name: 'lookup', arguments: '{"code":"A7"}' },
+            },
+          ],
+        },
+        'tool_calls',
+      ),
+    )
+    const stream = model.streamEvents('Look up A7')
+    const [events, toolCalls] = await Promise.all([collect(stream), stream.toolCalls])
+    const start = events.find(
+      (event) => event.event === 'content-block-start' && event.content.type === 'tool_call_chunk',
+    )
+    expect(start).toMatchObject({
+      event: 'content-block-start',
+      content: { type: 'tool_call_chunk', id: 'call-1', name: 'lookup' },
+    })
+    if (start?.event !== 'content-block-start') throw new Error('Missing tool-call start event.')
+    expect(events).toContainEqual({
+      event: 'content-block-delta',
+      index: start.index,
+      delta: { type: 'tool-call-delta', args: '{"code":"A7"}' },
+    })
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        event: 'content-block-delta',
+        delta: expect.objectContaining({ type: 'block-delta' }),
+      }),
+    )
+    expect(events).toContainEqual({
+      event: 'content-block-finish',
+      index: start.index,
+      content: { type: 'tool_call', id: 'call-1', name: 'lookup', args: { code: 'A7' } },
+    })
+    expect(toolCalls).toMatchObject([{ id: 'call-1', name: 'lookup', args: { code: 'A7' } }])
+  })
+
   it('returns text, usage, and native metadata without owning the engine', async () => {
     const usage = {
       prompt_tokens: 3,
@@ -504,7 +582,10 @@ describe('LangChain model', () => {
       chunks(chunk({ content: '<think>Need the lookup.</think>' + toolOutput }, 'stop')),
     )
     create.mockResolvedValueOnce(
-      chunks(chunk({ content: '<think>Use the result.</think>The answer is 42.' }, 'stop')),
+      chunks({
+        ...chunk({ content: '<think>Use the result.</think>The answer is 42.' }, 'stop'),
+        id: 'answer-response',
+      }),
     )
     const agent = createAgent({ model, tools: [lookup] })
     const result = await agent.invoke({ messages: [new HumanMessage('Look up A7.')] })
@@ -553,7 +634,9 @@ describe('LangChain model', () => {
         ),
       ),
     )
-    create.mockResolvedValueOnce(chunks(chunk({ content: 'A cat.' }, 'stop')))
+    create.mockResolvedValueOnce(
+      chunks({ ...chunk({ content: 'A cat.' }, 'stop'), id: 'answer-response' }),
+    )
     const inspectImage = tool(() => [{ type: 'image', data: 'AA==', mimeType: 'image/png' }], {
       name: 'inspect_image',
       description: 'Return the image to inspect.',
@@ -600,7 +683,10 @@ describe('LangChain model', () => {
       ),
     )
     create.mockResolvedValueOnce(
-      chunks(chunk({ content: '<think>The file says 42.</think>The answer is 42.' }, 'stop')),
+      chunks({
+        ...chunk({ content: '<think>The file says 42.</think>The answer is 42.' }, 'stop'),
+        id: 'answer-response',
+      }),
     )
     const agent = createDeepAgent({ model })
     const result = await agent.invoke({
@@ -798,16 +884,18 @@ describe('LangChain model', () => {
 
   it('keeps tool_choice none and rejects unsupported required choices', async () => {
     const { model, create, engine } = setup(chunk({ content: 'Answer' }, 'stop'))
+    const tools = [lookup, tool(() => '', { name: 'other', schema: z.object({}) })]
     await model.bindTools([lookup], { tool_choice: 'none' }).invoke('Hi')
     expect(create.mock.calls[0]?.[0]).not.toHaveProperty('tools')
     expect(create.mock.calls[0]?.[0].tool_choice).toBe('none')
-    await expect(
-      model.bindTools([lookup], { tool_choice: 'required' }).invoke('Hi'),
-    ).rejects.toThrow('required')
+    await expect(model.bindTools(tools, { tool_choice: 'required' }).invoke('Hi')).rejects.toThrow(
+      'exactly one tool',
+    )
     const gemma = new ChatWebLLM({ engine, modelId: 'gemma-4-E2B-it-q4f16_1-MLC' })
-    await expect(
-      gemma.bindTools([lookup], { tool_choice: 'required' }).invoke('Hi'),
-    ).rejects.toThrow('required')
+    await expect(gemma.bindTools(tools, { tool_choice: 'required' }).invoke('Hi')).rejects.toThrow(
+      'exactly one tool',
+    )
+    expect(create).toHaveBeenCalledTimes(1)
   })
 
   it('rejects unregistered native tool choices before generating', async () => {

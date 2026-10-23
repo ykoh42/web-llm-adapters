@@ -6,11 +6,10 @@ export { serializeError as toBrowserError } from '../../../../shared/web-llm/err
 
 export function fromBrowserError(error: BrowserError): Error {
   const restored = restoreError(error)
-  const cause = restored.cause instanceof Error ? restored.cause : undefined
-  const options = cause ? { cause } : undefined
+  const options = Object.hasOwn(restored, 'cause') ? { cause: restored.cause } : undefined
   if (error.name === 'ContextWindowOverflowError') {
     const overflow = new ContextWindowOverflowError(error.message)
-    if (cause) Object.assign(overflow, { cause })
+    if (options) Object.assign(overflow, options)
     return overflow
   }
   if (error.name === 'ModelError') return new ModelError(error.message, options)

@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.2.0 — 2026-10-24
+
+- Preserve caller cancellation reasons without reclassifying them as model errors.
+- Exclude discarded Qwen reasoning from token estimates.
+- Handle nested type exclusions in Qwen3.5 tool schemas.
+- Update Strands SDK to 1.22.0 and the Harness example to 0.3.1.
+- Preserve deeply nested Gemma tool values without overflowing the writer.
+- Avoid duplicate native tool calls in deeply nested history.
+- Support Qwen templates with prefilled thinking through `thinkingPrefilled`.
+- Allow `request.extra_body.preserve_thinking` for Gemma tool history.
+- Allow required tool choice with one tool on Gemma and native tool models.
+- Recognize other WebLLM precisions of the listed Qwen models.
+- Preserve tool argument types, literal protocol tags, and interrupted output.
+- Match Qwen3.5 argument types to tool schemas with unset optional fields.
+- Keep Gemma message IDs and metadata when trimming past thinking.
+- Reject malformed output, duplicate call IDs, ambiguous Qwen3.5 argument names and string history, and content after a stop.
+- Reject empty model IDs and framework-owned request fields before inference.
+- Preserve browser error types and JSON causes.
+- Report native WebLLM latency in Strands metrics.
+- Expose native log probabilities on Strands stop events.
+- Read model identity without copying the full configuration.
+- Reduce CPU work and browser reads for streaming, tool JSON, history, and audio.
+
 ## 0.1.1
 
 - Preserve input text, empty turns, output block order, and thinking across Harness tool loops.

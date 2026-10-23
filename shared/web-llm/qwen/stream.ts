@@ -12,7 +12,9 @@ export function qwenChunks(
   tools: ToolSpec[],
   options: ChunkOptions<ChatCompletionChunk> & {
     parseProtocol?: boolean
+    thinkingPrefilled?: boolean
     parseThinking?: boolean
+    stopRequested?: boolean
   } = {},
 ) {
   const quoted = { inside: false, escaped: false }

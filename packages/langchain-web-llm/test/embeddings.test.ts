@@ -322,6 +322,11 @@ describe('LangChain embeddings', () => {
     await expect(model.embedDocuments(['One'])).rejects.toBeInstanceOf(TypeError)
     expect(create).toHaveBeenCalledOnce()
   })
+  it('rejects sparse native embedding vectors', async () => {
+    const { model } = vectors([new Array<number>(2)])
+
+    await expect(model.embedDocuments(['One'])).rejects.toThrow('finite numbers')
+  })
   it.each([null, undefined])('does not retry a missing native vector: %s', async (value) => {
     const { engine } = setup()
     const response = embedding([[1]])

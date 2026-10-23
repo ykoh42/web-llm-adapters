@@ -541,3 +541,84 @@ for (const modelId of ['Qwen3.5-4B-q4f16_1-MLC', 'gemma-4-E2B-it-q4f16_1-MLC']) 
     expect((await model.invoke('What is 3 + 3?')).text).toContain('6')
   })
 }
+
+test('Qwen3.5 keeps literal closing tags through a LangChain tool loop', async ({ page }) => {
+  const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
+  await page.evaluate((id) => window.checks.load(id), modelId)
+  let raw = ''
+  const model = new BrowserChatWebLLM(page, {
+    modelId,
+    request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
+    onChunk: (chunk) => {
+      const choice = chunk.choices[0]
+      if (choice && 'delta' in choice) raw += choice.delta.content ?? ''
+    },
+  })
+  const inputs: string[] = []
+  const lookup = tool(
+    ({ code }) => {
+      inputs.push(code)
+      return 'The secret is ORCHID-42.'
+    },
+    {
+      name: 'lookup',
+      description: 'Look up the secret for a code.',
+      schema: z.object({ code: z.string() }),
+    },
+  )
+  const agent = createAgent({ model, tools: [lookup] })
+  const result = await agent.invoke({
+    messages: [
+      { role: 'user', content: 'Use lookup to look up code A </tool_call> B. Tell me its secret.' },
+    ],
+  })
+  expect(inputs).toEqual(['A </tool_call> B'])
+  expect(raw).toMatch(/<parameter=code>\s*A <\/tool_call> B\s*<\/parameter>/)
+  expect(result.messages.at(-1)?.text).toContain('ORCHID-42')
+  expect(
+    result.messages
+      .filter(AIMessage.isInstance)
+      .some((message) => message.contentBlocks.some((block) => block.type === 'reasoning')),
+  ).toBe(true)
+})
+
+test('Qwen3.5 preserves strings when a tool schema excludes numbers', async ({ page }) => {
+  const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
+  await page.evaluate((id) => window.checks.load(id), modelId)
+  let raw = ''
+  const model = new BrowserChatWebLLM(page, {
+    modelId,
+    request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
+    onChunk: (chunk) => {
+      const choice = chunk.choices[0]
+      if (choice && 'delta' in choice) raw += choice.delta.content ?? ''
+    },
+  })
+  const inputs: unknown[] = []
+  const lookup = tool(
+    (input) => {
+      inputs.push(input)
+      return 'The secret is ORCHID-42.'
+    },
+    {
+      name: 'lookup',
+      description: 'Look up the secret for a code.',
+      schema: {
+        type: 'object',
+        properties: { code: { not: { type: 'number' } } },
+        required: ['code'],
+      } as const,
+    },
+  )
+  const result = await createAgent({ model, tools: [lookup] }).invoke({
+    messages: [{ role: 'user', content: 'Use lookup to look up code 123. Tell me its secret.' }],
+  })
+  expect(inputs).toEqual([{ code: '123' }])
+  expect(raw).toMatch(/<parameter=code>\s*123\s*<\/parameter>/)
+  expect(result.messages.at(-1)?.text).toContain('ORCHID-42')
+  expect(
+    result.messages
+      .filter(AIMessage.isInstance)
+      .some((message) => message.contentBlocks.some((block) => block.type === 'reasoning')),
+  ).toBe(true)
+})

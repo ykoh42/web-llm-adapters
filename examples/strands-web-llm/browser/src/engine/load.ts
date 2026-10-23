@@ -24,7 +24,7 @@ export async function openEngine(
       break
     case 'service-worker':
       await navigator.serviceWorker.register(serviceWorkerUrl, { type: 'module', scope: '/' })
-      await waitForController()
+      await waitForController(new URL(serviceWorkerUrl, location.href).href)
       engine = new ServiceWorkerMLCEngine(config)
       break
     case 'extension':
@@ -58,10 +58,12 @@ export async function openEngine(
   }
 }
 
-function waitForController(): Promise<void> {
-  if (navigator.serviceWorker.controller) return Promise.resolve()
+function waitForController(scriptURL: string): Promise<void> {
+  const controlsPage = () => navigator.serviceWorker.controller?.scriptURL === scriptURL
+  if (controlsPage()) return Promise.resolve()
   return new Promise((resolve, reject) => {
     const ready = () => {
+      if (!controlsPage()) return
       clearTimeout(timer)
       navigator.serviceWorker.removeEventListener('controllerchange', ready)
       resolve()
@@ -71,7 +73,7 @@ function waitForController(): Promise<void> {
       reject(new Error('Service worker did not take control. Reload the page and try again.'))
     }, 15_000)
     navigator.serviceWorker.addEventListener('controllerchange', ready)
-    if (navigator.serviceWorker.controller) ready()
+    if (controlsPage()) ready()
   })
 }
 

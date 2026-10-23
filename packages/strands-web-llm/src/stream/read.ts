@@ -33,6 +33,8 @@ export async function* readStream(
     signal?.throwIfAborted()
     for await (const chunk of chunks) {
       signal?.throwIfAborted()
+      if (stopReason && (chunk.text || chunk.reasoning || chunk.calls.length || chunk.stop))
+        throw new ModelError('WebLLM returned content after its stop reason.')
       if (chunk.usage) usage = chunk.usage
 
       for (const [type, value] of [
@@ -126,6 +128,7 @@ export async function* readStream(
       orderedCalls.map((call) => call.name),
       choice,
       stopReason,
+      toolNames,
     )
     const useTools = stopReason !== 'maxTokens' && stopReason !== 'cancelled' && calls.size > 0
     if (useTools) {
@@ -140,6 +143,7 @@ export async function* readStream(
     }
     signal?.throwIfAborted()
     if (usage) {
+      const latency = usage.extra?.e2e_latency_s
       yield {
         type: 'modelMetadataEvent',
         usage: {
@@ -147,6 +151,11 @@ export async function* readStream(
           outputTokens: usage.completion_tokens,
           totalTokens: usage.total_tokens,
         },
+        ...(typeof latency === 'number' &&
+          latency >= 0 &&
+          Number.isFinite(latency * 1000) && {
+            metrics: { latencyMs: latency * 1000 },
+          }),
         trace: usage.extra,
       }
     }

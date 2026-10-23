@@ -62,7 +62,10 @@ export class BrowserWebLLMEmbeddings extends Embeddings {
             )
           return bridge.embed(request)
         }, request)
-        if (!Array.isArray(result)) throw restoreBrowserError(result.error)
+        if (!Array.isArray(result))
+          throw restoreBrowserError(
+            result.errorJSON === undefined ? result.error : JSON.parse(result.errorJSON),
+          )
         return result
       })
       appendVectors(vectors, batch)

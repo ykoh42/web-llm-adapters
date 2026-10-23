@@ -99,6 +99,82 @@ describe('Gemma tool prompts', () => {
     expect(JSON.stringify(tool)).toBe(snapshot)
   })
 
+  it('normalizes types in nested array item schemas', () => {
+    const tool: ToolSpec = {
+      name: 'lookup',
+      description: 'Find records.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          rows: {
+            type: 'array',
+            items: { type: 'array', items: { type: 'string' } },
+          },
+        },
+      },
+    }
+
+    expect(toolPrompt([user('Find records.')], [tool], {})).toContain(
+      'rows:{items:{items:{type:<|"|>STRING<|"|>},type:<|"|>ARRAY<|"|>},type:<|"|>ARRAY<|"|>}',
+    )
+  })
+
+  it('keeps extra array item schema fields in the canonical form', () => {
+    const tool: ToolSpec = {
+      name: 'lookup',
+      description: 'Find records.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          rows: {
+            type: 'array',
+            items: { type: 'object', additionalProperties: { type: 'string' } },
+          },
+        },
+      },
+    }
+    const snapshot = JSON.stringify(tool)
+
+    expect(toolPrompt([user('Find records.')], [tool], {})).toContain(
+      'rows:{items:{additionalProperties:{type:<|"|>string<|"|>},type:<|"|>OBJECT<|"|>},type:<|"|>ARRAY<|"|>}',
+    )
+    expect(JSON.stringify(tool)).toBe(snapshot)
+  })
+
+  it('keeps false array item schemas', () => {
+    const tool: ToolSpec = {
+      name: 'lookup',
+      description: 'Find records.',
+      inputSchema: {
+        type: 'object',
+        properties: { rows: { type: 'array', items: false } },
+      },
+    }
+    const snapshot = JSON.stringify(tool)
+
+    expect(toolPrompt([user('Find records.')], [tool], {})).toContain(
+      'rows:{items:false,type:<|"|>ARRAY<|"|>}',
+    )
+    expect(JSON.stringify(tool)).toBe(snapshot)
+  })
+
+  it('preserves boolean property schemas', () => {
+    const tool: ToolSpec = {
+      name: 'lookup',
+      description: 'Find records.',
+      inputSchema: {
+        type: 'object',
+        properties: { blocked: false, open: true },
+      },
+    }
+    const snapshot = JSON.stringify(tool)
+
+    expect(toolPrompt([user('Find records.')], [tool], {})).toContain(
+      'properties:{blocked:false,open:true}',
+    )
+    expect(JSON.stringify(tool)).toBe(snapshot)
+  })
+
   it('keeps own reserved keys in array item schemas', () => {
     const items = { type: 'string' as const, ['__proto__']: { note: 'literal' } }
     const tool: ToolSpec = {

@@ -6,6 +6,7 @@ import { formatMessages, formatToolChoice } from './messages.js'
 import { streamCall } from '../../../../shared/web-llm/engine/call.js'
 import { readStream } from '../stream/read.js'
 import { nativeChunks, nativeHistory, nativeTools } from '../../../../shared/web-llm/native.js'
+import { singleToolChoice } from '../../../../shared/web-llm/stream/choice.js'
 
 /** Native WebLLM chat, including its Hermes tool format. */
 export function chatStream(
@@ -15,7 +16,7 @@ export function chatStream(
   options: StreamOptions,
   onChunk?: WebLLMModelOptions['onChunk'],
 ) {
-  const choice = options.toolChoice
+  const choice = options.toolChoice && singleToolChoice(options.toolChoice, options.toolSpecs ?? [])
   if (choice && 'tool' in choice) {
     const name = choice.tool.name
     if (!options.toolSpecs?.some((tool) => tool.name === name))
@@ -31,7 +32,7 @@ export function chatStream(
     ),
   }
   if (options.toolSpecs?.length) request.tools = nativeTools(options.toolSpecs)
-  if (options.toolChoice) request.tool_choice = formatToolChoice(options.toolChoice)
+  if (choice) request.tool_choice = formatToolChoice(choice)
   return streamCall(
     engine,
     () => engine.chat.completions.create(request),
@@ -39,7 +40,7 @@ export function chatStream(
       readStream(
         nativeChunks(chunks, Boolean(request.tools), { onChunk, signal: options.cancelSignal }),
         options.cancelSignal,
-        options.toolChoice ?? config.request?.tool_choice,
+        choice ?? config.request?.tool_choice,
         options.toolSpecs?.map((tool) => tool.name),
         true,
       ),

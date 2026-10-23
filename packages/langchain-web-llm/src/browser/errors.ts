@@ -11,17 +11,7 @@ const reserved = new Set(['name', 'message', 'stack', 'cause'])
 
 /** Keep serializable provider fields without reading own getters or losing the failure. */
 export function serializeBrowserError(error: unknown): BrowserError {
-  let info: ErrorInfo
-  try {
-    info = serializeError(error)
-  } catch {
-    const message =
-      error instanceof Error ? Object.getOwnPropertyDescriptor(error, 'message')?.value : undefined
-    info = {
-      name: 'Error',
-      message: typeof message === 'string' ? message : 'A browser request failed.',
-    }
-  }
+  const info = serializeError(error)
   if (!(error instanceof Error)) return info
   const fields = Object.create(null) as Record<string, unknown>
   for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(error))) {
@@ -64,10 +54,16 @@ export function applyBrowserError(error: Error, snapshot: BrowserError): void {
   }
   setField(error, 'name', snapshot.name)
   setField(error, 'message', snapshot.message)
-  if (JSON.stringify(previous.causes) !== JSON.stringify(snapshot.causes)) {
-    if (snapshot.causes?.length) setField(error, 'cause', restoreError(snapshot).cause)
-    else if (Object.getOwnPropertyDescriptor(error, 'cause')?.value instanceof Error)
-      Reflect.deleteProperty(error, 'cause')
+  if (
+    JSON.stringify(previous.causes) !== JSON.stringify(snapshot.causes) ||
+    JSON.stringify(previous.causeValue) !== JSON.stringify(snapshot.causeValue)
+  ) {
+    if (snapshot.causes?.length || snapshot.causeValue)
+      setField(error, 'cause', restoreError(snapshot).cause)
+    else {
+      const descriptor = Object.getOwnPropertyDescriptor(error, 'cause')
+      if (descriptor && Object.hasOwn(descriptor, 'value')) Reflect.deleteProperty(error, 'cause')
+    }
   }
   if (snapshot.retryable !== undefined) stampRetryable(error, snapshot.retryable)
 }

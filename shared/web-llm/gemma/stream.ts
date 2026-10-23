@@ -2,10 +2,10 @@ import { ModelError, type ToolSpec } from '../types.js'
 import type { Completion } from '@mlc-ai/web-llm'
 import { readArguments } from './value.js'
 import { splitThinking, type GemmaStreamOptions } from './thinking.js'
-import { textEnd } from './markers.js'
+import { toolStart } from './markers.js'
+import { textEnd } from '../stream/markers.js'
 import type { StreamChunk, ToolDelta } from '../stream/chunks.js'
 
-const begin = '<|tool_call>'
 const end = '<tool_call|>'
 
 export async function* gemmaChunks(
@@ -14,11 +14,12 @@ export async function* gemmaChunks(
   options: GemmaStreamOptions = {},
 ): AsyncGenerator<StreamChunk> {
   const { signal } = options
+  const parseTools = tools.length > 0
   let pending = ''
   let toolText = ''
   let failure: { error: unknown } | undefined
   try {
-    for await (const chunk of splitThinking(chunks, options)) {
+    for await (const chunk of splitThinking(chunks, { ...options, parseTools })) {
       if (signal?.aborted) return
       if (chunk.type === 'reasoning') {
         if (pending) {
@@ -31,16 +32,17 @@ export async function* gemmaChunks(
       }
       let content = ''
       let calls: ToolDelta[] = []
-      if (toolText) toolText += chunk.text
+      if (!parseTools) content = chunk.text
+      else if (toolText) toolText += chunk.text
       else {
         pending += chunk.text
-        const at = pending.indexOf(begin)
+        const at = pending.indexOf(toolStart)
         if (at !== -1) {
           content = pending.slice(0, at)
           toolText = pending.slice(at)
           pending = ''
         } else {
-          const end = textEnd(pending, [begin])
+          const end = textEnd(pending, [toolStart])
           content = pending.slice(0, end)
           pending = pending.slice(end)
         }

@@ -5,9 +5,37 @@ import { createAgent, toolStrategy } from 'langchain'
 import { tool } from '@langchain/core/tools'
 import { chunk, chunks, setup } from '../fixtures/engine.js'
 import { ChatWebLLM } from '../src/index.js'
+import { ModelType, postInitAndCheckFieldsChatCompletion } from '@mlc-ai/web-llm'
+
+it.each(['direct', 'agent'] as const)(
+  'uses native JSON by default for a Llama %s structured response',
+  async (client) => {
+    const modelId = 'Llama-3.2-1B-Instruct-q4f16_1-MLC'
+    const { engine, create } = setup()
+    create.mockImplementation(async (request) => {
+      postInitAndCheckFieldsChatCompletion(request, modelId, ModelType.LLM)
+      return chunks(chunk({ content: '{"answer":42}' }, 'stop'))
+    })
+    const model = new ChatWebLLM({ engine, modelId })
+    const schema = z.object({ answer: z.number() })
+    const result =
+      client === 'direct'
+        ? await model.withStructuredOutput(schema).invoke('Return JSON with answer 42.')
+        : (
+            await createAgent({ model, responseFormat: schema }).invoke({
+              messages: [{ role: 'user', content: 'Return JSON with answer 42.' }],
+            })
+          ).structuredResponse
+
+    expect(result).toEqual({ answer: 42 })
+    expect(create.mock.calls[0]?.[0].response_format?.type).toBe('json_object')
+    expect(create.mock.calls[0]?.[0].tools).toBeUndefined()
+    expect(model.profile).toMatchObject({ toolCalling: false, structuredOutput: true })
+  },
+)
 
 function response(args: string) {
-  return setup(
+  const state = setup(
     chunk(
       {
         tool_calls: [
@@ -22,6 +50,13 @@ function response(args: string) {
       'tool_calls',
     ),
   )
+  return {
+    ...state,
+    model: new ChatWebLLM({
+      engine: state.engine,
+      modelId: 'Hermes-3-Llama-3.1-8B-q4f16_1-MLC',
+    }),
+  }
 }
 describe('structured output', () => {
   it('passes an agent response schema to WebLLM native JSON generation', async () => {
@@ -209,7 +244,10 @@ describe('structured output', () => {
   it('rejects strict mode and invalid methods before starting the engine', () => {
     const { model, create } = setup()
     expect(() =>
-      model.withStructuredOutput(z.object({ answer: z.number() }), { strict: true }),
+      model.withStructuredOutput(z.object({ answer: z.number() }), {
+        method: 'functionCalling',
+        strict: true,
+      }),
     ).toThrow('strict')
     expect(() => model.withStructuredOutput({ type: 'object' }, { method: 'invalid' })).toThrow(
       'functionCalling',

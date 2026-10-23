@@ -1,8 +1,68 @@
 import { writeFile } from 'node:fs/promises'
-import { Message, TextBlock, FunctionTool, AfterModelCallEvent } from '@strands-agents/sdk'
+import { join } from 'node:path'
+import {
+  Message,
+  TextBlock,
+  ReasoningBlock,
+  FunctionTool,
+  AfterModelCallEvent,
+} from '@strands-agents/sdk'
 import { test, expect } from '../../../fixtures/browser.js'
 import { openHarness, useTool, finalText } from '../../fixtures/harness.js'
 import { BrowserModel, type WebLLMChunk } from 'strands-web-llm'
+
+test('custom config readers align token estimates with real Gemma Harness requests', async ({
+  page,
+}) => {
+  const harness = await openHarness(page)
+  const config = harness.model.getConfig()
+  class CurrentModel extends BrowserModel {
+    override getConfig() {
+      return structuredClone(config)
+    }
+  }
+  const model = new CurrentModel(page, { modelId: 'initial-model' })
+  const history = [
+    new Message({ role: 'user', content: [new TextBlock('Earlier question.')] }),
+    new Message({
+      role: 'assistant',
+      content: [
+        new ReasoningBlock({ text: 'Archived plan. '.repeat(2000) }),
+        new TextBlock('Done.'),
+      ],
+    }),
+    new Message({ role: 'user', content: [new TextBlock('Next question.')] }),
+  ]
+  try {
+    expect(await model.countTokens(history)).toBe(await harness.model.countTokens(history))
+    const code = crypto.randomUUID().slice(0, 8)
+    const path = join(harness.dir, 'code.txt')
+    await writeFile(path, `The secret code is ${code}.`)
+    const agent = await harness.create({ model, messages: history })
+    const previousMessages = agent.messages.length
+    useTool(agent, 'read')
+    const result = await agent.invoke(
+      `Use read to read ${path}. Reply with the secret code from that file.`,
+      { limits: { turns: 4 } },
+    )
+    expect(finalText(result)).toContain(code)
+    expect(agent.messages.flatMap((message) => message.content)).toContainEqual(
+      expect.objectContaining({ type: 'toolResultBlock', status: 'success' }),
+    )
+    expect(
+      agent.messages
+        .slice(previousMessages)
+        .flatMap((message) => message.content)
+        .some((block) => block.type === 'reasoningBlock' && block.text?.trim()),
+    ).toBe(true)
+    expect(await page.evaluate(() => window.gemmaPrompts)).not.toEqual([])
+    expect((await page.evaluate(() => window.gemmaPrompts)).join('\n')).not.toContain(
+      'Archived plan.',
+    )
+  } finally {
+    await harness.close()
+  }
+})
 
 for (const longRecent of [false, true]) {
   test(`default context summary preserves facts with ${longRecent ? 'long' : 'short'} recent messages`, async ({

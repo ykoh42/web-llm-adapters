@@ -8,7 +8,7 @@ export default defineConfig({
   webServer: [
     {
       command:
-        'npm run build && npm exec --workspace @web-llm-adapters/strands-browser -- vite preview --host 127.0.0.1 --port 4173 --strictPort',
+        'npm exec --workspace @web-llm-adapters/strands-browser -- vite preview --host 127.0.0.1 --port 4173 --strictPort',
       url: 'http://localhost:4173',
       reuseExistingServer: !process.env.CI,
     },

@@ -4,6 +4,7 @@ import {
   type StandardMessageStructure,
 } from '@langchain/core/messages'
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
+import { withEngine } from '../../../../shared/web-llm/engine/access.js'
 import type { WebLLMChunk } from '../types.js'
 import { WebLLMEmbeddings } from '../embeddings/model.js'
 import { ChatWebLLM } from '../model.js'
@@ -27,11 +28,27 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
   const calls = new Map<string, Call>()
   let closed = false
   const nativeCalls = new Set<Promise<unknown>>()
+  function checkOpen() {
+    if (closed) throw new Error('The browser bridge is closed.')
+  }
   const bridge: BrowserBridge = {
+    async withEngine(run) {
+      checkOpen()
+      const call = withEngine(engine, (engine) => {
+        checkOpen()
+        return run(engine)
+      })
+      nativeCalls.add(call)
+      try {
+        return await call
+      } finally {
+        nativeCalls.delete(call)
+      }
+    },
     async embed({ config, texts, type, hostRetries }) {
       let call: Promise<number[][]> | undefined
       try {
-        if (closed) throw new Error('The browser bridge is closed.')
+        checkOpen()
         const model = new WebLLMEmbeddings({
           ...config,
           engine,
@@ -46,13 +63,19 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
         nativeCalls.add(call)
         return await call
       } catch (error) {
-        return { error: serializeBrowserError(error) }
+        const packet = {
+          error: serializeBrowserError(error),
+          get errorJSON(): string {
+            return JSON.stringify(this.error)
+          },
+        }
+        return packet
       } finally {
         if (call) nativeCalls.delete(call)
       }
     },
     async start({ config, messages, options, includeChunks, includeFailedAttempts }) {
-      if (closed) throw new Error('The browser bridge is closed.')
+      checkOpen()
       const id = crypto.randomUUID()
       const controller = new AbortController()
       const chunks: WebLLMChunk[] = []
@@ -111,10 +134,14 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
         return result
       } catch (error) {
         calls.delete(id)
-        return {
+        const packet = {
           error: serializeBrowserError(error),
+          get errorJSON(): string {
+            return JSON.stringify(this.error)
+          },
           ...(call?.chunks.length && { chunks: call.chunks.splice(0) }),
         }
+        return packet
       }
     },
     retry(id, error) {

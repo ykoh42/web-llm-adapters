@@ -6,13 +6,14 @@ const root = resolve(import.meta.dirname, '..')
 const limit = 40_000
 const examples = [
   ['Pi AI', 'examples/pi-ai-web-llm/browser/dist'],
+  ['Pi Durable', 'examples/pi-ai-web-llm/browser/dist', 'durable/index.html'],
   ['LangChain', 'examples/langchain-web-llm/browser/dist'],
   ['Strands', 'examples/strands-web-llm/browser/dist'],
 ]
 
-for (const [name, directory] of examples) {
+for (const [name, directory, page = 'index.html'] of examples) {
   const dist = resolve(root, directory)
-  const html = await readFile(resolve(dist, 'index.html'), 'utf8')
+  const html = await readFile(resolve(dist, page), 'utf8')
   const files = new Set(
     Array.from(html.matchAll(/(?:src|href)="[^"]*\/assets\/([^"/]+\.js)"/g), ([, file]) => file),
   )

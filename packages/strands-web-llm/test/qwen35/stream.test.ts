@@ -2,6 +2,170 @@ import type { JSONSchema, ToolSpec } from '@strands-agents/sdk'
 import { expect, it } from 'vitest'
 import { chunk, chunks, collect } from '../../fixtures/engine.js'
 import { qwen35Chunks } from '../../../../shared/web-llm/qwen35/stream.js'
+import { formatCall } from '../../../../shared/web-llm/qwen35/tools.js'
+
+it.each(['code', '', 'a<b', 'x\ny', '__proto__', 'constructor'])(
+  'preserves a representable XML argument name: %j',
+  async (name) => {
+    const input = { [name]: 42 }
+    const content = formatCall('lookup', input)
+    const tools: ToolSpec[] = [
+      {
+        name: 'lookup',
+        description: 'Read a value.',
+        inputSchema: { type: 'object', properties: { [name]: { type: 'number' } } },
+      },
+    ]
+    const output = await collect(qwen35Chunks(chunks(chunk({ content }, 'stop')), tools))
+    expect(output.flatMap((item) => item.calls)).toMatchObject([{ input: JSON.stringify(input) }])
+  },
+)
+
+it('preserves angle brackets in nested JSON keys and ordinary string values', async () => {
+  const input = { payload: { 'a>b': 42 }, text: 'a > b' }
+  const content = formatCall('lookup', input)
+  const tools: ToolSpec[] = [
+    {
+      name: 'lookup',
+      description: 'Read a value.',
+      inputSchema: {
+        type: 'object',
+        properties: { payload: { type: 'object' }, text: { type: 'string' } },
+      },
+    },
+  ]
+  const output = await collect(qwen35Chunks(chunks(chunk({ content }, 'stop')), tools))
+  expect(output.flatMap((item) => item.calls)).toMatchObject([{ input: JSON.stringify(input) }])
+})
+
+it('analyzes each argument schema once per stream', async () => {
+  let reads = 0
+  const payload = {
+    get type() {
+      reads++
+      return 'object' as const
+    },
+  }
+  const tools: ToolSpec[] = [
+    {
+      name: 'lookup',
+      description: 'Read a value.',
+      inputSchema: { type: 'object', properties: { payload } },
+    },
+  ]
+  const content = formatCall('lookup', { payload: { value: 42 } })
+  const output = await collect(qwen35Chunks(chunks(chunk({ content }, 'stop')), tools))
+
+  expect(output.flatMap((item) => item.calls)).toMatchObject([
+    { input: JSON.stringify({ payload: { value: 42 } }) },
+  ])
+  expect(reads).toBe(1)
+})
+
+it.each([
+  { value: { text: 'literal <parameter=x> inside JSON' }, type: 'object' },
+  { value: { text: 'literal </parameter> </function> </tool_call> inside JSON' }, type: 'object' },
+  { value: ['<parameter=x>', '</parameter>', '</function>', '</tool_call>'], type: 'array' },
+] satisfies { value: unknown; type: 'object' | 'array' }[])(
+  'preserves XML tags inside a JSON $type argument',
+  async ({ value, type }) => {
+    const tools: ToolSpec[] = [
+      {
+        name: 'lookup',
+        description: 'Read a value.',
+        inputSchema: { type: 'object', properties: { payload: { type } } },
+      },
+    ]
+    const content = formatCall('lookup', { payload: value })
+    const output = await collect(qwen35Chunks(chunks(chunk({ content }, 'stop')), tools))
+    expect(output.flatMap((item) => item.calls)).toMatchObject([
+      { name: 'lookup', input: JSON.stringify({ payload: value }) },
+    ])
+  },
+)
+
+it.each(['{not JSON " remains', '[raw "value', 'literal "unterminated'])(
+  'preserves an ordinary string that resembles incomplete JSON: %s',
+  async (text) => {
+    const tools: ToolSpec[] = [
+      {
+        name: 'lookup',
+        description: 'Read text.',
+        inputSchema: { type: 'object', properties: { text: { type: 'string' } } },
+      },
+    ]
+    const content = formatCall('lookup', { text })
+    const output = await collect(qwen35Chunks(chunks(chunk({ content }, 'stop')), tools))
+    expect(output.flatMap((item) => item.calls)).toMatchObject([
+      { input: JSON.stringify({ text }) },
+    ])
+  },
+)
+
+it.each([
+  { $ref: '#/definitions/payload' },
+  { anyOf: [{ type: 'object' }, { type: 'null' }] },
+  { allOf: [{ type: 'object' }, { description: 'Structured data.' }] },
+  { const: { text: '<parameter=x> </parameter> </tool_call>' } },
+] satisfies JSONSchema[])(
+  'preserves XML in structured arguments inferred from %j',
+  async (schema) => {
+    const payload = { text: '<parameter=x> </parameter> </tool_call>' }
+    const content = formatCall('lookup', { payload })
+    const output = await collect(
+      qwen35Chunks(chunks(chunk({ content }, 'stop')), [
+        {
+          name: 'lookup',
+          description: 'Read data.',
+          inputSchema: {
+            type: 'object',
+            properties: { payload: schema },
+            definitions: { payload: { type: 'object' } },
+          },
+        },
+      ]),
+    )
+    expect(output.flatMap((item) => item.calls)).toMatchObject([
+      { input: JSON.stringify({ payload }) },
+    ])
+  },
+)
+
+it('reads several functions with whitespace and redundant parameter closers', async () => {
+  const content =
+    '<tool_call>\n<function=lookup>\n</parameter>\n' +
+    '<parameter=city>\nSeoul\n</parameter>\n</parameter>\n</function>\n\n' +
+    '<function=lookup>\n<parameter=city>\nTokyo\n</parameter>\n</function>\n</tool_call>'
+  const tools: ToolSpec[] = [
+    {
+      name: 'lookup',
+      description: 'Look up a city.',
+      inputSchema: { type: 'object', properties: { city: { type: 'string' } } },
+    },
+  ]
+  const output = await collect(qwen35Chunks(chunks(chunk({ content }, 'stop')), tools))
+  expect(output.flatMap((item) => item.calls)).toMatchObject([
+    { index: 0, name: 'lookup', input: '{"city":"Seoul"}' },
+    { index: 1, name: 'lookup', input: '{"city":"Tokyo"}' },
+  ])
+})
+
+it.each([
+  { source: '<function=lookup>\n'.repeat(8000), error: 'ended inside a tool call' },
+  {
+    source: '<function=lookup>' + '<parameter=city'.repeat(8000) + '</function>',
+    error: 'malformed tool parameter',
+  },
+])('rejects repeated unclosed tags: $error', async ({ source, error }) => {
+  const content = '<tool_call>' + source + '</tool_call>'
+  await expect(
+    collect(
+      qwen35Chunks(chunks(chunk({ content }, 'stop')), [
+        { name: 'lookup', description: 'Look up a city.' },
+      ]),
+    ),
+  ).rejects.toThrow(error)
+})
 
 it('reads current schemas when tool definitions are reused across streams', async () => {
   const code: JSONSchema = { type: 'string' }
@@ -76,6 +240,48 @@ it.each([undefined, { type: 'number' }, { type: 'object' }] as const)(
     await expect(collect(qwen35Chunks(chunks(chunk({ content }, 'stop')), tools))).rejects.toThrow()
   },
 )
+
+it.each(['boolean', 'object', 'array'] as const)(
+  'keeps numeric-looking strings when the other type is %s',
+  async (type) => {
+    const content =
+      '<tool_call><function=read><parameter=value>1e999</parameter></function></tool_call>'
+    const tools: ToolSpec[] = [
+      {
+        name: 'read',
+        description: '',
+        inputSchema: {
+          type: 'object',
+          properties: { value: { anyOf: [{ type: 'string' }, { type }] } },
+        },
+      },
+    ]
+    const output = await collect(qwen35Chunks(chunks(chunk({ content }, 'stop')), tools))
+    expect(output.flatMap((item) => item.calls)).toMatchObject([
+      { name: 'read', input: '{"value":"1e999"}' },
+    ])
+  },
+)
+
+it.each([
+  { type: 'number', value: '1e999' },
+  { type: 'integer', value: '1e999' },
+  { type: 'object', value: '{"nested":1e999}' },
+  { type: 'array', value: '[1e999]' },
+] as const)('rejects overflowing ambiguous string or $type arguments', async ({ type, value }) => {
+  const content = `<tool_call><function=read><parameter=value>${value}</parameter></function></tool_call>`
+  const tools: ToolSpec[] = [
+    {
+      name: 'read',
+      description: '',
+      inputSchema: {
+        type: 'object',
+        properties: { value: { anyOf: [{ type: 'string' }, { type }] } },
+      },
+    },
+  ]
+  await expect(collect(qwen35Chunks(chunks(chunk({ content }, 'stop')), tools))).rejects.toThrow()
+})
 
 const nullableStringSchemas: JSONSchema[] = [
   { type: ['string', 'null'] },
@@ -195,6 +401,28 @@ it.each(['stray text', '<parameter=limit>100', '</parameter>stray text'])(
     await expect(collect(output)).rejects.toThrow('malformed tool parameter')
   },
 )
+
+it.each([
+  {
+    content:
+      '<tool_call><function=lookup>unexpected<parameter=city>Seoul</parameter></function></tool_call>',
+    error: 'malformed tool parameter',
+  },
+  {
+    content:
+      '<tool_call><function=lookup><parameter=city>Seoul</parameter>' +
+      '<parameter=city>Tokyo</parameter></function></tool_call>',
+    error: 'repeated parameter "city"',
+  },
+])('rejects malformed Qwen3.5 tool arguments: $error', async ({ content, error }) => {
+  await expect(
+    collect(
+      qwen35Chunks(chunks(chunk({ content }, 'stop')), [
+        { name: 'lookup', description: 'Look up a city.' },
+      ]),
+    ),
+  ).rejects.toThrow(error)
+})
 
 it.each(nullableStringSchemas)('keeps a nullable string argument as text', async (city) => {
   const inputSchema: JSONSchema = {

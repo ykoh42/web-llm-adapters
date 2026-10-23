@@ -12,8 +12,11 @@ export function readVectors(response: CreateEmbeddingResponse, count: number): n
       vectors[item.index] !== undefined
     )
       throw new TypeError('WebLLM returned invalid embedding indices.')
-    if (!item.embedding.length || !item.embedding.every(Number.isFinite))
+    if (!item.embedding.length)
       throw new TypeError('WebLLM embeddings must contain finite numbers.')
+    for (const value of item.embedding)
+      if (!Number.isFinite(value))
+        throw new TypeError('WebLLM embeddings must contain finite numbers.')
     vectors[item.index] = item.embedding
   }
   return vectors

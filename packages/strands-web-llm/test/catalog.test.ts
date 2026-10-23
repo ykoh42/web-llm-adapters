@@ -19,19 +19,24 @@ const textModels = chatModels.filter((model) => model.model_type !== ModelType.V
 const gemma4Models = chatModels.filter((model) => model.model_id.startsWith('gemma-4-'))
 const embeddingModels = catalog.filter((model) => model.model_type === ModelType.embedding)
 const toolModelIds = new Set(functionCallingModelIds)
-const customToolModelIds = new Set([
-  'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
-  'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
-  'Qwen2.5-3B-Instruct-q4f16_1-MLC',
-  'Qwen2.5-7B-Instruct-q4f16_1-MLC',
-  'Qwen3-0.6B-q4f16_1-MLC',
-  'Qwen3-4B-q4f16_1-MLC',
-  'Qwen3-8B-q4f16_1-MLC',
-  'Qwen3.5-0.8B-q4f16_1-MLC',
-  'Qwen3.5-2B-q4f16_1-MLC',
-  'Qwen3.5-4B-q4f16_1-MLC',
-  'Qwen3.5-9B-q4f16_1-MLC',
+const customToolModels = new Set([
+  'Qwen2.5-0.5B-Instruct',
+  'Qwen2.5-1.5B-Instruct',
+  'Qwen2.5-3B-Instruct',
+  'Qwen2.5-7B-Instruct',
+  'Qwen3-0.6B',
+  'Qwen3-4B',
+  'Qwen3-8B',
+  'Qwen3.5-0.8B',
+  'Qwen3.5-2B',
+  'Qwen3.5-4B',
+  'Qwen3.5-9B',
 ])
+const customToolModelIds = new Set(
+  chatModels
+    .filter((model) => customToolModels.has(model.model_id.replace(/-q[^-]+-MLC$/, '')))
+    .map((model) => model.model_id),
+)
 const textHistory = [
   new Message({ role: 'user', content: [new TextBlock('Hello')] }),
   new Message({ role: 'assistant', content: [new TextBlock('Hi')] }),
@@ -262,29 +267,30 @@ describe('WebLLM model catalog', () => {
     }
   })
 
-  it('rejects unreliable Qwen3 1.7B tool requests', async () => {
-    const { engine, create } = setup()
-    const adapter = new WebLLMModel({ engine, modelId: 'Qwen3-1.7B-q4f16_1-MLC' })
-    const toolSpecs = [{ name: 'clock', description: 'Get the time.' }]
-    const toolHistory = [
-      textHistory[0]!,
-      new Message({
-        role: 'assistant',
-        content: [new ToolUseBlock({ toolUseId: 'clock-1', name: 'clock', input: {} })],
-      }),
-    ]
-    const requests = [
-      () => collect(adapter.stream(textHistory, { toolSpecs })),
-      () => collect(adapter.stream(textHistory, { toolChoice: { any: {} } })),
-      () => collect(adapter.stream(toolHistory)),
-    ]
+  it.each(['Qwen3-1.7B-q4f16_1-MLC', 'Qwen3-1.7B-q4f32_1-MLC'])(
+    'rejects unreliable %s tool requests',
+    async (modelId) => {
+      const { engine, create } = setup()
+      const adapter = new WebLLMModel({ engine, modelId })
+      const toolSpecs = [{ name: 'clock', description: 'Get the time.' }]
+      const toolHistory = [
+        textHistory[0]!,
+        new Message({
+          role: 'assistant',
+          content: [new ToolUseBlock({ toolUseId: 'clock-1', name: 'clock', input: {} })],
+        }),
+      ]
+      const requests = [
+        () => collect(adapter.stream(textHistory, { toolSpecs })),
+        () => collect(adapter.stream(textHistory, { toolChoice: { any: {} } })),
+        () => collect(adapter.stream(toolHistory)),
+      ]
 
-    for (const request of requests)
-      await expect(request()).rejects.toThrow(
-        'Tool calling is not supported for Qwen3-1.7B-q4f16_1-MLC.',
-      )
-    expect(create).not.toHaveBeenCalled()
-  })
+      for (const request of requests)
+        await expect(request()).rejects.toThrow(`Tool calling is not supported for ${modelId}.`)
+      expect(create).not.toHaveBeenCalled()
+    },
+  )
 
   it('confirms other prebuilt chat models reject adapter tool requests at WebLLM validation', async () => {
     const { engine, create } = setup()
@@ -294,7 +300,7 @@ describe('WebLLM model catalog', () => {
       (model) =>
         !toolModelIds.has(model.model_id) &&
         !customToolModelIds.has(model.model_id) &&
-        model.model_id !== 'Qwen3-1.7B-q4f16_1-MLC' &&
+        !model.model_id.startsWith('Qwen3-1.7B-') &&
         !model.model_id.startsWith('gemma-4-'),
     )
 

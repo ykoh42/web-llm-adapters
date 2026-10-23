@@ -1,7 +1,11 @@
-import type { Api, Model } from '@earendil-works/pi-ai'
-import { resolveSamplingParams } from '@earendil-works/pi-ai/api/simple-options'
+import type { Api, Model, TranscriptContext } from '@earendil-works/pi-ai'
+import {
+  clampMaxTokensToContext,
+  resolveSamplingParams,
+} from '@earendil-works/pi-ai/api/simple-options'
 import { clampThinkingLevel } from '@earendil-works/pi-ai/models'
 import { normalizeResponseFormat } from '../../../shared/web-llm/response.js'
+import { checkRequest } from '../../../shared/web-llm/request.js'
 import type { WebLLMRequest, WebLLMStreamOptions } from './types.js'
 
 export function requestOptions(
@@ -9,36 +13,39 @@ export function requestOptions(
   defaults: WebLLMRequest,
   call: WebLLMStreamOptions,
   simple: boolean,
+  context: TranscriptContext,
 ): WebLLMRequest {
+  if (call.toolChoice !== undefined && call.toolChoice !== 'auto' && call.toolChoice !== 'none')
+    throw new Error('toolChoice must be auto or none.')
   if (call.deferred) throw new Error('WebLLM does not support deferred requests.')
-  if (call.thinkingBudgets) throw new Error('WebLLM does not support thinking token budgets.')
+  if (Object.values(call.thinkingBudgets ?? {}).some((budget) => budget !== undefined))
+    throw new Error('WebLLM does not support thinking token budgets.')
+  const configuredMaxTokens =
+    call.request?.max_tokens !== undefined ? call.request.max_tokens : defaults.max_tokens
+  let maxTokens =
+    call.maxTokens ?? (configuredMaxTokens === undefined ? model.maxTokens : configuredMaxTokens)
+  if (simple && typeof maxTokens === 'number' && Number.isSafeInteger(maxTokens) && maxTokens > 0)
+    maxTokens = clampMaxTokensToContext(model, context, maxTokens)
+  const sampling = resolveSamplingParams(model, call.reasoning ?? 'off', call.samplingParams)
   const request = structuredClone({
     ...defaults,
     ...call.request,
     ...(call.temperature !== undefined && { temperature: call.temperature }),
-    max_tokens:
-      call.maxTokens ?? call.request?.max_tokens ?? defaults.max_tokens ?? model.maxTokens,
-    ...resolveSamplingParams(model, call.reasoning ?? 'off', call.samplingParams),
+    max_tokens: maxTokens,
+    ...sampling,
   })
-  for (const key of [
-    'model',
-    'messages',
-    'prompt',
-    'tools',
-    'tool_choice',
-    'n',
-    'stream',
-    'stream_options',
-  ])
-    if (key in request) throw new Error(`Use the provider API instead of overriding ${key}.`)
-  positiveInteger(request.max_tokens, 'maxTokens')
+  checkRequest(request)
+  if (request.max_tokens != null) positiveInteger(request.max_tokens, 'maxTokens')
   if (call.reasoning !== undefined && !model.reasoning)
     throw new Error('This WebLLM model does not support reasoning.')
-  if (call.reasoning !== undefined || (simple && model.reasoning))
+  // Explicit sampling bodies take precedence over named thinking controls.
+  if (
+    (call.reasoning !== undefined || (simple && model.reasoning)) &&
+    (!sampling || !Object.hasOwn(sampling, 'extra_body'))
+  )
     request.extra_body = {
       ...request.extra_body,
-      enable_thinking:
-        call.reasoning !== undefined && clampThinkingLevel(model, call.reasoning) !== 'off',
+      enable_thinking: clampThinkingLevel(model, call.reasoning ?? 'off') !== 'off',
     }
   if (request.response_format)
     request.response_format = normalizeResponseFormat(request.response_format)

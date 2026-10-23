@@ -27,7 +27,13 @@ export function toolPrompt(
   tools: ToolSpec[],
   options: StreamOptions,
   thinking = false,
+  preserve = false,
 ) {
-  const history = gemmaHistory(messages, options.systemPrompt, options.dynamicTrailingBlocks)
+  const history = gemmaHistory(
+    messages,
+    options.systemPrompt,
+    options.dynamicTrailingBlocks,
+    preserve,
+  )
   return gemmaPrompt(history, tools, thinking)
 }

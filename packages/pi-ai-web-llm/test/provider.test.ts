@@ -1,9 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Type, type Context } from '@earendil-works/pi-ai'
+import { Type, type Context, type Model, type Api } from '@earendil-works/pi-ai'
+import { createModels } from '@earendil-works/pi-ai/models'
 import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
 import { Agent } from '@earendil-works/pi-agent-core'
 import { chunk, chunks, collect, setup } from './helpers.js'
-import { createWebLLMProvider } from '../src/index.js'
+import {
+  createWebLLMProvider,
+  type WebLLMProviderOptions,
+  type WebLLMStreamOptions,
+} from '../src/index.js'
 
 const context: Context = { messages: [{ role: 'user', content: 'Hello', timestamp: 0 }] }
 const lookup = {
@@ -19,6 +24,120 @@ const call = (args = '{"code":"A7"}', name = 'lookup', id = 'call-1') =>
   )
 
 describe('Pi AI WebLLM provider', () => {
+  it.each([false, true])(
+    'uses Pi request telemetry without changing model I/O (simple=%s)',
+    async (simple) => {
+      const native = {
+        ...chunk({ content: 'Private answer' }, 'stop'),
+        usage: {
+          prompt_tokens: 4,
+          completion_tokens: 1,
+          total_tokens: 5,
+          extra: {
+            e2e_latency_s: 0,
+            prefill_tokens_per_s: 0,
+            decode_tokens_per_s: 0,
+            time_to_first_token_s: 0,
+            time_per_output_token_s: 0,
+          },
+        },
+      }
+      const { models, model, create } = setup([native])
+      let settled!: () => void
+      const finished = new Promise<void>((resolve) => {
+        settled = resolve
+      })
+      const telemetry: NonNullable<WebLLMStreamOptions['telemetry']> = {
+        startSpan: vi.fn(async (_options, run) => {
+          try {
+            return await run(telemetry)
+          } finally {
+            settled()
+          }
+        }),
+        addLink: vi.fn(),
+        addEvent: vi.fn(),
+        setAttributes: vi.fn(),
+        setStatus: vi.fn(),
+      }
+      const complete = simple ? models.completeSimple.bind(models) : models.complete.bind(models)
+      const baseline = await complete(model, context)
+      const result = await complete(model, context, {
+        telemetry,
+        identity: { userAgent: 'short', attribution: null },
+      })
+
+      await finished
+      expect(create.mock.calls[1]).toEqual(create.mock.calls[0])
+      expect(result.content).toEqual(baseline.content)
+      expect(result.usage).toEqual(baseline.usage)
+      expect(telemetry.startSpan).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'pi.ai.request',
+          attributes: { provider: 'webllm', model: 'loaded-model', api: 'webllm' },
+        }),
+        expect.any(Function),
+      )
+      expect(telemetry.setAttributes).toHaveBeenCalledWith(
+        expect.objectContaining({ stop: 'stop', 'usage.input': 4, 'usage.output': 1 }),
+      )
+      expect(
+        JSON.stringify([
+          vi.mocked(telemetry.addEvent).mock.calls,
+          vi.mocked(telemetry.setAttributes).mock.calls,
+        ]),
+      ).not.toContain('Private answer')
+    },
+  )
+
+  it.each([false, true])('preserves native response metadata (simple=%s)', async (simple) => {
+    const native = [
+      { ...chunk({ content: 'Hello' }), id: 'native-response', model: 'served-model' },
+      { ...chunk({}, 'length'), id: 'native-response', model: 'served-model' },
+      { ...chunk(), id: 'native-response', model: 'served-model', choices: [] },
+    ]
+    const onChunk = vi.fn()
+    const { models, model } = setup(native, { onChunk })
+    const result = simple
+      ? await models.completeSimple(model, context)
+      : await models.complete(model, context)
+
+    expect(result).toMatchObject({
+      model: 'loaded-model',
+      responseModel: 'served-model',
+      responseId: 'native-response',
+      rawStopReason: 'length',
+      stopReason: 'length',
+      content: [{ type: 'text', text: 'Hello' }],
+    })
+    expect(onChunk.mock.calls.map(([chunk]) => chunk)).toEqual(native)
+  })
+
+  it.each([false, true])(
+    'keeps native response identity on stream errors (simple=%s)',
+    async (simple) => {
+      const { models, model, create } = setup()
+      create.mockResolvedValueOnce(
+        (async function* () {
+          yield { ...chunk({ content: 'Received' }), id: 'partial-response', model: 'served-model' }
+          throw new Error('Native stream failed')
+        })(),
+      )
+      const result = simple
+        ? await models.completeSimple(model, context)
+        : await models.complete(model, context)
+
+      expect(result).toMatchObject({
+        responseId: 'partial-response',
+        responseModel: 'served-model',
+        stopReason: 'error',
+        errorMessage: 'Native stream failed',
+        content: [{ type: 'text', text: 'Received' }],
+      })
+      expect(result).not.toHaveProperty('rawStopReason')
+    },
+  )
+
   it('registers a keyless model and streams text with native usage and zero cost', async () => {
     const final = {
       ...chunk({}, 'stop'),
@@ -80,6 +199,60 @@ describe('Pi AI WebLLM provider', () => {
       seed: 7,
     })
   })
+
+  it.each(['engine', 'modelId', 'onChunk'] as const)(
+    'keeps its configured %s when the caller reuses its options object',
+    async (field) => {
+      const original = setup()
+      const other = setup([chunk({ content: 'Other' }, 'stop')])
+      const onChunk = vi.fn()
+      const replacement = vi.fn()
+      const options: WebLLMProviderOptions = {
+        engine: original.engine,
+        modelId: 'loaded-model',
+        contextWindow: 8192,
+        onChunk,
+      }
+      const provider = createWebLLMProvider(options)
+      const models = createModels()
+      models.setProvider(provider)
+      const model = provider.getModels()[0]!
+      const before = await models.completeSimple(model, context)
+      if (field === 'engine') options.engine = other.engine
+      if (field === 'modelId') options.modelId = 'other-model'
+      if (field === 'onChunk') options.onChunk = replacement
+      const after = await models.completeSimple(model, context)
+
+      expect(after).toMatchObject({ model: model.id, stopReason: 'stop', content: before.content })
+      expect(original.create).toHaveBeenCalledTimes(2)
+      expect(original.create.mock.calls[1]?.[0]).toEqual(original.create.mock.calls[0]?.[0])
+      expect(other.create).not.toHaveBeenCalled()
+      expect(onChunk).toHaveBeenCalledTimes(2)
+      expect(replacement).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(['id', 'api'] as const)(
+    'rejects a changed registered model %s before using the engine',
+    async (field) => {
+      const { provider, model, create } = setup()
+      const original = { id: model.id, api: model.api }
+      const changed: Model<Api> = model
+      if (field === 'id') changed.id = 'other-model'
+      else changed.api = 'openai-responses'
+      const result = await provider.streamSimple(model, normalizeContext(context)).result()
+
+      expect(result).toMatchObject({
+        stopReason: 'error',
+        errorMessage: 'This provider only serves its configured WebLLM model.',
+      })
+      expect(create).not.toHaveBeenCalled()
+      Object.assign(model, original)
+      expect(
+        (await provider.streamSimple(model, normalizeContext(context)).result()).content,
+      ).toEqual([{ type: 'text', text: 'Hello' }])
+    },
+  )
 
   it('completes even when its events are not consumed', async () => {
     const { models, model } = setup()
@@ -258,6 +431,42 @@ describe('Pi AI WebLLM provider', () => {
     const truncated = await models.completeSimple(model, tools)
     expect(truncated).toMatchObject({ stopReason: 'length', content: [] })
   })
+
+  it.each(
+    [false, true].flatMap((simple) =>
+      ['required', 'lookup', 'none ', null].map((toolChoice) => ({ simple, toolChoice })),
+    ),
+  )(
+    'rejects unsupported JavaScript toolChoice $toolChoice before inference (simple=$simple)',
+    async ({ simple, toolChoice }) => {
+      const onChunk = vi.fn()
+      const { models, model, create } = setup([call()], {
+        modelId: 'Hermes-3-Llama-3.1-8B-q4f16_1-MLC',
+        onChunk,
+      })
+      const onPayload = vi.fn()
+      const onProviderStreamEvent = vi.fn()
+      const options: WebLLMStreamOptions = { onPayload, onProviderStreamEvent }
+      Object.assign(options, { toolChoice })
+      const result = simple
+        ? await models.completeSimple(model, tools, options)
+        : await models.complete(model, tools, options)
+
+      expect(result).toMatchObject({
+        stopReason: 'error',
+        errorMessage: 'toolChoice must be auto or none.',
+        content: [],
+      })
+      expect(create).not.toHaveBeenCalled()
+      expect(onChunk).not.toHaveBeenCalled()
+      expect(onPayload).not.toHaveBeenCalled()
+      expect(onProviderStreamEvent).not.toHaveBeenCalled()
+      expect((await models.completeSimple(model, tools, { toolChoice: 'auto' })).stopReason).toBe(
+        'toolUse',
+      )
+      expect(create).toHaveBeenCalledOnce()
+    },
+  )
 
   it('rejects missing terminal chunks and preserves received text', async () => {
     const { models, model } = setup([chunk({ content: 'Partial' })])

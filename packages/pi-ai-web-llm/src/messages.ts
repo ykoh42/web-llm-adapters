@@ -13,13 +13,12 @@ import {
 } from '@earendil-works/pi-ai/utils/transcript'
 import { getSystemMessageText } from '@earendil-works/pi-ai/utils/text'
 import type { ChatCompletionContentPart } from '@mlc-ai/web-llm'
-import type { GemmaMessage } from '../../../shared/web-llm/gemma/prompt.js'
 import { formatUserContent } from '../../../shared/web-llm/content.js'
 import { stringifyJSON } from '../../../shared/web-llm/json.js'
-import type { ToolSpec } from '../../../shared/web-llm/types.js'
+import type { ProtocolMessage, ToolSpec } from '../../../shared/web-llm/types.js'
 
 export function formatContext(context: TranscriptContext, model: Model<Api>) {
-  const history: GemmaMessage[] = []
+  const history: ProtocolMessage[] = []
   const calls: ToolHistory = { pending: new Map(), seen: new Set() }
   const transcript = collapseSystemMessages(context)
   const tools = formatTools(getInitialSystemMessage(transcript.messages)?.toolsAdded ?? [])
@@ -110,7 +109,7 @@ function formatAssistant(
   message: AssistantMessage,
   model: Model<Api>,
   calls: ToolHistory,
-): GemmaMessage {
+): ProtocolMessage {
   const toolCalls = []
   let text = ''
   let reasoning = ''

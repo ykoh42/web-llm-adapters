@@ -1,15 +1,12 @@
-import type { ChatCompletionMessageParam } from '@mlc-ai/web-llm'
-import { ModelError, type ToolSpec } from '../types.js'
+import { ModelError, type ProtocolMessage, type ToolSpec } from '../types.js'
 import { writeValue } from './value.js'
 import { gemmaSchema } from './schema.js'
 
-export type GemmaMessage = ChatCompletionMessageParam & {
-  reasoning?: string
-  response?: unknown
-  context?: string
-}
-
-export function gemmaPrompt(history: readonly GemmaMessage[], tools: ToolSpec[], thinking = false) {
+export function gemmaPrompt(
+  history: readonly ProtocolMessage[],
+  tools: ToolSpec[],
+  thinking = false,
+) {
   const first = history[0]
   const system = first?.role === 'system' ? first.content.trim() : ''
   const start = first?.role === 'system' ? 1 : 0

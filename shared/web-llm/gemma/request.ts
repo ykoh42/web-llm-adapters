@@ -1,29 +1,24 @@
 import type { ChatCompletionRequestStreaming } from '@mlc-ai/web-llm'
-import type { ToolSpec, ToolChoice } from '../types.js'
+import type { ProtocolMessage, ToolSpec, ToolChoice } from '../types.js'
 import { isTextFormat } from '../response.js'
-import { gemmaPrompt, type GemmaMessage } from './prompt.js'
+import { gemmaPrompt } from './prompt.js'
+import { singleToolChoice } from '../stream/choice.js'
 
 export function gemmaRequest(
-  history: GemmaMessage[],
+  history: ProtocolMessage[],
   tools: ToolSpec[],
   choice: ToolChoice | 'none' | undefined,
   sampling: Omit<ChatCompletionRequestStreaming, 'messages'>,
 ) {
+  if (choice && choice !== 'none') choice = singleToolChoice(choice, tools)
   const thinking = sampling.extra_body?.enable_thinking === true
-  if (
-    !isTextFormat(sampling.response_format) ||
-    sampling.extra_body?.resumable?.enabled ||
-    sampling.ignore_eos
-  )
-    throw new Error(
-      'Gemma protocol mode does not support constrained response_format, resume, or ignore_eos.',
-    )
+  checkGemmaRequest(sampling)
   const { extra_body, ...raw } = sampling
   delete raw.response_format
   let prompt = gemmaPrompt(history, tools, thinking)
   let prefix = ''
   if (choice && choice !== 'none' && 'any' in choice)
-    throw new Error('Gemma does not support required tool choice. Choose auto or a named tool.')
+    throw new Error('Gemma required tool choice needs exactly one tool.')
   if (choice && choice !== 'none' && 'tool' in choice) {
     if (!tools.some((tool) => tool.name === choice.tool.name))
       throw new Error('The chosen Gemma tool is not registered.')
@@ -41,4 +36,17 @@ export function gemmaRequest(
       }),
     }),
   }
+}
+
+export function checkGemmaRequest(
+  request: Pick<ChatCompletionRequestStreaming, 'response_format' | 'extra_body' | 'ignore_eos'>,
+) {
+  if (
+    !isTextFormat(request.response_format) ||
+    request.extra_body?.resumable?.enabled ||
+    request.ignore_eos
+  )
+    throw new Error(
+      'Gemma protocol mode does not support constrained response_format, resume, or ignore_eos.',
+    )
 }

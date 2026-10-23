@@ -1,6 +1,6 @@
 {
   "name": "strands-web-llm",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "WebLLM model provider for Strands Agents.",
   "repository": {
     "type": "git",
@@ -32,12 +32,12 @@
     "prepack": "tsdown --logLevel error"
   },
   "peerDependencies": {
-    "@strands-agents/sdk": "~1.21.0",
-    "@mlc-ai/web-llm": "~0.2.86"
+    "@mlc-ai/web-llm": "~0.2.86",
+    "@strands-agents/sdk": "~1.22.0"
   },
   "devDependencies": {
-    "@strands-agents/sdk": "1.21.0",
-    "@mlc-ai/web-llm": "0.2.86"
+    "@mlc-ai/web-llm": "0.2.86",
+    "@strands-agents/sdk": "1.22.0"
   },
   "license": "MIT"
 }

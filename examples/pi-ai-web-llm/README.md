@@ -5,7 +5,7 @@ Run the agent, tools, and model inference in the browser. Model inference uses a
 From the repository root:
 
 ```sh
-npm install
+npm ci
 npm run dev:pi
 ```
 
@@ -22,9 +22,9 @@ The Agent Core example passes `models.streamSimple.bind(models)` to `Agent`. Its
 
 The Durable example passes the same model collection to `Harness.open()`, registers the tool through `defineExtension()` and `defineTool()`, and submits inputs to the root conversation. Reload the page and load the same model to restore the transcript and resume unfinished work from its last committed checkpoint. An interrupted local model request is generated again; the GPU state itself is not saved.
 
-[storage.ts](browser/src/storage.ts) implements the public Durable `Storage` contract using `MemoryStorage.prepareCommit()` and an IndexedDB commit log. Each commit is persisted before it is published. A Web Lock allows one tab to own a conversation database at a time. This small example retains its entire log; it does not implement compaction or a storage quota policy. Browser storage is local to the current origin and browser profile and can be cleared or evicted by the browser. Clear the `pi-webllm-*` IndexedDB databases in browser developer tools to remove saved conversations.
+[storage.ts](browser/src/storage.ts) opens Pi’s `IndexedDbStorage` and holds a Web Lock for its lifetime. The example keeps one tab per conversation. This version uses a new database; previous example data stays in the old database. Saved conversations are local to the browser and can be cleared or evicted.
 
-The Durable API is experimental; this example pins `@earendil-works/pi-durable` and `@earendil-works/chord` to 1.3.0. See the [official Durable guide](https://github.com/earendil-works/pi/blob/main/packages/durable/README.md) for the Harness and storage contracts.
+The Durable API is experimental; this example pins `@earendil-works/pi-durable` and `@earendil-works/chord` to 1.4.0. See the [official Durable guide](https://github.com/earendil-works/pi/blob/main/packages/durable/README.md) for the Harness and storage contracts.
 
 The first load downloads the model and runtime. Use a WebGPU-capable browser with sufficient GPU memory. Qwen3.5 4B is selected by default. The Gemma 4 option uses the runtime distributed with the adapter.
 
@@ -36,4 +36,4 @@ The example's `contextWindow` is 32768 and is passed to both the engine loader a
 npm run test:pi
 ```
 
-The real-model checks use installed Chrome and the repository's `.cache/chrome` test profile and retain transcripts under `test-results/pi-ai-web-llm`. They verify tools and answers on four exact model artifacts in both Agent Core and Durable, cancellation and recovery in both, Durable reload and follow-up, interrupted-turn recovery, and the single-writer lock. Set `HEADLESS=1` to request headless Chrome where hardware WebGPU is available. Do not run other tests using the same persistent profile simultaneously.
+Checks use installed Chrome with the `.cache/chrome` profile and save results under `test-results/pi-ai-web-llm`. Set `HEADLESS=1` for headless Chrome with WebGPU. Run browser suites one at a time because they share this profile.

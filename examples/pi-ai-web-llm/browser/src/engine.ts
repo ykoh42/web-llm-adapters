@@ -9,8 +9,7 @@ let worker: Worker | undefined
 let modelId = ''
 
 export async function load(id: string, useWorker = true, onProgress?: (text: string) => void) {
-  const { CreateMLCEngine, CreateWebWorkerMLCEngine, prebuiltAppConfig } =
-    await import('@mlc-ai/web-llm')
+  const { MLCEngine, CreateWebWorkerMLCEngine, prebuiltAppConfig } = await import('@mlc-ai/web-llm')
   await unload()
   modelId = id
   const options = {
@@ -36,15 +35,17 @@ export async function load(id: string, useWorker = true, onProgress?: (text: str
       engine = await CreateWebWorkerMLCEngine(worker, id, options, {
         context_window_size: contextWindow,
       })
-    } else engine = await CreateMLCEngine(id, options, { context_window_size: contextWindow })
+    } else {
+      engine = new MLCEngine(options)
+      await engine.reload(id, { context_window_size: contextWindow })
+    }
   } catch (error) {
-    worker?.terminate()
-    worker = undefined
+    await unload().catch((cleanupError: unknown) => console.error(cleanupError))
     throw error
   }
 }
 
-export async function provider(enabled: boolean) {
+export async function provider(enabled: boolean, thinkingPrefilled = false) {
   if (!engine) throw new Error('Load a model first.')
   const [{ createModels }, { createWebLLMProvider }] = await Promise.all([
     import('@earendil-works/pi-ai/models'),
@@ -54,11 +55,12 @@ export async function provider(enabled: boolean) {
   const source = createWebLLMProvider({
     engine,
     modelId,
+    thinkingPrefilled,
     contextWindow,
     request: { ...sampling(modelId, enabled), max_tokens: 4096, seed: 7 },
   })
   models.setProvider(source)
-  return { models, model: source.getModels()[0]! }
+  return { models, model: source.getModels()[0]!, engine }
 }
 
 export async function unload() {

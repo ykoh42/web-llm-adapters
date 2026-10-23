@@ -18,6 +18,12 @@ const defaults: HarnessAgentOptions = {
   printer: false,
 }
 
+declare global {
+  interface Window {
+    gemmaPrompts: string[]
+  }
+}
+
 test('Harness streams browser WebLLM output and keeps conversation history', async ({ page }) => {
   const modelId = 'gemma-4-E2B-it-q4f16_1-MLC'
   await page.goto('http://127.0.0.1:4173/harness.html')
@@ -75,14 +81,16 @@ for (const thinking of [false, true]) {
       inputSchema: {
         type: 'object',
         properties: {
+          blocked: false,
           city: { type: 'string' },
           options: {
             type: 'object',
             properties: {
               days: { type: 'array', items: { type: 'number' } },
+              labels: { type: 'array', items: { type: 'array', items: { type: 'string' } } },
               active: { type: 'boolean' },
             },
-            required: ['days', 'active'],
+            required: ['days', 'labels', 'active'],
           },
         },
         required: ['city', 'options'],
@@ -106,6 +114,16 @@ for (const thinking of [false, true]) {
         return { receipt }
       },
     })
+    await page.addInitScript(() => {
+      window.gemmaPrompts = []
+      const send = Worker.prototype.postMessage
+      Worker.prototype.postMessage = function (this: Worker, message: unknown) {
+        const request = message as { kind?: string; content?: { request?: { prompt?: string } } }
+        if (request.kind === 'completionStreamInit' && request.content?.request?.prompt)
+          window.gemmaPrompts.push(request.content.request.prompt)
+        send.call(this, message)
+      }
+    })
     await page.goto('http://127.0.0.1:4173/harness.html')
     await page.waitForFunction(() => Boolean(window.harness))
     await page.evaluate((id) => window.harness.open(id), modelId)
@@ -125,12 +143,19 @@ for (const thinking of [false, true]) {
         modelCalls++
       })
       const result = await agent.invoke(
-        'Call lookup with city Seoul and options {days:[1,2],active:true}. ' +
+        'Call lookup with city Seoul and options {days:[1,2],labels:[["weekday"]],active:true}. ' +
           'Wait for its code, then call confirm with that code. Finally tell me the receipt.',
         { limits: { turns: 4 } },
       )
       console.log('Gemma receipt:', String(result))
-      expect(inputs).toEqual([{ city: 'Seoul', options: { days: [1, 2], active: true } }, { code }])
+      expect(inputs).toEqual([
+        { city: 'Seoul', options: { days: [1, 2], labels: [['weekday']], active: true } },
+        { code },
+      ])
+      expect(await page.evaluate(() => window.gemmaPrompts[0])).toContain(
+        'labels:{items:{items:{type:<|"|>STRING<|"|>},type:<|"|>ARRAY<|"|>},type:<|"|>ARRAY<|"|>}',
+      )
+      expect(await page.evaluate(() => window.gemmaPrompts[0])).toContain('blocked:false')
       expect(modelCalls).toBe(3)
       expect(result.stopReason).toBe('endTurn')
       expect(result.lastMessage.content).toContainEqual(

@@ -12,7 +12,19 @@ const failures = [
   new Error(message),
 ]
 
-describe('LangChain context overflow', () => {
+describe('LangChain errors', () => {
+  it.each([undefined, null, 0, 'Worker failed'])(
+    'preserves a non-Error rejection as its cause: %s',
+    async (error) => {
+      const { model, create } = setup()
+      create.mockRejectedValueOnce(error)
+      const failure = await model.invoke('Hi').catch((error: unknown) => error)
+      expect(failure).toBeInstanceOf(Error)
+      expect(failure).toHaveProperty('message', String(error))
+      expect(failure).toHaveProperty('cause', error)
+    },
+  )
+
   it.each(failures.map((error) => ({ error })))(
     'marks an opening overflow as non-retryable: $error',
     async ({ error }) => {

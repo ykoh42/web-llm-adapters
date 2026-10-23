@@ -57,6 +57,13 @@ export function formatCall(name: string, input: unknown) {
   const args: unknown = JSON.parse(stringifyJSON(input))
   if (!isRecord(args)) throw new ModelError('Qwen3.5 tool arguments must be an object.')
   const parameters = Object.entries(args).map(([key, value]) => {
+    if (key.includes('>'))
+      throw new ModelError('Qwen3.5 cannot preserve > in top-level parameter names.')
+    if (
+      typeof value === 'string' &&
+      (value.includes('<parameter=') || value.includes('</parameter>'))
+    )
+      throw new ModelError('Qwen3.5 cannot preserve parameter tags in raw string arguments.')
     const text = typeof value === 'string' ? value : templateJson(value)
     return `<parameter=${key}>\n${text}\n</parameter>`
   })

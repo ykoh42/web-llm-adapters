@@ -14,17 +14,75 @@ import type {
 } from '@mlc-ai/web-llm'
 import { sampling } from '../../../sampling.js'
 import { breakToolStream } from '../../../../../test/support/stream-failure.js'
+import { recordNative, replayNative } from '../../fixtures/native.js'
+
+test('Qwen preserves a caller stop inside thinking', async ({ page }) => {
+  const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
+  await page.goto('http://127.0.0.1:4173/harness.html')
+  await page.waitForFunction(() => Boolean(window.harness))
+  await page.evaluate((id) => window.harness.open(id), modelId)
+  try {
+    const chunks: WebLLMChunk[] = []
+    const settings = sampling(modelId, true)
+    const model = new BrowserModel(page, {
+      modelId,
+      ...settings,
+      maxTokens: 4096,
+      request: { ...settings.request, seed: 7, stop: ['</think>'] },
+      onChunk: (chunk) => chunks.push(chunk),
+    })
+    const stream = model.streamAggregated([
+      new Message({ role: 'user', content: [new TextBlock('What is 17 * 23?')] }),
+    ])
+    let next = await stream.next()
+    while (!next.done) next = await stream.next()
+    const response = next.value
+    const native = chunks
+      .flatMap<WebLLMChunk['choices'][number]>((chunk) => chunk.choices)
+      .map((choice) => ('delta' in choice ? (choice.delta.content ?? '') : choice.text))
+      .join('')
+    const reasoning = response.message.content
+      .filter((block) => block.type === 'reasoningBlock')
+      .map((block) => block.text ?? '')
+      .join('')
+
+    expect(response.stopReason).toBe('endTurn')
+    expect(native).toMatch(/^<think>/)
+    expect(native).not.toContain('</think>')
+    expect(reasoning).not.toBe('')
+    expect(reasoning).toBe(native.slice('<think>'.length))
+    expect(response.message.content.every((block) => block.type === 'reasoningBlock')).toBe(true)
+  } finally {
+    await page.evaluate(() => window.harness.close())
+  }
+})
 
 for (const modelId of ['Hermes-3-Llama-3.1-8B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC']) {
-  test(`${modelId} accepts an empty system prompt for chat and native tools`, async ({ page }) => {
+  test(`${modelId} accepts an empty system prompt for chat and native tools`, async ({
+    page,
+  }, info) => {
     await page.goto('http://127.0.0.1:4173/harness.html')
     await page.waitForFunction(() => Boolean(window.harness))
     await page.evaluate((id) => window.harness.open(id), modelId)
     try {
+      await page.evaluate(() =>
+        window.webllmBridge.withEngine((engine) => {
+          window.emptySystemRequests = []
+          const endpoint = engine.chat.completions
+          endpoint.create = new Proxy(endpoint.create, {
+            apply(target, self, args) {
+              window.emptySystemRequests.push(structuredClone(args[0]))
+              return Reflect.apply(target, self, args)
+            },
+          })
+        }),
+      )
+      const chunks: WebLLMChunk[] = []
       const model = new BrowserModel(page, {
         modelId,
         ...(modelId.startsWith('Qwen') ? sampling(modelId, true) : { temperature: 0 }),
         maxTokens: 4096,
+        onChunk: (chunk) => chunks.push(chunk),
       })
       let text = ''
       let reasoning = ''
@@ -35,8 +93,28 @@ for (const modelId of ['Hermes-3-Llama-3.1-8B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-
         if (block instanceof TextBlock) text += block.text
         if (block.type === 'reasoningBlock') reasoning += block.text ?? ''
       }
+      const request = await page.evaluate(() => window.emptySystemRequests[0]!)
+      const nativeMessage = await page.evaluate(
+        (id) => window.webllmBridge.withEngine((engine) => engine.getMessage(id)),
+        modelId,
+      )
+      await recordNative(info, 'empty-system-chat', {
+        request,
+        nativeMessage,
+        chunks,
+        text,
+        reasoning,
+      })
+      expect(request.messages[0]).toEqual({ role: 'system', content: '' })
+      if (modelId.startsWith('Qwen')) {
+        expect(request.extra_body?.enable_thinking).toBe(true)
+        const thoughts = /<think>([\s\S]*?)<\/think>/g
+        expect(reasoning).toBe(
+          [...nativeMessage.matchAll(thoughts)].map((part) => part[1]).join(''),
+        )
+        expect(text).toBe(nativeMessage.replace(thoughts, ''))
+      }
       expect(text.trim()).not.toBe('')
-      if (modelId.startsWith('Qwen')) expect(reasoning.trim()).not.toBe('')
       const calls: ToolUseBlock[] = []
       for await (const block of model.streamAggregated(
         [new Message({ role: 'user', content: [new TextBlock('Use lookup to look up code A7.')] })],
@@ -57,10 +135,20 @@ for (const modelId of ['Hermes-3-Llama-3.1-8B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-
       ))
         if (block instanceof ToolUseBlock) calls.push(block)
       expect(calls).toMatchObject([{ name: 'lookup', input: { code: 'A7' } }])
+      await recordNative(info, 'empty-system-native-control', {
+        request,
+        native: await replayNative(page, [request]),
+      })
     } finally {
       await page.evaluate(() => window.harness.close())
     }
   })
+}
+
+declare global {
+  interface Window {
+    emptySystemRequests: ChatCompletionRequestStreaming[]
+  }
 }
 
 for (const modelId of ['gemma-4-E2B-it-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC']) {

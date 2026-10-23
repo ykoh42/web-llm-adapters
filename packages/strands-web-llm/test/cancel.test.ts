@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Agent, Message, TextBlock, type StreamOptions } from '@strands-agents/sdk'
-import type { WebLLMModel } from '../src/index.js'
+import { withEngine, type WebLLMModel } from '../src/index.js'
+import { ModelError as ProtocolError } from '../../../shared/web-llm/types.js'
 import { chunk, chunks, collect, pause, setup } from '../fixtures/engine.js'
 
 const messages = [new Message({ role: 'user', content: [new TextBlock('Hi')] })]
@@ -15,6 +16,33 @@ async function aggregate(model: WebLLMModel, options: StreamOptions = {}) {
 }
 
 describe('cancellation', () => {
+  it.each([
+    Object.assign(new Error('Cancel the caller'), { name: 'ContextWindowSizeExceededError' }),
+    'ContextWindowSizeExceededError: cancel the caller',
+    new ProtocolError('Cancel the caller'),
+  ])('keeps a queued cancellation reason without converting it: %s', async (reason) => {
+    const { engine, model, create, stop } = setup(chunk({ content: 'Recovered' }, 'stop'))
+    const started = pause()
+    const hold = pause()
+    const active = withEngine(engine, async () => {
+      started.resume()
+      await hold.wait
+    })
+    await started.wait
+    const controller = new AbortController()
+    const waiting = collect(model.stream(messages, { cancelSignal: controller.signal }))
+    controller.abort(reason)
+    try {
+      await expect(waiting).rejects.toBe(reason)
+      expect(create).not.toHaveBeenCalled()
+      expect(stop).not.toHaveBeenCalled()
+    } finally {
+      hold.resume()
+      await active
+    }
+    expect((await aggregate(model)).message.content).toEqual([new TextBlock('Recovered')])
+  })
+
   it.each(['text', 'tool', 'native tool', 'metadata'])(
     'stops pending %s output when its consumer cancels',
     async (phase) => {

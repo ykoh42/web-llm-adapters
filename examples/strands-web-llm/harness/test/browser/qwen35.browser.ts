@@ -13,7 +13,17 @@ function lookupSchema(code: JSONSchema, key = 'code') {
 }
 
 const schemaCases = [
+  {
+    name: 'literal closing tags',
+    schema: lookupSchema({ type: 'string' }),
+    value: 'A </tool_call> B',
+  },
   { name: 'enum', schema: lookupSchema({ enum: ['123', '456'] }) },
+  { name: 'excluded number type', schema: lookupSchema({ not: { type: 'number' } }) },
+  {
+    name: 'object exclusion',
+    schema: { ...lookupSchema({ type: 'string' }), not: lookupSchema({ type: 'number' }) },
+  },
   { name: 'const', schema: lookupSchema({ const: '123' }) },
   {
     name: 'spaced argument',
@@ -66,9 +76,9 @@ const schemaCases = [
       oneOf: [lookupSchema({ const: '123' }), lookupSchema({ const: '456' })],
     },
   },
-] satisfies { name: string; schema: JSONSchema; key?: string }[]
+] satisfies { name: string; schema: JSONSchema; key?: string; value?: string }[]
 
-for (const { name, schema, key = 'code' } of schemaCases) {
+for (const { name, schema, key = 'code', value = '123' } of schemaCases) {
   test(`Qwen3.5 keeps ${name} strings through a Strands tool loop`, async ({ page }) => {
     const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
     await page.goto('http://127.0.0.1:4173/harness.html')
@@ -94,8 +104,8 @@ for (const { name, schema, key = 'code' } of schemaCases) {
         },
       })
       const agent = new Agent({ model, tools: [lookup], printer: false })
-      const result = await agent.invoke('Use lookup to look up code 123. Tell me its secret.')
-      expect(inputs).toEqual([{ [key]: '123' }])
+      const result = await agent.invoke(`Use lookup to look up code ${value}. Tell me its secret.`)
+      expect(inputs).toEqual([{ [key]: value }])
       expect(String(result)).toContain(code)
       expect(
         agent.messages

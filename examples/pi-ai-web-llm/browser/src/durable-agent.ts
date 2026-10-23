@@ -8,14 +8,14 @@ import {
   type ConversationView,
 } from '@earendil-works/pi-durable'
 import { load, provider, unload } from './engine.js'
-import { BrowserStorage } from './storage.js'
+import { openStorage } from './storage.js'
 
 export async function openDurable(
   modelId: string,
   render: (view: ConversationView) => void,
   onProgress: (text: string) => void,
 ) {
-  const storage = await BrowserStorage.open(`pi-webllm-${modelId}`)
+  const storage = await openStorage(`pi-webllm-v2-${modelId}`)
   let harness: Harness | undefined
   try {
     const enabled = !modelId.startsWith('Qwen2.5-')
@@ -66,12 +66,10 @@ export async function openDurable(
       },
     }
   } catch (error) {
-    try {
-      if (harness) await harness.close(context)
-      else await storage.close(context)
-    } finally {
-      await unload()
-    }
+    await (harness ? harness.close(context) : storage.close(context)).catch(
+      (cleanupError: unknown) => console.error(cleanupError),
+    )
+    await unload().catch((cleanupError: unknown) => console.error(cleanupError))
     throw error
   }
 }

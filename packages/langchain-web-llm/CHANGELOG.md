@@ -1,10 +1,32 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-10-24
 
-- Forward browser `onFailedAttempt` handlers, including async decisions, cancellation, and error updates, without changing model input or output.
-- Honor `disableStreaming` and preserve browser embedding retry policies and error metadata.
-- Release local failed-attempt callbacks on cancellation, including zero-retry calls.
+- Handle nested type exclusions in Qwen3.5 tool schemas.
+- Preserve non-Error callback failures as causes in browser models.
+- Match Qwen3.5 argument types to tool schemas with unset optional fields.
+- Accept `ChatMessage` with user, assistant, system, and LangChain human/ai roles.
+- Support LangChain Core 1.2.20 and newer compatible 1.x releases.
+- Report unsupported mid-conversation system and tool capabilities.
+- Preserve deeply nested Gemma tool values without overflowing the writer.
+- Avoid duplicate native tool calls in deeply nested history.
+- Support Qwen templates with prefilled thinking through `thinkingPrefilled`.
+- Allow `strict: true` with native `jsonSchema` output.
+- Allow `request.extra_body.preserve_thinking` for Gemma tool history.
+- Allow required tool choice with one tool on Gemma and native tool models.
+- Recognize other WebLLM precisions of the listed Qwen models.
+- Fix structured output selection for Gemma thinking and models without tools.
+- Preserve tool argument types, literal protocol tags, and interrupted output.
+- Reject malformed output, duplicate call IDs, and ambiguous Qwen3.5 argument names and string history.
+- Preserve native response IDs, model IDs, and token probabilities.
+- Support Float32 PCM, inline WAV URLs, and standard WAV MIME names.
+- Honor retry settings, callbacks, cancellation, and `disableStreaming` in local and browser models.
+- Preserve browser error types, JSON causes, and failed-attempt callback edits.
+- Add `withEngine` to the browser bridge for native API calls.
+- Keep response-cache entries separate by tool definitions and output format.
+- Report native Hermes media limits to Deep Agents.
+- Reject framework-owned request fields and content received after the stop reason.
+- Reduce CPU work and browser reads for streaming, tool JSON, history, and audio.
 
 ## 0.1.0
 

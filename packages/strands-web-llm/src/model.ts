@@ -1,5 +1,9 @@
-import { type Message, type StreamOptions } from '@strands-agents/sdk'
-import type { ModelStreamEvent } from '@strands-agents/sdk'
+import {
+  type JSONValue,
+  type Message,
+  type ModelStreamEvent,
+  type StreamOptions,
+} from '@strands-agents/sdk'
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
 import { chatStream } from './chat/model.js'
 import { modelError } from './engine/error.js'
@@ -9,9 +13,10 @@ import { trimThoughts } from './gemma/history.js'
 import { usesQwenProtocol } from './qwen/request.js'
 import { qwenStream } from './qwen/model.js'
 import { usesQwen35Protocol } from './qwen35/request.js'
-import { qwen35Stream } from './qwen35/model.js'
-import type { WebLLMModelOptions } from './types.js'
+import type { WebLLMChunk, WebLLMModelOptions } from './types.js'
 import { WebLLMModelBase } from './model-base.js'
+import { preserveThinking } from '../../../shared/web-llm/request.js'
+import { appendLogprobs, type WebLLMLogprobs } from '../../../shared/web-llm/logprobs.js'
 
 /** Connects a loaded WebLLM engine to Strands. The caller owns the engine. */
 export class WebLLMModel extends WebLLMModelBase {
@@ -31,28 +36,60 @@ export class WebLLMModel extends WebLLMModelBase {
     const signal = options.cancelSignal
     signal?.throwIfAborted()
     const config = this.getConfig()
+    const preserve = preserveThinking(config.modelId, config.request ?? {})
     options = {
       ...options,
       ...(options.toolSpecs && { toolSpecs: structuredClone(options.toolSpecs) }),
       ...(options.toolChoice && { toolChoice: structuredClone(options.toolChoice) }),
     }
     // Past-turn thoughts must not force later JSON or audio requests onto raw completions.
-    if (isGemma(config.modelId)) {
-      messages = trimThoughts(messages, options.dynamicTrailingBlocks)
-      // WebLLM's native false prefix is Qwen-specific; Gemma disables thinking without it.
-      if (config.request?.extra_body?.enable_thinking === false)
-        delete config.request.extra_body.enable_thinking
-    }
+    if (isGemma(config.modelId))
+      messages = trimThoughts(messages, options.dynamicTrailingBlocks, preserve)
     if (config.request?.tool_choice === 'none' && !options.toolChoice)
       options = { ...options, toolSpecs: [] }
     let stream = chatStream
     if (usesGemmaProtocol(config, messages, options)) stream = gemmaStream
-    else if (usesQwen35Protocol(config)) stream = qwen35Stream
-    else if (usesQwenProtocol(config)) stream = qwenStream
+    else if (usesQwen35Protocol(config) || usesQwenProtocol(config)) stream = qwenStream
+    let logprobs: WebLLMLogprobs | undefined
     try {
-      yield* stream(this.engine, config, messages, options, this.onChunk)
+      const onChunk =
+        config.request?.logprobs === true
+          ? (chunk: WebLLMChunk) => {
+              this.onChunk?.(chunk)
+              logprobs = appendLogprobs(logprobs, chunk.choices[0]?.logprobs)
+            }
+          : this.onChunk
+      const chunks = stream(this.engine, config, messages, options, onChunk)
+      for await (const event of chunks) {
+        if (event.type === 'modelMessageStopEvent' && logprobs) {
+          yield {
+            ...event,
+            additionalModelResponseFields: {
+              // Preserve the native fields, including non-finite log probabilities.
+              logprobs: jsonLogprobs(logprobs),
+            },
+          }
+        } else yield event
+      }
     } catch (error) {
+      if (signal?.aborted) throw error
       throw modelError(error)
     }
+  }
+}
+
+function jsonLogprobs(logprobs: WebLLMLogprobs): JSONValue {
+  return {
+    content:
+      logprobs.content?.map(({ token, bytes, logprob, top_logprobs }) => ({
+        token,
+        bytes,
+        logprob,
+        top_logprobs: top_logprobs.map(({ token, bytes, logprob }) => ({
+          token,
+          bytes,
+          logprob,
+        })),
+      })) ?? null,
   }
 }

@@ -479,6 +479,29 @@ it('passes tool images to native vision input and preserves Gemma protocol limit
   expect(create).toHaveBeenCalledTimes(1)
 })
 
+it('preserves native Float32 PCM samples and their sample rate', () => {
+  const data = new Float32Array([9, -0, 0.25, -0.5, 9]).subarray(1, 4)
+  const message = new HumanMessage({
+    content: [
+      { type: 'input_audio', input_audio: { format: 'pcm_f32', data, sample_rate: 24000 } },
+    ],
+  })
+  const before = [...data]
+  const output = formatMessages([message])
+
+  expect(output[0]?.content).toEqual([
+    { type: 'input_audio', input_audio: { format: 'pcm_f32', data, sample_rate: 24000 } },
+  ])
+  expect([...data]).toEqual(before)
+  data.fill(1)
+  expect(output[0]?.content).toEqual([
+    {
+      type: 'input_audio',
+      input_audio: { format: 'pcm_f32', data: new Float32Array(before), sample_rate: 24000 },
+    },
+  ])
+})
+
 it('accepts LangChain standard base64 image and WAV blocks', () => {
   const output = formatMessages([
     new HumanMessage({
@@ -493,6 +516,52 @@ it('accepts LangChain standard base64 image and WAV blocks', () => {
     { type: 'input_audio', input_audio: { format: 'wav', data: 'AQ==' } },
   ])
 })
+
+it.each([
+  { type: 'audio' as const, url: 'data:audio/wav;base64,AQ==' },
+  { type: 'audio' as const, url: 'data:audio/wav;base64,AQ==', mimeType: 'audio/wav' },
+  { type: 'audio' as const, url: 'data:audio/wave;base64,AQ==' },
+  { type: 'audio' as const, url: 'data:audio/x-wav;base64,AQ==' },
+  { type: 'audio' as const, url: 'data:AUDIO/WAV;base64,AQ==' },
+  {
+    type: 'audio' as const,
+    source_type: 'url',
+    url: 'data:audio/wav;base64,AQ==',
+    mime_type: 'audio/wav',
+  },
+])('preserves inline WAV URLs in standard audio blocks: $url', (block) => {
+  const message = new HumanMessage({ content: [block] })
+  const original = message.toDict()
+
+  expect(formatMessages([message])[0]?.content).toEqual([
+    { type: 'input_audio', input_audio: { format: 'wav', data: block.url } },
+  ])
+  expect(message.toDict()).toEqual(original)
+})
+
+it.each(
+  ['audio/wave', 'audio/x-wav', 'AUDIO/WAV'].flatMap((mime) => [
+    { type: 'audio' as const, data: 'AQID', mimeType: mime },
+    {
+      type: 'audio' as const,
+      data: new Uint8Array([9, 1, 2, 3, 9]).subarray(1, 4),
+      mime_type: mime,
+    },
+  ]),
+)('accepts native WAV MIME names without changing audio bytes', (block) => {
+  expect(formatMessages([new HumanMessage({ content: [block] })])[0]?.content).toEqual([
+    { type: 'input_audio', input_audio: { format: 'wav', data: 'AQID' } },
+  ])
+})
+
+it.each(['https://example.test/sound.wav', 'data:audio/mpeg;base64,AQ==', 'data:audio/wav,AQ=='])(
+  'rejects unsupported audio URLs instead of fetching or reinterpreting them: %s',
+  (url) => {
+    expect(() => formatMessages([new HumanMessage({ content: [{ type: 'audio', url }] })])).toThrow(
+      'WebLLM cannot use this audio block',
+    )
+  },
+)
 
 it.each(['current', 'legacy', 'browser'])(
   'encodes image and WAV byte views in %s runtimes',
@@ -583,6 +652,56 @@ it('normalizes plain text blocks and provider tool blocks without duplicating ca
       }),
     ]),
   ).toThrow('conflicting')
+})
+
+it.each(
+  (['tool_use', 'tool_call'] as const).flatMap((type) =>
+    [false, true].map((existing) => ({ type, existing })),
+  ),
+)(
+  'keeps call order and arguments across $type blocks (existing=$existing)',
+  ({ type, existing }) => {
+    const first = { id: 'one', name: 'lookup', args: { code: 'A7' } }
+    const second = { id: 'two', name: 'lookup', args: { code: 'B8' } }
+    const third = { id: 'three', name: 'lookup', args: { code: 'C9' } }
+    const message = new AIMessage({
+      content: [first, third, second, third].map((call) =>
+        type === 'tool_use'
+          ? { type, id: call.id, name: call.name, input: call.args }
+          : { type, id: call.id, name: call.name, args: call.args },
+      ),
+      tool_calls: existing ? [second, first] : [],
+    })
+    const snapshot = JSON.stringify(message)
+    const expected = existing ? [second, first, third] : [first, third, second]
+
+    expect(formatMessages([message])[0]).toMatchObject({
+      role: 'assistant',
+      content: '',
+      tool_calls: expected.map((call) => ({
+        id: call.id,
+        function: { name: call.name, arguments: JSON.stringify(call.args) },
+      })),
+    })
+    expect(JSON.stringify(message)).toBe(snapshot)
+  },
+)
+
+it('keeps the first matching call when caller-provided IDs repeat', () => {
+  const calls = ['A7', 'B8'].map((code) => ({ id: 'one', name: 'lookup', args: { code } }))
+  const message = (code: string) =>
+    new AIMessage({
+      content: [{ type: 'tool_use', id: 'one', name: 'lookup', input: { code } }],
+      tool_calls: calls,
+    })
+
+  expect(formatMessages([message('A7')])[0]).toMatchObject({
+    tool_calls: calls.map((call) => ({
+      id: call.id,
+      function: { arguments: JSON.stringify(call.args) },
+    })),
+  })
+  expect(() => formatMessages([message('B8')])).toThrow('conflicting')
 })
 
 it('exposes model capabilities and caller-owned context limits without guessing them', () => {

@@ -242,16 +242,20 @@ describe('native WebLLM messages', () => {
     },
   )
 
-  it('suppresses serialized tool JSON when parsed calls arrive with it', async () => {
+  it.each([
+    '{"city":"Seoul","unit":"C"}',
+    '{ "city": "Seoul", "unit": "C" }',
+    '{"unit":"C","city":"Seoul"}',
+  ])('suppresses duplicate tool JSON while keeping native arguments: %s', async (input) => {
     const { model } = setup(
       chunk(
         {
-          content: '[{"name":"weather","arguments":{"city":"Seoul"}}]',
+          content: '[{"name":"weather","arguments":{"city":"Seoul","unit":"C"}}]',
           tool_calls: [
             {
               index: 0,
               id: 'call-1',
-              function: { name: 'weather', arguments: '{"city":"Seoul"}' },
+              function: { name: 'weather', arguments: input },
             },
           ],
         },
@@ -265,6 +269,10 @@ describe('native WebLLM messages', () => {
         (event) => event.type === 'modelContentBlockDeltaEvent' && event.delta.type === 'textDelta',
       ),
     ).toBe(false)
+    expect(events).toContainEqual({
+      type: 'modelContentBlockDeltaEvent',
+      delta: { type: 'toolUseInputDelta', input },
+    })
     expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'toolUse' })
   })
 })

@@ -188,10 +188,18 @@ describe('Gemma tool model', () => {
     expect(create.mock.calls[0]![0]).not.toHaveProperty('tool_choice')
   })
 
-  it('never executes an unsolicited Gemma tool call when tools are disabled', async () => {
+  it('does not execute Gemma tool syntax while tools are disabled', async () => {
     const { model } = setup(part(call, 'stop'))
     model.updateConfig({ request: { tool_choice: 'none', extra_body: { enable_thinking: true } } })
-    await expect(aggregate(model)).rejects.toThrow('unknown or malformed tool call')
+    const callback = vi.fn()
+    const agent = new Agent({
+      model,
+      printer: false,
+      tools: [new FunctionTool({ ...tools[0]!, callback })],
+    })
+    const result = await agent.invoke('Find x.')
+    expect(result.lastMessage.content).toEqual([new TextBlock(call)])
+    expect(callback).not.toHaveBeenCalled()
   })
   it('counts only thoughts kept in the current user turn without changing history', async () => {
     const { model } = setup()
@@ -561,7 +569,6 @@ describe('Gemma tool model', () => {
 
   it.each([
     '<|tool_call>call:unknown{}<tool_call|>',
-    '<|tool_call>broken',
     '<|tool_call>call:lookup{key:undefined}<tool_call|>',
     '<|tool_call>call:lookup{}',
     call + 'unexpected text',
@@ -576,6 +583,22 @@ describe('Gemma tool model', () => {
     await expect(agent.invoke('Find x.')).rejects.toThrow()
     expect(callback).not.toHaveBeenCalled()
   })
+
+  it.each(['<|tool_call>', '<|tool_call>broken', '<|tool_call>ca'])(
+    'keeps a marker without a call header as text: %s',
+    async (source) => {
+      const { model } = setup(part(source, 'stop'))
+      const callback = vi.fn()
+      const agent = new Agent({
+        model,
+        printer: false,
+        tools: [new FunctionTool({ ...tools[0]!, callback })],
+      })
+      const result = await agent.invoke('Find x.')
+      expect(result.lastMessage.content).toEqual([new TextBlock(source)])
+      expect(callback).not.toHaveBeenCalled()
+    },
+  )
 
   it('never executes a tool when generation is truncated, even after a complete call', async () => {
     const { model } = setup(part(call, 'length'))
@@ -658,7 +681,12 @@ describe('Gemma tool model', () => {
       ),
     ).rejects.toThrow('not registered')
     await expect(
-      collect(model.stream(messages, { toolSpecs: tools, toolChoice: { any: {} } })),
+      collect(
+        model.stream(messages, {
+          toolSpecs: [...tools, { ...tools[0]!, name: 'other' }],
+          toolChoice: { any: {} },
+        }),
+      ),
     ).rejects.toThrow('toolChoice.any')
   })
 

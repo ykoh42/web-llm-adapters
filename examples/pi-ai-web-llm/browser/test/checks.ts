@@ -1,6 +1,8 @@
+import { withEngine } from 'pi-ai-web-llm'
 import type { AssistantMessageEvent } from '@earendil-works/pi-ai'
 import { load, provider } from '../src/engine.js'
 import { createAgent } from '../src/agent.js'
+import { vision } from './vision.js'
 
 async function run(prompt: string) {
   const agent = await createAgent(true)
@@ -52,7 +54,7 @@ async function cancelAndRecover() {
   }
 }
 
-const piChecks = { load, run, cancelAndRecover, provider }
+const piChecks = { load, run, cancelAndRecover, provider, createAgent, vision, withEngine }
 Object.assign(window, { piChecks })
 declare global {
   interface Window {

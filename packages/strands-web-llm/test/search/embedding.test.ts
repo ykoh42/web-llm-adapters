@@ -300,6 +300,27 @@ describe('WebLLMEmbeddingSearchStrategy', () => {
     expect(embed.mock.calls.filter(([, type]) => type === 'document')).toHaveLength(2)
   })
 
+  it('keeps cached vectors separate for namespaces that reuse a key', async () => {
+    const embed = vi.fn<EmbedTexts>(async (texts, type) =>
+      texts.map((text) => (type === 'query' || text === 'cloud' ? [1, 0] : [0, 1])),
+    )
+    const strategy = new WebLLMEmbeddingSearchStrategy({ embed, minScore: -1 })
+    const storage = new InMemoryStorage({ searchStrategy: strategy })
+    const cloud = storage.namespace('cloud')
+    const bread = storage.namespace('bread')
+    await cloud.write('note', encoder.encode('cloud'))
+    await bread.write('note', encoder.encode('bread'))
+
+    for (let round = 0; round < 3; round++) {
+      expect((await cloud.search('query'))[0]?.score).toBe(1)
+      expect((await bread.search('query'))[0]?.score).toBe(0)
+    }
+    expect(embed.mock.calls.filter(([, type]) => type === 'document')).toEqual([
+      [['cloud'], 'document'],
+      [['bread'], 'document'],
+    ])
+  })
+
   it('does not queue searches for different storages', async () => {
     const hold = pause()
     const slowStarted = pause()

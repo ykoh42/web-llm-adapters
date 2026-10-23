@@ -2,12 +2,12 @@
 
 A bundled fix for WebLLM **0.2.86**, for `gemma-4-E2B-it-q4f16_1-MLC` only.
 It fixes cache corruption and projection rounding while keeping the original model weights.
-Included in both `strands-web-llm` and `langchain-web-llm`; no local compiler is needed.
+Included in `strands-web-llm`, `langchain-web-llm`, and `pi-ai-web-llm`; no local compiler is needed.
 
 ## Use
 
-For Vite, import the asset URL and its pinned integrity hash. For LangChain,
-use `langchain-web-llm` in both asset imports:
+For Vite, import the asset URL and its pinned integrity hash.
+For LangChain or Pi, use your adapter's package name in both asset imports:
 
 ```ts
 import { CreateMLCEngine, prebuiltAppConfig } from '@mlc-ai/web-llm'
@@ -49,7 +49,8 @@ Gemma tools and thinking use its native prompt template through raw completions.
 That mode accepts text and tool results, but cannot combine media, constrained
 output, native generation recovery, or `ignore_eos`. WebLLM re-prefills raw prompts
 on each turn. Ordinary chat uses WebLLM's chat API and KV cache.
-Past thoughts remain in agent history and leave the next user turn's prompt.
+Past thoughts stay in agent history. Set `request.extra_body.preserve_thinking: true`
+to replay earlier tool-call reasoning.
 
 <details>
 <summary>Rebuild and implementation details (maintainers)</summary>

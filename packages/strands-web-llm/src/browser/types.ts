@@ -16,7 +16,8 @@ export interface BrowserRequest {
 }
 export type BrowserError = ErrorInfo
 export type BrowserResult = (
-  BrowserPacket<ModelStreamEvent, WebLLMChunk> | { error: BrowserError }
+  | BrowserPacket<ModelStreamEvent, WebLLMChunk>
+  | { error: BrowserError; readonly errorJSON?: string }
 ) & {
   chunks?: WebLLMChunk[]
 }

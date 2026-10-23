@@ -14,6 +14,7 @@ import {
 import { chunk, chunks, collect, pause, setup } from '../fixtures/engine.js'
 
 function browser(...items: ReturnType<typeof chunk>[]) {
+  vi.stubGlobal('scheduler', { yield: () => new Promise<void>((resolve) => setImmediate(resolve)) })
   const result = setup(...items)
   const bridge = createBrowserBridge(result.engine)
   vi.stubGlobal('window', { webllmLangChainBridge: bridge })
@@ -33,6 +34,126 @@ function browser(...items: ReturnType<typeof chunk>[]) {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('browser transport', () => {
+  it('reads buffered responses in one browser round trip', async () => {
+    const { page, model, bridge } = browser(chunk({ content: 'Answer' }, 'stop'))
+    const evaluate = vi.spyOn(page, 'evaluate')
+
+    const result = await model.invoke('Hi')
+
+    expect(result.text).toBe('Answer')
+    expect(evaluate).toHaveBeenCalledTimes(2)
+    await bridge.close()
+  })
+
+  it('keeps buffered responses intact across browser batches', async () => {
+    const output = Array.from({ length: 513 }, () => chunk({ content: 'x' }))
+    output.push(chunk({}, 'stop'))
+    const { page, model, bridge } = browser(...output)
+    const evaluate = vi.spyOn(page, 'evaluate')
+
+    try {
+      const result = await model.invoke('Hi')
+
+      expect(result.text).toBe('x'.repeat(513))
+      expect(evaluate).toHaveBeenCalledTimes(3)
+    } finally {
+      await bridge.close()
+    }
+  })
+
+  it('batches buffered reads when callback handlers ignore token events', async () => {
+    const { page, model, bridge } = browser(
+      chunk({ content: 'First' }),
+      chunk({ content: 'Second' }),
+      chunk({}, 'stop'),
+    )
+    const evaluate = vi.spyOn(page, 'evaluate')
+    const onToken = vi.fn()
+    const callbacks = CallbackManager.fromHandlers({ handleLLMNewToken: onToken })
+    const [handler] = callbacks.handlers
+    if (handler) handler.ignoreLLM = true
+
+    try {
+      const result = await model.invoke('Hi', { callbacks })
+
+      expect(result.text).toBe('FirstSecond')
+      expect(onToken).not.toHaveBeenCalled()
+      expect(evaluate).toHaveBeenCalledTimes(2)
+    } finally {
+      await bridge.close()
+    }
+  })
+
+  it('batches buffered reads when handlers do not receive token events', async () => {
+    const { page, model, bridge } = browser(
+      chunk({ content: 'First' }),
+      chunk({ content: 'Second' }),
+      chunk({}, 'stop'),
+    )
+    const evaluate = vi.spyOn(page, 'evaluate')
+    const onStart = vi.fn()
+    const callbacks = CallbackManager.fromHandlers({ handleLLMStart: onStart })
+
+    try {
+      const result = await model.invoke('Hi', { callbacks })
+
+      expect(result.text).toBe('FirstSecond')
+      expect(onStart).toHaveBeenCalledOnce()
+      expect(evaluate).toHaveBeenCalledTimes(2)
+    } finally {
+      await bridge.close()
+    }
+  })
+
+  it('delivers invoke callbacks before reading the next browser batch', async () => {
+    const { model, create, bridge } = browser()
+    const hold = pause()
+    const onToken = vi.fn()
+    create.mockResolvedValueOnce(
+      (async function* () {
+        yield chunk({ content: 'First' })
+        await hold.wait
+        yield chunk({ content: 'Second' }, 'stop')
+      })(),
+    )
+    try {
+      const pending = model.invoke('Hi', { callbacks: [{ handleLLMNewToken: onToken }] })
+      await vi.waitFor(() => expect(onToken).toHaveBeenCalledOnce())
+      expect(onToken.mock.calls[0]?.[0]).toBe('First')
+      hold.resume()
+      expect((await pending).text).toBe('FirstSecond')
+    } finally {
+      hold.resume()
+      await bridge.close()
+    }
+  })
+
+  it('aborts a buffered browser read while it waits for more output', async () => {
+    const { model, create, bridge } = browser()
+    const stop = vi.spyOn(bridge, 'stop')
+    const hold = pause()
+    create.mockResolvedValueOnce(
+      (async function* () {
+        yield chunk({ content: 'First' })
+        await hold.wait
+        yield chunk({ content: 'Second' }, 'stop')
+      })(),
+    )
+    const controller = new AbortController()
+    const pending = model.invoke('Hi', { signal: controller.signal })
+    try {
+      await vi.waitFor(() => expect(create).toHaveBeenCalledOnce())
+      const cancelled = expect(pending).rejects.toHaveProperty('name', 'AbortError')
+      controller.abort()
+      await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce())
+      hold.resume()
+      await cancelled
+    } finally {
+      hold.resume()
+      await bridge.close()
+    }
+  })
+
   it('delivers native tool chunks while the model is still generating arguments', async () => {
     const { page, bridge, create } = browser()
     const hold = pause()
@@ -362,6 +483,85 @@ describe('browser transport', () => {
     expect(create.mock.calls[0]?.[0].tools?.[0]?.function.parameters).toEqual(schema)
   })
 
+  it('preserves Float32 PCM samples and sample rate through JSON browser transport', async () => {
+    const { page, create, bridge } = browser(chunk({ content: 'Heard it' }, 'stop'))
+    const model = new BrowserChatWebLLM(page, { modelId: 'test-model' })
+    const samples = new Float32Array([9, -0, 0.25, -0.5, 9]).subarray(1, 4)
+    const before = [...samples]
+    try {
+      await model.invoke([
+        new HumanMessage({
+          content: [
+            { type: 'text', text: 'Listen.' },
+            {
+              type: 'input_audio',
+              input_audio: { format: 'pcm_f32', data: samples, sample_rate: 24000 },
+            },
+          ],
+        }),
+      ])
+      const content = create.mock.calls[0]![0].messages[0]!.content
+      if (!Array.isArray(content) || content[1]?.type !== 'input_audio')
+        throw new Error('Missing audio input.')
+      const audio = content[1].input_audio
+      if (audio.format !== 'wav') throw new Error('Expected transport-safe WAV bytes.')
+      const bytes = Buffer.from(audio.data, 'base64')
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+      expect(view.getUint16(20, true)).toBe(3)
+      expect(view.getUint32(24, true)).toBe(24000)
+      expect(view.getUint32(52, true)).toBe(samples.byteLength)
+      expect(
+        before.every((sample, index) => Object.is(view.getFloat32(56 + index * 4, true), sample)),
+      ).toBe(true)
+      expect([...samples]).toEqual(before)
+    } finally {
+      await bridge.close()
+    }
+  })
+
+  it.each([0, 16000])(
+    'rejects detached PCM views before browser calls or sample-rate checks (%i)',
+    async (sampleRate) => {
+      const { page, create, bridge } = browser()
+      const evaluate = vi.spyOn(page, 'evaluate')
+      const model = new BrowserChatWebLLM(page, { modelId: 'test-model' })
+      const samples = new Float32Array([0.25])
+      structuredClone(samples.buffer, { transfer: [samples.buffer] })
+      try {
+        await expect(
+          model.invoke([
+            new HumanMessage({
+              content: [
+                {
+                  type: 'input_audio',
+                  input_audio: { format: 'pcm_f32', data: samples, sample_rate: sampleRate },
+                },
+              ],
+            }),
+          ]),
+        ).rejects.toBeInstanceOf(TypeError)
+        expect(evaluate).not.toHaveBeenCalled()
+        expect(create).not.toHaveBeenCalled()
+      } finally {
+        await bridge.close()
+      }
+    },
+  )
+
+  it('preserves inline WAV URLs in browser messages', async () => {
+    const { page, create, bridge } = browser(chunk({ content: 'Heard it' }, 'stop'))
+    const url = 'data:audio/wav;base64,AQ=='
+    const model = new BrowserChatWebLLM(page, { modelId: 'gemma-4-E2B-it-q4f16_1-MLC' })
+    try {
+      await model.invoke([new HumanMessage({ content: [{ type: 'audio', url }] })])
+      expect(create.mock.calls[0]?.[0].messages[0]?.content).toEqual([
+        { type: 'input_audio', input_audio: { format: 'wav', data: url } },
+      ])
+    } finally {
+      await bridge.close()
+    }
+  })
+
   it('preserves image and audio byte arrays in browser messages', async () => {
     const { page, create } = browser(chunk({ content: 'Okay' }, 'stop'))
     const model = new BrowserChatWebLLM(page, { modelId: 'test-model' })
@@ -486,7 +686,9 @@ describe('browser transport', () => {
         ),
       ),
     )
-    create.mockResolvedValueOnce(chunks(chunk({ content: '<think>Done.</think>42' }, 'stop')))
+    create.mockResolvedValueOnce(
+      chunks({ ...chunk({ content: '<think>Done.</think>42' }, 'stop'), id: 'answer-response' }),
+    )
     const lookup = tool(({ code }) => `Answer ${code}: 42`, {
       name: 'lookup',
       description: 'Get an answer.',

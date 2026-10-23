@@ -6,6 +6,7 @@ export type BrowserPacket<T, C> = (
 export function browserStream<T, C>(chunks: C[]) {
   let pending: Promise<IteratorResult<T, undefined>> | undefined
   let ready = false
+  let notified = false
   let wake: (() => void) | undefined
   function settle() {
     ready = true
@@ -14,9 +15,16 @@ export function browserStream<T, C>(chunks: C[]) {
   return {
     push(chunk: C) {
       chunks.push(chunk)
-      wake?.()
+      const notify = wake
+      if (!notify || notified) return
+      notified = true
+      // Let parser microtasks finish before sending a separate native packet.
+      if (typeof globalThis.scheduler?.yield === 'function')
+        void scheduler.yield().then(notify, notify)
+      else notify()
     },
     async next(stream: AsyncGenerator<T>): Promise<BrowserPacket<T, C>> {
+      notified = false
       const changed = new Promise<void>((resolve) => {
         wake = resolve
       })

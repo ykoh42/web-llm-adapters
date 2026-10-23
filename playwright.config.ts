@@ -18,7 +18,7 @@ export default defineConfig({
   timeout: 15 * 60 * 1000,
   workers: 1,
   webServer: {
-    command: 'npm run build && node shared/browser/server.ts',
+    command: 'node shared/browser/server.ts',
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: !process.env.CI,
   },

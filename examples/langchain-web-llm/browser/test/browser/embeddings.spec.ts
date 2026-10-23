@@ -1,5 +1,70 @@
 import { BrowserWebLLMEmbeddings } from 'langchain-web-llm'
+import { ModelType, prebuiltAppConfig } from '@mlc-ai/web-llm'
 import { test, expect } from '../../../fixtures/browser.js'
+
+for (const { model_id: modelId } of prebuiltAppConfig.model_list.filter(
+  (model) => model.model_type === ModelType.embedding,
+)) {
+  test(`${modelId}: native vectors match local and browser adapters`, async ({ page }, info) => {
+    const documents = Array.from({ length: 33 }, (_, index) => `A flower numbered ${index}. 서울`)
+    const query = 'A flower.'
+    const queryInput = modelId.startsWith('snowflake-arctic-embed-')
+      ? 'Represent this sentence for searching relevant passages: ' + query
+      : query
+    await page.evaluate((id) => window.checks.load(id), modelId)
+    const expected = await page.evaluate(
+      async ({ modelId, documents, queryInput }) => {
+        const engine = window.checks.engine()
+        const documentsResponse = await engine.embeddings.create({
+          model: modelId,
+          input: documents,
+          encoding_format: 'float',
+        })
+        const vectors = documentsResponse.data
+          .sort((left, right) => left.index - right.index)
+          .map((item) => [...item.embedding])
+        const queryResponse = await engine.embeddings.create({
+          model: modelId,
+          input: [queryInput],
+          encoding_format: 'float',
+        })
+        return { documents: vectors, query: [...queryResponse.data[0]!.embedding] }
+      },
+      { modelId, documents, queryInput },
+    )
+    expect(expected.query.length).toBeGreaterThan(0)
+    expect(expected.documents).toHaveLength(documents.length)
+    expect(
+      [...expected.documents, expected.query].every(
+        (vector) => vector.length === expected.query.length && vector.every(Number.isFinite),
+      ),
+    ).toBe(true)
+
+    const local = await page.evaluate(
+      async ({ documents, query }) => {
+        const embeddings = window.checks.embeddings()
+        return {
+          documents: await embeddings.embedDocuments(documents),
+          query: await embeddings.embedQuery(query),
+        }
+      },
+      { documents, query },
+    )
+    expect(local).toEqual(expected)
+
+    const embeddings = new BrowserWebLLMEmbeddings(page, { modelId })
+    expect(await embeddings.embedDocuments(documents)).toEqual(expected.documents)
+    expect(await embeddings.embedQuery(query)).toEqual(expected.query)
+    await info.attach('embedding-model', {
+      body: JSON.stringify({
+        modelId,
+        dimensions: expected.query.length,
+        documents: documents.length,
+      }),
+      contentType: 'application/json',
+    })
+  })
+}
 
 test('whitespace embedding inputs keep native values through local and browser adapters', async ({
   page,
@@ -121,8 +186,9 @@ test('real embedding batches keep native vectors after an injected transient fai
   page,
 }) => {
   const modelId = 'snowflake-arctic-embed-s-q0f32-MLC-b4'
+  const details = '{"__proto__":{"kept":true},"items":[{"__proto__":{"nested":true}}]}'
   await page.evaluate((id) => window.checks.load(id), modelId)
-  await page.evaluate(() => {
+  await page.evaluate((details) => {
     const engine = window.checks.engine()
     const original = engine.embeddings.create.bind(engine.embeddings)
     Object.assign(window, { embeddingAttempts: [] })
@@ -137,14 +203,16 @@ test('real embedding batches keep native vectors after an injected transient fai
         if (input[0] === 'A car.' && !failed) {
           failed = true
           throw Object.assign(
-            new TypeError('Failed to fetch', { cause: new SyntaxError('Lost batch response') }),
-            { code: 'GPU_BUSY', retryAfterMs: 1 },
+            new TypeError('Failed to fetch', {
+              cause: new SyntaxError('Lost batch response', { cause: JSON.parse(details) }),
+            }),
+            { code: 'GPU_BUSY', retryAfterMs: 1, metadata: JSON.parse(details) },
           )
         }
         return result
       },
     })
-  })
+  }, details)
   const failures: unknown[] = []
   const embeddings = new BrowserWebLLMEmbeddings(page, {
     modelId,
@@ -170,6 +238,8 @@ test('real embedding batches keep native vectors after an injected transient fai
     code: 'GPU_BUSY',
     retryAfterMs: 1,
   })
+  expect(failures[0]).toHaveProperty('cause.cause', JSON.parse(details))
+  expect(failures[0]).toHaveProperty('metadata', JSON.parse(details))
   const native = await page.evaluate(
     async ({ modelId, documents }) => {
       const vectors: number[][] = []

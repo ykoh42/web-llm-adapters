@@ -10,6 +10,8 @@ import { isTextFormat } from '../../../../shared/web-llm/response.js'
 import type { WebLLMModelConfig } from '../types.js'
 import { generationOptions } from '../request.js'
 import { toolPrompt } from './prompt.js'
+import { preserveThinking } from '../../../../shared/web-llm/request.js'
+import { singleToolChoice } from '../../../../shared/web-llm/stream/choice.js'
 
 export function isGemma(modelId: string) {
   return /^gemma-4-/i.test(modelId)
@@ -46,9 +48,10 @@ export function gemmaRequest(
     )
   }
   const thinking = extra_body?.enable_thinking === true
+  const preserve = preserveThinking(config.modelId, config.request ?? {})
   const tools = options.toolSpecs ?? []
   let prefix = toolPrefix(tools, options.toolChoice)
-  const prompt = toolPrompt(messages, tools, options, thinking)
+  const prompt = toolPrompt(messages, tools, options, thinking, preserve)
   if (thinking && !prefix && prompt.endsWith('<tool_response|>')) prefix = '<|channel>thought\n'
   const request: CompletionCreateParamsStreaming = {
     ...sampling,
@@ -62,8 +65,8 @@ export function gemmaRequest(
 
 function toolPrefix(tools: ToolSpec[], choice?: ToolChoice) {
   if (!choice) return ''
-  if ('any' in choice)
-    throw new ModelError('WebLLM does not support toolChoice.any. Choose auto or a named tool.')
+  choice = singleToolChoice(choice, tools)
+  if ('any' in choice) throw new ModelError('Gemma toolChoice.any needs exactly one tool.')
   if (!('tool' in choice)) return ''
 
   const name = choice.tool.name

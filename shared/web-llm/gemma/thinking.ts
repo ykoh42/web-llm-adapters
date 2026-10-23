@@ -1,12 +1,13 @@
 import { ModelError } from '../types.js'
 import type { Completion } from '@mlc-ai/web-llm'
 import { singleChoice, stopReason, type StreamChunk, type ChunkOptions } from '../stream/chunks.js'
+import { toolStart } from './markers.js'
+import { textEnd } from '../stream/markers.js'
 
 export interface GemmaStreamOptions extends ChunkOptions<Completion> {
   prefix?: string
   stopRequested?: boolean
 }
-import { textEnd } from './markers.js'
 
 type ThinkingChunk = Pick<StreamChunk, 'stop' | 'usage'> & {
   type: 'text' | 'reasoning'
@@ -16,7 +17,13 @@ type ThinkingChunk = Pick<StreamChunk, 'stop' | 'usage'> & {
 /** Split native thinking before the tool parser sees any generated text. */
 export async function* splitThinking(
   chunks: AsyncIterable<Completion>,
-  { onChunk, signal, prefix = '', stopRequested = false }: GemmaStreamOptions = {},
+  {
+    onChunk,
+    signal,
+    prefix = '',
+    stopRequested = false,
+    parseTools,
+  }: GemmaStreamOptions & { parseTools: boolean },
 ): AsyncGenerator<ThinkingChunk> {
   let pending = prefix
   let mode: 'text' | 'header' | 'thought' = 'text'
@@ -54,7 +61,7 @@ export async function* splitThinking(
         if (mode === 'header') marker = '\n'
         if (mode === 'thought') marker = '<channel|>'
         const at = pending.indexOf(marker)
-        const call = mode === 'text' ? pending.indexOf('<|tool_call>') : -1
+        const call = parseTools && mode === 'text' ? pending.indexOf(toolStart) : -1
         if (call !== -1 && (at === -1 || call < at)) {
           if (call) yield piece(pending.slice(0, call), chunk.usage)
           yield piece(pending.slice(call), chunk.usage)
@@ -69,7 +76,7 @@ export async function* splitThinking(
         } else if (at !== -1) {
           if (at) yield piece(pending.slice(0, at), chunk.usage)
         } else {
-          const markers = mode === 'text' ? [marker, '<|tool_call>'] : [marker]
+          const markers = parseTools && mode === 'text' ? [marker, toolStart] : [marker]
           const end = textEnd(pending, markers)
           const text = pending.slice(0, end)
           pending = pending.slice(end)

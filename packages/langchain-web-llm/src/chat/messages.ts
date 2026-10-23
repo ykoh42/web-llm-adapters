@@ -1,17 +1,20 @@
+import { formatPart } from './content.js'
 import { deepCompareStrict } from '@langchain/core/utils/json_schema'
 import {
   AIMessage,
+  ChatMessage,
+  coerceMessageLikeToMessage,
   type BaseMessage,
   type ContentBlock,
   type ToolCall,
 } from '@langchain/core/messages'
 import type { ChatCompletionContentPart } from '@mlc-ai/web-llm'
-import type { GemmaMessage } from '../../../../shared/web-llm/gemma/prompt.js'
+import type { ProtocolMessage } from '../../../../shared/web-llm/types.js'
 import { formatUserContent } from '../../../../shared/web-llm/content.js'
 import { stringifyJSON } from '../../../../shared/web-llm/json.js'
 
-export function formatMessages(messages: BaseMessage[]): GemmaMessage[] {
-  const output: GemmaMessage[] = []
+export function formatMessages(messages: BaseMessage[]): ProtocolMessage[] {
+  const output: ProtocolMessage[] = []
   const toolNames = new Map<string, string>()
   let toolImages: ChatCompletionContentPart[] = []
   function flushImages() {
@@ -19,7 +22,8 @@ export function formatMessages(messages: BaseMessage[]): GemmaMessage[] {
     output.push({ role: 'user', content: toolImages })
     toolImages = []
   }
-  for (const message of messages) {
+  for (const input of messages) {
+    const message = input.type === 'generic' ? standardMessage(input) : input
     const role = message.type
     // Keep all tool results together before adding their images as a user turn.
     if (role !== 'tool') flushImages()
@@ -39,7 +43,7 @@ export function formatMessages(messages: BaseMessage[]): GemmaMessage[] {
       const content =
         typeof message.content === 'string'
           ? message.content
-          : formatUserContent(message.content.map(formatPart))
+          : formatUserContent(message.content.map((part) => formatPart(part)))
       output.push({
         role: 'user',
         content,
@@ -97,6 +101,28 @@ export function formatMessages(messages: BaseMessage[]): GemmaMessage[] {
   return output
 }
 
+/** Use LangChain's standard classes for supported ChatMessage roles. */
+export function standardMessage(message: BaseMessage): BaseMessage {
+  if (!ChatMessage.isInstance(message)) return message
+  const role = message.role
+  if (
+    role !== 'user' &&
+    role !== 'human' &&
+    role !== 'assistant' &&
+    role !== 'ai' &&
+    role !== 'system'
+  )
+    return message
+  return coerceMessageLikeToMessage({
+    role,
+    content: Array.isArray(message.content) ? message.content.slice() : message.content,
+    ...(message.name !== undefined && { name: message.name }),
+    ...(message.id !== undefined && { id: message.id }),
+    additional_kwargs: message.additional_kwargs,
+    response_metadata: message.response_metadata,
+  })
+}
+
 function textContent(content: BaseMessage['content'], allowReasoning = false): string {
   if (typeof content === 'string') return content
   return content.map((block) => textBlock(block, allowReasoning)).join('')
@@ -125,70 +151,6 @@ function reasoningContent(message: BaseMessage): string {
   return parts.join('')
 }
 
-export function formatPart(value: unknown): ChatCompletionContentPart {
-  if (!isRecord(value)) throw new Error('WebLLM needs an object content block.')
-  if (value.type === 'text' && typeof value.text === 'string')
-    return { type: 'text', text: value.text }
-  if (value.type === 'image_url') {
-    const image = value.image_url
-    const url = typeof image === 'string' ? image : isRecord(image) ? image.url : undefined
-    const detail = isRecord(image) ? image.detail : undefined
-    if (
-      detail !== undefined &&
-      detail !== null &&
-      detail !== 'auto' &&
-      detail !== 'low' &&
-      detail !== 'high'
-    )
-      throw new Error('WebLLM needs image_url.detail to be auto, low, or high.')
-    if (detail != null) throw new Error('WebLLM does not support image_url.detail.')
-    if (typeof url === 'string') return { type: 'image_url', image_url: { url } }
-  }
-  const mime = value.mimeType ?? value.mime_type
-  if (value.type === 'image') {
-    if (typeof value.url === 'string') return { type: 'image_url', image_url: { url: value.url } }
-    const data = base64Data(value.data)
-    if (data !== undefined && typeof mime === 'string')
-      return {
-        type: 'image_url',
-        image_url: { url: `data:${mime};base64,${data}` },
-      }
-    if (typeof value.base64 === 'string' && typeof value.mime_type === 'string')
-      return {
-        type: 'image_url',
-        image_url: { url: `data:${value.mime_type};base64,${value.base64}` },
-      }
-  }
-  if (value.type === 'input_audio' && isRecord(value.input_audio)) {
-    if (value.input_audio.format === 'wav' && typeof value.input_audio.data === 'string')
-      return { type: 'input_audio', input_audio: { format: 'wav', data: value.input_audio.data } }
-  }
-  if (value.type === 'audio' && mime === 'audio/wav') {
-    const data = base64Data(value.data)
-    if (data !== undefined) return { type: 'input_audio', input_audio: { format: 'wav', data } }
-  }
-  throw new Error(
-    `WebLLM cannot use this ${String(value.type)} block. Use image URLs/base64 or WAV audio.`,
-  )
-}
-
-function base64Data(value: unknown): string | undefined {
-  if (typeof value === 'string') return value
-  if (!(value instanceof Uint8Array)) return undefined
-  if (!value.length) return ''
-  const prototype: Uint8Array & { toBase64?: () => string } = Uint8Array.prototype
-  if (typeof prototype.toBase64 === 'function') return prototype.toBase64.call(value)
-  if (typeof globalThis.Buffer === 'function')
-    return globalThis.Buffer.from(value.buffer, value.byteOffset, value.byteLength).toString(
-      'base64',
-    )
-
-  const parts: string[] = []
-  for (let index = 0; index < value.length; index += 0x6000)
-    parts.push(btoa(String.fromCharCode(...value.subarray(index, index + 0x6000))))
-  return parts.join('')
-}
-
 export { nativeMessages } from '../../../../shared/web-llm/history.js'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -199,16 +161,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function assistantCalls(message: AIMessage): ToolCall[] {
   const calls: ToolCall[] = [...(message.tool_calls ?? [])]
   if (!Array.isArray(message.content)) return calls
+  let byId: Map<string | undefined, ToolCall> | undefined
   for (const block of message.content) {
     if (block.type !== 'tool_use' && block.type !== 'tool_call') continue
     const args = block.type === 'tool_use' ? block.input : block.args
     if (typeof block.id !== 'string' || typeof block.name !== 'string' || !isRecord(args))
       throw new Error('WebLLM needs a tool name, ID, and object arguments.')
-    const previous = calls.find((call) => call.id === block.id)
+    byId ??= indexCalls(calls)
+    const previous = byId.get(block.id)
     if (previous) {
       if (previous.name !== block.name || !deepCompareStrict(previous.args, args))
         throw new Error('WebLLM received conflicting tool call content.')
-    } else calls.push({ id: block.id, name: block.name, args, type: 'tool_call' })
+    } else {
+      const call: ToolCall = { id: block.id, name: block.name, args, type: 'tool_call' }
+      calls.push(call)
+      byId.set(block.id, call)
+    }
   }
   return calls
+}
+
+function indexCalls(calls: ToolCall[]) {
+  const byId = new Map<string | undefined, ToolCall>()
+  // Keep the same first match when caller-provided IDs repeat.
+  for (const call of calls) if (!byId.has(call.id)) byId.set(call.id, call)
+  return byId
 }

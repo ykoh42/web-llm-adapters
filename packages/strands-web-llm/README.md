@@ -57,7 +57,7 @@ See the [runnable examples](https://github.com/ykoh42/web-llm-adapters/blob/main
 Install Harness for this example:
 
 ```sh
-npm install @strands-agents/harness@0.3.0
+npm install @strands-agents/harness@0.3.1
 ```
 
 On a browser page controlled by your application, load the model with
@@ -105,7 +105,7 @@ Decode speeds are local measurements on M4 Pro (24 GB), Chrome 155.
 | `Qwen3-8B-q4f16_1-MLC`              |                 [74.2](https://huggingface.co/nvidia/Qwen3-8B-DMS-8x#evaluation-dataset) |         32.0 | O     | O     | X     | X     | X     |
 | `Qwen3-4B-q4f16_1-MLC`              |                   [70.4](https://huggingface.co/Qwen/Qwen3-4B-Thinking-2507#performance) |         51.5 | △     | O     | X     | X     | X     |
 | `Qwen3.5-2B-q4f16_1-MLC`            |                                           [66.5](https://huggingface.co/Qwen/Qwen3.5-2B) |         59.7 | O     | O     | X     | X     | X     |
-| `gemma-4-E2B-it-q4f16_1-MLC`        |                                     [60.0](https://huggingface.co/google/gemma-4-E2B-it) |         38.5 | O     | O     | X     | X     | X     |
+| `gemma-4-E2B-it-q4f16_1-MLC`        |                                     [60.0](https://huggingface.co/google/gemma-4-E2B-it) |         38.5 | O     | O     | X     | O     | X     |
 | `Qwen2.5-7B-Instruct-q4f16_1-MLC`   |                                       [56.3](https://qwenlm.github.io/blog/qwen2.5-llm/) |         38.0 | O     | X     | X     | X     | X     |
 | `Qwen2.5-3B-Instruct-q4f16_1-MLC`   |                                       [43.7](https://qwenlm.github.io/blog/qwen2.5-llm/) |         59.5 | O     | X     | X     | X     | X     |
 | `Qwen3.5-0.8B-q4f16_1-MLC`          |                                         [42.3](https://huggingface.co/Qwen/Qwen3.5-0.8B) |         71.2 | O     | O     | X     | X     | X     |
@@ -115,7 +115,8 @@ Decode speeds are local measurements on M4 Pro (24 GB), Chrome 155.
 
 Qwen3 0.6B can miscopy arguments or omit answers with thinking on;
 Qwen3 4B can call dependent tools together.
-Gemma 4 E2B requires the bundled [runtime setup and protocol limits](https://github.com/ykoh42/web-llm-adapters/blob/main/shared/runtime/README.md).
+For Qwen3.5, declare object/array types to preserve XML in JSON. History cannot preserve `>` in top-level argument names or `<parameter=` / `</parameter>` in raw strings.
+Gemma 4 E2B requires the bundled [runtime setup and protocol limits](https://github.com/ykoh42/web-llm-adapters/blob/main/shared/runtime/README.md). Audio works in ordinary chat, without tools or thinking.
 
 <details>
 <summary>Benchmark notes and tool formats</summary>
@@ -132,46 +133,56 @@ Tool formats follow [Hermes](https://github.com/QwenLM/Qwen3/blob/main/docs/sour
 
 ### Images and embeddings
 
-| Exact WebLLM `model_id`                 | Strands API                      | Verified use                       |
-| --------------------------------------- | -------------------------------- | ---------------------------------- |
-| `Phi-3.5-vision-instruct-q4f16_1-MLC`   | `ImageBlock`                     | Harness reads an image             |
-| `snowflake-arctic-embed-s-q0f32-MLC-b4` | `MemoryStore` / `SearchStrategy` | Semantic search and Harness memory |
+| Exact WebLLM `model_id`                  | Strands API                      | Verified use           |
+| ---------------------------------------- | -------------------------------- | ---------------------- |
+| `Phi-3.5-vision-instruct-q4f16_1-MLC`    | `ImageBlock`                     | Harness reads an image |
+| `snowflake-arctic-embed-m-q0f32-MLC-b32` | `MemoryStore` / `SearchStrategy` | 768 dimensions         |
+| `snowflake-arctic-embed-m-q0f32-MLC-b4`  | `MemoryStore` / `SearchStrategy` | 768 dimensions         |
+| `snowflake-arctic-embed-s-q0f32-MLC-b32` | `MemoryStore` / `SearchStrategy` | 384 dimensions         |
+| `snowflake-arctic-embed-s-q0f32-MLC-b4`  | `MemoryStore` / `SearchStrategy` | 384 dimensions         |
 
 `WebLLMEmbeddingSearchStrategy` connects WebLLM to Strands memory; see the
 [memory example](https://github.com/ykoh42/web-llm-adapters/blob/main/examples/strands-web-llm/harness/src/memory.ts).
-Arctic Embed S has 384 dimensions and a 512-token input limit. Prefix queries with
+These embedding models have a 512-token input limit. Prefix queries with
 `Represent this sentence for searching relevant passages: `; leave stored text unprefixed.
 Search returns positive cosine matches by default; set `minScore` to include lower scores.
 For FileMemoryStore, set `includeData: false` to avoid retaining bytes it reads back itself.
 Searches scan all entries, and vectors rebuild after restart. Keep each stored record within 512 tokens;
 FileMemoryStore appends facts that share a heading.
 
-Other vision and embedding IDs and speech understanding are unverified. Video is unsupported.
+Other vision IDs and speech understanding are unverified. Video is unsupported.
 
 ## Support
 
-Targets: WebLLM **0.2.86**, Strands SDK **1.21.0**, Harness **0.3.0**.
+Targets: WebLLM **0.2.86**, Strands SDK **1.22.0**, Harness **0.3.1**.
 Features depend on the exact model above.
 
-| Feature                               | Use                                               | Limit                                                    |
-| ------------------------------------- | ------------------------------------------------- | -------------------------------------------------------- |
-| Chat, system prompts, history         | Strands messages and `systemPrompt`               | Unsupported blocks raise errors                          |
-| Streaming and cancellation            | `agent.stream()`, `agent.cancel()`                | One assistant response per call                          |
-| Tools and results                     | Strands tools and `toolChoice`                    | Qwen supports `any`; Gemma and native tool APIs do not   |
-| Disable tools                         | `request.tool_choice: 'none'`                     | Keeps the Agent tool registry                            |
-| Thinking                              | `request.extra_body.enable_thinking`              | Render `textBlock` values to show only the answer        |
-| Sampling and token limits             | `request`; `maxTokens`, `temperature`, `topP`     | SDK aliases take precedence                              |
-| JSON schema, grammar, structural tags | `request.response_format`                         | Cannot combine with Qwen tools or Gemma protocol mode    |
-| Images and WAV audio                  | `ImageBlock`, `AudioBlock`, `pcmAudio()`          | Model-dependent; PCM is converted to WAV                 |
-| Usage, logprobs, timing               | Strands metadata and `onChunk`                    | Native chunk fields retained                             |
-| Embeddings                            | `WebLLMEmbeddingSearchStrategy` or `withEngine()` | Separate embedding model required                        |
-| Context recovery                      | `countTokens()` and Strands overflow error        | Counts are estimates; set the loaded context window size |
-| Other native APIs                     | `withEngine()`                                    | Caller owns setup and lifecycle                          |
+For Gemma 4, `request.extra_body.preserve_thinking: true` also keeps earlier tool-call reasoning; the default keeps only the current user turn.
+
+Set `thinkingPrefilled: true` at construction if your loaded Qwen template already opens `<think>`. This only controls output parsing; it does not change the engine or prompt.
+
+| Feature                               | Use                                                                                      | Limit                                                          |
+| ------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Chat, system prompts, history         | Strands messages and `systemPrompt`                                                      | Unsupported blocks raise errors                                |
+| Streaming and cancellation            | `agent.stream()`, `agent.cancel()`                                                       | One assistant response per call                                |
+| Tools and results                     | Strands tools and `toolChoice`                                                           | Qwen supports `any`; Gemma/native tool models require one tool |
+| Disable tools                         | `request.tool_choice: 'none'`                                                            | Keeps the Agent tool registry                                  |
+| Thinking                              | `request.extra_body.enable_thinking`                                                     | Render `textBlock` values to show only the answer              |
+| Sampling and token limits             | `request`; `maxTokens`, `temperature`, `topP`                                            | SDK aliases take precedence                                    |
+| JSON schema, grammar, structural tags | `request.response_format`                                                                | Cannot combine with Qwen tools or Gemma protocol mode          |
+| Images and WAV audio                  | `ImageBlock`, `AudioBlock`, `pcmAudio()`                                                 | Model-dependent; PCM is converted to WAV                       |
+| Usage and timing                      | Strands metadata                                                                         | Token counts and latency                                       |
+| Log probabilities                     | `request.logprobs: true`; stop-event `additionalModelResponseFields.logprobs`; `onChunk` | Native per-token values retained                               |
+| Embeddings                            | `WebLLMEmbeddingSearchStrategy` or `withEngine()`                                        | Separate embedding model required                              |
+| Context recovery                      | `countTokens()` and Strands overflow error                                               | Counts are estimates; set the loaded context window size       |
+| Other native APIs                     | `withEngine()`                                                                           | Caller owns setup and lifecycle                                |
 
 Signed/redacted reasoning, S3 media, video, documents, guardrails, and non-image tool-result media
 are unsupported. Tool-result images follow the adjacent tool replies; no listed model is verified
 for both tools and vision. Invalid or incomplete tool output reaches the caller; the adapter does not
-change tool names or arguments or supply answers. Model-selected tools and arguments still need validation.
+change tool names or arguments or supply answers. Validate model-selected arguments: Strands runtime
+validation requires a [Zod `inputSchema`](https://strandsagents.com/docs/user-guide/sdk/tools/custom-tools/),
+and Gemma's template may omit some JSON Schema constraints.
 
 <details>
 <summary>Native APIs and advanced options</summary>

@@ -457,8 +457,9 @@ test('Qwen3.5 0.8B: incomplete default-agent tool output also occurs without the
     onChunk: (chunk) => chunks.push(chunk),
   })
   const agent = createDeepAgent({ model })
-  await expect(
-    agent.invoke({
+  let failure: unknown
+  try {
+    await agent.invoke({
       messages: [
         { role: 'user', content: 'Read /answer.txt and tell me the secret code exactly.' },
       ],
@@ -469,8 +470,10 @@ test('Qwen3.5 0.8B: incomplete default-agent tool output also occurs without the
           modified_at: '2026-10-19',
         },
       },
-    }),
-  ).rejects.toThrow('inside a tool call')
+    })
+  } catch (error) {
+    failure = error
+  }
   const adapted = chunks
     .map((chunk) =>
       'delta' in (chunk.choices[0] ?? {})
@@ -491,6 +494,8 @@ test('Qwen3.5 0.8B: incomplete default-agent tool output also occurs without the
   const path = testInfo.outputPath('comparison.json')
   await writeFile(path, JSON.stringify({ adapted, native }, null, 2))
   await testInfo.attach('native comparison', { path, contentType: 'application/json' })
+  expect(failure).toBeInstanceOf(Error)
+  expect(failure).toHaveProperty('message', 'Qwen3.5 returned a malformed tool parameter.')
   expect(native).toBe(adapted)
   expect(native).toContain('<tool_call>')
   expect(native).not.toContain('</tool_call>')

@@ -5,6 +5,51 @@ import { ChatWebLLM } from '../../packages/langchain-web-llm/src/index.js'
 import { chunk, chunks, collect, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
 
 for (const client of ['strands', 'langchain']) {
+  it.each(['together', 'separate'])(
+    `${client} rejects duplicate tool IDs in %s chunks`,
+    async (mode) => {
+      const { engine, create } = setup(chunk({ content: 'Recovered' }, 'stop'))
+      const calls = [0, 1].map((index) => ({
+        index,
+        id: 'shared',
+        function: { name: 'weather', arguments: '{"city":"Seoul"}' },
+      }))
+      create.mockResolvedValueOnce(
+        chunks(
+          ...(mode === 'together'
+            ? [chunk({ tool_calls: calls }, 'tool_calls')]
+            : [
+                chunk({ tool_calls: [calls[0]!] }),
+                chunk({ tool_calls: [calls[1]!] }, 'tool_calls'),
+              ]),
+        ),
+      )
+      const options = { engine, modelId: 'test-model' }
+      if (client === 'strands') {
+        const model = new WebLLMModel(options)
+        await expect(
+          collect(
+            model.streamAggregated([], {
+              toolSpecs: [{ name: 'weather', description: 'Get the weather.' }],
+            }),
+          ),
+        ).rejects.toThrow('duplicate tool call ID')
+        expect(await collect(model.stream([]))).toContainEqual({
+          type: 'modelContentBlockDeltaEvent',
+          delta: { type: 'textDelta', text: 'Recovered' },
+        })
+      } else {
+        const model = new ChatWebLLM(options)
+        await expect(
+          model
+            .bindTools([{ type: 'function', function: { name: 'weather' } }])
+            .invoke('Weather in Seoul?'),
+        ).rejects.toThrow('duplicate tool call ID')
+        expect((await model.invoke('Try again.')).text).toBe('Recovered')
+      }
+    },
+  )
+
   it.each([
     { name: 'changed', first: 'call-1', last: 'call-2', invalid: true },
     { name: 'repeated', first: 'call-1', last: 'call-1', invalid: false },

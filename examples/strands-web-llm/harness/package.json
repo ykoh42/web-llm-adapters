@@ -8,13 +8,13 @@
     "test:install": "node test/install/run.ts"
   },
   "dependencies": {
-    "@strands-agents/harness": "0.3.0",
-    "@strands-agents/sdk": "1.21.0",
+    "@strands-agents/harness": "0.3.1",
+    "@strands-agents/sdk": "1.22.0",
     "@tesseract.js-data/eng": "1.0.0",
     "@tesseract.js-data/kor": "1.0.0",
     "strands-web-llm": "*",
     "tesseract.js": "7.0.0",
-    "unpdf": "1.9.0",
+    "unpdf": "1.9.1",
     "zod": "4.6.7"
   },
   "devDependencies": {

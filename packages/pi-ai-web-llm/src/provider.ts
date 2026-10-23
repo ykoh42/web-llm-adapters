@@ -11,11 +11,14 @@ import { requestOptions, positiveInteger } from './request.js'
 import { streamHooks } from './callbacks.js'
 import { formatContext } from './messages.js'
 import { responseStream } from './events.js'
+import { checkThinkingPrefill } from '../../../shared/web-llm/qwen/prefill.js'
 import type { WebLLMApi, WebLLMProviderOptions, WebLLMStreamOptions } from './types.js'
 
 /** Wrap a loaded browser engine without taking ownership of its worker or GPU memory. */
 export function createWebLLMProvider(options: WebLLMProviderOptions): Provider<WebLLMApi> {
-  if (!options.modelId.trim()) throw new Error('modelId must name a loaded WebLLM model.')
+  const { engine, modelId, onChunk, thinkingPrefilled = false } = options
+  if (!modelId.trim()) throw new Error('modelId must name a loaded WebLLM model.')
+  checkThinkingPrefill(modelId, thinkingPrefilled)
   positiveInteger(options.contextWindow, 'contextWindow')
   const maxTokens = options.maxTokens ?? Math.min(4096, options.contextWindow)
   positiveInteger(maxTokens, 'maxTokens')
@@ -24,13 +27,13 @@ export function createWebLLMProvider(options: WebLLMProviderOptions): Provider<W
   if (!providerId.trim()) throw new Error('providerId cannot be empty.')
   const defaults = structuredClone(options.request ?? {})
   const model: Model<WebLLMApi> = {
-    id: options.modelId,
-    name: options.name ?? options.modelId,
+    id: modelId,
+    name: options.name ?? modelId,
     api: 'webllm',
     provider: providerId,
     baseUrl: '',
     input: options.imageInputs ? ['text', 'image'] : ['text'],
-    reasoning: options.reasoning ?? /^(Qwen3(?:\.5)?-|gemma-4-)/i.test(options.modelId),
+    reasoning: options.reasoning ?? /^(Qwen3(?:\.5)?-|gemma-4-)/i.test(modelId),
     contextWindow: options.contextWindow,
     maxTokens,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -52,25 +55,32 @@ export function createWebLLMProvider(options: WebLLMProviderOptions): Provider<W
     const choice = call.toolChoice === 'none' ? 'none' : undefined
     return responseStream(
       requestModel,
-      () => {
+      (message) => {
         if (
-          requestModel.id !== model.id ||
-          requestModel.api !== model.api ||
+          requestModel.id !== modelId ||
+          requestModel.api !== 'webllm' ||
           requestModel.provider !== providerId
         )
           throw new Error('This provider only serves its configured WebLLM model.')
-        const request = requestOptions(requestModel, defaults, call, simple)
+        const request = requestOptions(requestModel, defaults, call, simple, context)
         const { history, tools } = formatContext(context, requestModel)
         const chunks = protocolStream({
-          engine: options.engine,
-          modelId: options.modelId,
+          engine,
+          modelId,
+          thinkingPrefilled,
           history,
           tools,
           choice,
           request,
-          onChunk: options.onChunk,
+          onChunk: (chunk) => {
+            message.responseId ??= chunk.id
+            message.responseModel ??= chunk.model
+            const reason = chunk.choices[0]?.finish_reason
+            if (reason) message.rawStopReason = reason
+            onChunk?.(chunk)
+          },
           signal,
-          ...streamHooks(requestModel, options.modelId, call, signal),
+          ...streamHooks(requestModel, modelId, call, signal),
         })
         return { chunks, toolNames: tools.map((tool) => tool.name) }
       },

@@ -139,6 +139,7 @@ it('transfers provider content without session metadata or tracking IDs', async 
 })
 
 function open() {
+  vi.stubGlobal('scheduler', { yield: () => new Promise<void>((resolve) => setImmediate(resolve)) })
   const native = setup()
   native.create.mockImplementation(async () => chunks(chunk({ content: 'Hi' }, 'stop')))
   const bridge = createBrowserBridge(native.engine)
@@ -323,6 +324,40 @@ it('delivers native chunks with logprobs through a Strands Agent in order', asyn
   expect(result.lastMessage.content).toEqual([new TextBlock('Hi')])
   expect(onChunk.mock.calls.map(([value]) => value)).toEqual([first, last])
   expect(browser.getConfig()).not.toHaveProperty('onChunk')
+})
+
+it('exposes log probabilities in the browser stop event', async () => {
+  const { page, bridge, create } = open()
+  const first = chunk({ content: 'Hi' })
+  first.choices[0]!.logprobs = {
+    content: [{ token: 'Hi', logprob: -0.25, bytes: [72, 105], top_logprobs: [] }],
+  }
+  const last = chunk({}, 'stop')
+  last.choices[0]!.logprobs = {
+    content: [{ token: '!', logprob: -0.5, bytes: [33], top_logprobs: [] }],
+  }
+  create.mockResolvedValueOnce(chunks(first, last))
+  const model = new BrowserModel(page, {
+    modelId: 'test-model',
+    request: { logprobs: true },
+  })
+
+  try {
+    const events = await collect(model.stream(messages))
+    const stop = events.find((event) => event.type === 'modelMessageStopEvent')
+    expect(stop).toMatchObject({
+      additionalModelResponseFields: {
+        logprobs: {
+          content: [
+            { token: 'Hi', logprob: -0.25, bytes: [72, 105], top_logprobs: [] },
+            { token: '!', logprob: -0.5, bytes: [33], top_logprobs: [] },
+          ],
+        },
+      },
+    })
+  } finally {
+    await bridge.close()
+  }
 })
 
 it('delivers the native chunk that caused a protocol error before reporting it', async () => {

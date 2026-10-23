@@ -6,12 +6,16 @@ import type {
 } from '@earendil-works/pi-ai'
 import { createAssistantMessageEventStream } from '@earendil-works/pi-ai/utils/event-stream'
 import type { StreamChunk } from '../../../shared/web-llm/stream/chunks.js'
+import { errorText } from '../../../shared/web-llm/errors.js'
 import { textBlocks } from './text.js'
 import { toolCalls } from './tools.js'
 
 export function responseStream(
   model: Model<Api>,
-  generate: () => { chunks: AsyncIterable<StreamChunk>; toolNames: string[] },
+  generate: (message: AssistantMessage) => {
+    chunks: AsyncIterable<StreamChunk>
+    toolNames: string[]
+  },
   signal?: AbortSignal,
   choice?: 'none',
 ): AssistantMessageEventStream {
@@ -43,7 +47,7 @@ export function responseStream(
 
     try {
       signal?.throwIfAborted()
-      const { chunks, toolNames } = generate()
+      const { chunks, toolNames } = generate(message)
       stream.push({ type: 'start', partial: message })
       for await (const chunk of chunks) {
         signal?.throwIfAborted()
@@ -83,7 +87,7 @@ export function responseStream(
         signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')
           ? 'aborted'
           : 'error'
-      message.errorMessage = error instanceof Error ? error.message : String(error)
+      message.errorMessage = errorText(error)
       stream.push({ type: 'error', reason: message.stopReason, error: message })
     } finally {
       stream.end()

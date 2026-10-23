@@ -4,21 +4,16 @@ import type {
   BaseChatModelParams,
   BindToolsInput,
 } from '@langchain/core/language_models/chat_models'
-import type {
-  ChatCompletionRequestBase,
-  MLCEngineInterface,
-  ChatCompletionChunk,
-  Completion,
-} from '@mlc-ai/web-llm'
+import type { MLCEngineInterface, ChatCompletionChunk, Completion } from '@mlc-ai/web-llm'
+import type { WebLLMRequest } from '../../../shared/web-llm/request.js'
 
 export type WebLLMChunk = ChatCompletionChunk | Completion
-export type WebLLMRequest = Omit<
-  ChatCompletionRequestBase,
-  'messages' | 'model' | 'stream' | 'stream_options' | 'tools' | 'tool_choice' | 'n'
->
+export type { WebLLMRequest }
 
 export interface WebLLMModelOptions extends BaseChatModelParams {
   modelId: string
+  /** The loaded Qwen template already supplies the opening thinking tag. */
+  thinkingPrefilled?: boolean
   /** Set maxInputTokens to the context window used when loading the engine. */
   profile?: ModelProfile
   request?: WebLLMRequest

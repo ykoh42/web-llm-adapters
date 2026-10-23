@@ -474,6 +474,40 @@ describe('model protocols', () => {
     },
   )
 
+  it('keeps interleaved native calls ordered without changing their argument bytes', async () => {
+    const native = [
+      chunk({
+        tool_calls: [
+          { index: 7, id: 'second', function: { name: 'lo', arguments: ' { "code": ' } },
+          { index: 2, function: { name: 'look', arguments: '{ "code": "A' } },
+        ],
+      }),
+      chunk(
+        {
+          tool_calls: [
+            { index: 2, id: 'first', function: { name: 'up', arguments: '7" }' } },
+            { index: 7, function: { name: 'okup', arguments: '"A8" } ' } },
+          ],
+        },
+        'tool_calls',
+      ),
+    ]
+    const original = structuredClone(native)
+    const { model } = setup(...native)
+
+    const result = await model.bindTools([definition]).invoke('Look up both codes.')
+
+    expect(result.tool_calls).toEqual([
+      { name: 'lookup', args: { code: 'A7' }, id: 'first', type: 'tool_call' },
+      { name: 'lookup', args: { code: 'A8' }, id: 'second', type: 'tool_call' },
+    ])
+    expect(result.tool_call_chunks?.map(({ index, args }) => ({ index, args }))).toEqual([
+      { index: 2, args: '{ "code": "A7" }' },
+      { index: 7, args: ' { "code": "A8" } ' },
+    ])
+    expect(native).toEqual(original)
+  })
+
   it('preserves native tool fragments and rejects invalid tool JSON', async () => {
     const { model, create } = setup(
       chunk({

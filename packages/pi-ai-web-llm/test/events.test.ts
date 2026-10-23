@@ -25,6 +25,39 @@ const call = (index: number, input: string, id = `call-${index}`) => ({
 })
 
 describe('Pi response events', () => {
+  it.each([
+    { name: 'null prototype', error: () => Object.create(null) },
+    {
+      name: 'throwing string conversion',
+      error: () => ({
+        toString() {
+          throw new Error('Cannot convert this error')
+        },
+      }),
+    },
+    {
+      name: 'throwing message getter',
+      error: () =>
+        Object.defineProperty(new Error(), 'message', {
+          get() {
+            throw new Error('Cannot read this error')
+          },
+        }),
+    },
+  ])('finishes with an error event for $name failures', async ({ error }) => {
+    const { model } = setup()
+    const response = responseStream(model, () => {
+      throw error()
+    })
+
+    expect((await collect(response)).map((event) => event.type)).toEqual(['error'])
+    expect(await response.result()).toMatchObject({
+      stopReason: 'error',
+      errorMessage: 'The request failed with an unreadable error.',
+      content: [],
+    })
+  })
+
   it('closes each text or thinking block before opening the next one', async () => {
     const response = stream(
       { reasoning: 'Plan' },

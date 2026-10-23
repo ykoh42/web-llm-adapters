@@ -1,6 +1,79 @@
+import { writeFile } from 'node:fs/promises'
+import type { AssistantMessage } from '@earendil-works/pi-ai'
 import { test, expect } from './browser.js'
 import type {} from './checks.js'
-import type { ChatCompletionChunk } from '@mlc-ai/web-llm'
+import type { ChatCompletionChunk, ChatCompletionRequestStreaming } from '@mlc-ai/web-llm'
+import type { WebLLMStreamOptions } from 'pi-ai-web-llm'
+
+test('Pi rejects invalid tool choices before inference and keeps auto and none usable', async ({
+  page,
+}, info) => {
+  await page.goto('http://127.0.0.1:4173/pi/test/checks.html')
+  await page.evaluate(() => window.piChecks.load('Qwen3.5-4B-q4f16_1-MLC'))
+  const results = await page.evaluate(async () => {
+    const { models, model } = await window.piChecks.provider(true)
+    const agent = await window.piChecks.createAgent(true)
+    const context = {
+      systemPrompt: agent.state.systemPrompt,
+      tools: agent.state.tools,
+      messages: [
+        { role: 'user' as const, content: 'Use lookup to look up code A7.', timestamp: 0 },
+      ],
+    }
+    let payloadCalls = 0
+    const invalid = []
+    for (const simple of [false, true]) {
+      for (const toolChoice of ['required', 'lookup', 'none ', null]) {
+        const options: WebLLMStreamOptions = {
+          reasoning: 'low',
+          onPayload: () => {
+            payloadCalls++
+          },
+        }
+        Object.assign(options, { toolChoice })
+        invalid.push(
+          simple
+            ? await models.completeSimple(model, context, options)
+            : await models.complete(model, context, options),
+        )
+      }
+    }
+    const blockedPayloads = payloadCalls
+    const valid = []
+    for (const toolChoice of ['auto', 'none'] as const) {
+      valid.push(
+        await models.completeSimple(model, context, {
+          toolChoice,
+          reasoning: 'low',
+          onPayload: () => {
+            payloadCalls++
+          },
+        }),
+      )
+    }
+    return { invalid, valid, blockedPayloads, payloadCalls }
+  })
+  await info.attach('choices', {
+    body: JSON.stringify(results, null, 2),
+    contentType: 'application/json',
+  })
+  expect(results.blockedPayloads).toBe(0)
+  expect(results.payloadCalls).toBe(2)
+  for (const result of results.invalid)
+    expect(result).toMatchObject({
+      stopReason: 'error',
+      errorMessage: 'toolChoice must be auto or none.',
+      content: [],
+    })
+  expect(results.valid[0]).toMatchObject({
+    stopReason: 'toolUse',
+    content: expect.arrayContaining([
+      { type: 'toolCall', id: expect.any(String), name: 'lookup', arguments: { code: 'A7' } },
+    ]),
+  })
+  expect(results.valid[1]?.stopReason).toBe('stop')
+  expect(results.valid[1]?.content.some((part) => part.type === 'toolCall')).toBe(false)
+})
 
 test('Pi applies thinking-level sampling and cancels pending callbacks on a real Worker', async ({
   page,
@@ -188,5 +261,84 @@ for (const modelId of [
         .join(''),
     ).toContain('6')
     expect(errors).toEqual([])
+  })
+}
+
+for (const modelId of ['Qwen3.5-4B-q4f16_1-MLC', 'Qwen3-8B-q4f16_1-MLC']) {
+  test(`${modelId}: native thinking sampling overrides named Pi reasoning on a real Worker`, async ({
+    page,
+  }, info) => {
+    await page.goto('http://127.0.0.1:4173/pi/test/checks.html')
+    await page.evaluate((id) => window.piChecks.load(id), modelId)
+    const results = await page.evaluate(async () => {
+      const { models, model, engine } = await window.piChecks.provider(true)
+      const context = {
+        messages: [{ role: 'user' as const, content: 'What is 17 * 23?', timestamp: 0 }],
+      }
+      const results: {
+        simple: boolean
+        enable_thinking: boolean
+        message: AssistantMessage
+        payload: ChatCompletionRequestStreaming
+        native: string
+        direct: string
+      }[] = []
+      for (const simple of [false, true]) {
+        for (const enable_thinking of [true, false]) {
+          let payload: ChatCompletionRequestStreaming | undefined
+          let native = ''
+          const options: WebLLMStreamOptions = {
+            ...(!enable_thinking && { reasoning: 'high' }),
+            samplingParams: { extra_body: { enable_thinking, enable_latency_breakdown: true } },
+            onPayload: (request) => {
+              payload = structuredClone(request) as ChatCompletionRequestStreaming
+            },
+            onProviderStreamEvent: (event) => {
+              const chunk = event as ChatCompletionChunk
+              native += chunk.choices[0]?.delta.content ?? ''
+            },
+          }
+          const message = simple
+            ? await models.completeSimple(model, context, options)
+            : await models.complete(model, context, options)
+          if (!payload) throw new Error('Missing native request.')
+          results.push({ simple, enable_thinking, message, payload, native, direct: '' })
+        }
+      }
+      await window.piChecks.withEngine(engine, async (engine) => {
+        await engine.resetChat()
+        for (const result of results) {
+          for await (const chunk of await engine.chat.completions.create(result.payload))
+            result.direct += chunk.choices[0]?.delta.content ?? ''
+        }
+      })
+      return results
+    })
+    await writeFile(info.outputPath('thinking-sampling.json'), JSON.stringify(results, null, 2))
+    expect(results).toHaveLength(4)
+    for (const { simple, enable_thinking, message, payload, native, direct } of results) {
+      const mode = `simple=${simple}, thinking=${enable_thinking}`
+      expect(payload, mode).toMatchObject({
+        max_tokens: 4096,
+        seed: 7,
+        extra_body: { enable_thinking, enable_latency_breakdown: true },
+      })
+      expect(native, mode).toBe(direct)
+      expect(message.stopReason, mode).toBe('stop')
+      expect(
+        message.content
+          .filter((part) => part.type === 'text')
+          .map((part) => part.text)
+          .join(''),
+      ).toContain('391')
+      const thinking = message.content
+        .filter((part) => part.type === 'thinking')
+        .map((part) => part.thinking)
+        .join('')
+      const nativeThinking = /<think>([\s\S]*?)<\/think>/.exec(direct)?.[1] ?? ''
+      expect(thinking, mode).toBe(nativeThinking)
+      if (enable_thinking && modelId.startsWith('Qwen3-')) expect(thinking, mode).toMatch(/\S/)
+      if (!enable_thinking) expect(thinking, mode).toMatch(/^\s*$/)
+    }
   })
 }

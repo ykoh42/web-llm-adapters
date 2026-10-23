@@ -3,6 +3,7 @@ import { waitForCallback } from '../../../../shared/web-llm/callback.js'
 
 export interface FailedAttempt {
   failedAttempt: BrowserError
+  readonly failedAttemptJSON?: string
   done: false
   native: true
 }
@@ -54,7 +55,15 @@ export function failedAttempts<T>(signal: AbortSignal) {
         if (failure) {
           const error = failure
           failure = undefined
-          return { failedAttempt: error, done: false, native: true }
+          const packet = {
+            failedAttempt: error,
+            get failedAttemptJSON(): string {
+              return JSON.stringify(this.failedAttempt)
+            },
+            done: false as const,
+            native: true as const,
+          }
+          return packet
         }
         const result = await pending!
         pending = undefined

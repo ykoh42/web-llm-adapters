@@ -9,6 +9,8 @@ export interface WebLLMProviderOptions {
   /** A caller-owned MLCEngine or WebWorkerMLCEngine with modelId already loaded. */
   engine: MLCEngineInterface
   modelId: string
+  /** The loaded Qwen template already supplies the opening thinking tag. */
+  thinkingPrefilled?: boolean
   /** Match context_window_size used when loading the engine. */
   contextWindow: number
   maxTokens?: number

@@ -214,3 +214,17 @@ it.each([null, [], 42, 'literal', { toJSON: () => [] }])(
     expect(() => formatCall('lookup', input)).toThrow('arguments must be an object')
   },
 )
+
+it.each(['<parameter=x>', '</parameter>'])(
+  'rejects an ambiguous raw string history value containing %s',
+  (text) => {
+    expect(() => formatCall('lookup', { text })).toThrow('cannot preserve parameter tags')
+  },
+)
+
+it.each(['a>b', '>code', 'code>'])(
+  'rejects a history argument name that would close its XML header: %s',
+  (name) => {
+    expect(() => formatCall('lookup', { [name]: 42 })).toThrow('parameter names')
+  },
+)

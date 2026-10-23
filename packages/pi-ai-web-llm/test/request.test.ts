@@ -1,10 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import type { ResponseFormat } from '@mlc-ai/web-llm'
+import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
+import { clampMaxTokensToContext } from '@earendil-works/pi-ai/api/simple-options'
 import { setup } from './helpers.js'
 
 const context = { messages: [{ role: 'user' as const, content: 'Hello', timestamp: 0 }] }
 
 describe('Pi sampling options', () => {
+  it('accepts empty thinking budgets', async () => {
+    const { models, model, create } = setup()
+    const result = await models.complete(model, context, { thinkingBudgets: {} })
+
+    expect(result.stopReason).toBe('stop')
+    expect(create.mock.calls[0]?.[0].extra_body).toBeUndefined()
+  })
+
   it.each([false, true])(
     'preserves native requests and output without thinking-level settings (simple=%s)',
     async (simple) => {
@@ -106,6 +116,23 @@ describe('Pi sampling options', () => {
     })
   })
 
+  it('uses the same supported default level for sampling and thinking', async () => {
+    const { models, model, create } = setup(undefined, { reasoning: true })
+    model.thinkingLevelMap = { off: null }
+    model.samplingParamsByThinkingLevel = {
+      off: { temperature: 0.1 },
+      minimal: { temperature: 0.8 },
+    }
+    const before = structuredClone(model)
+    await models.completeSimple(model, context)
+
+    expect(create.mock.calls[0]?.[0]).toMatchObject({
+      temperature: 0.8,
+      extra_body: { enable_thinking: true },
+    })
+    expect(model).toEqual(before)
+  })
+
   it('still rejects an explicit thinking request on a model without reasoning', async () => {
     const { models, model, create } = setup(undefined, { reasoning: false })
     const result = await models.completeSimple(model, context, { reasoning: 'high' })
@@ -150,6 +177,123 @@ describe('Pi sampling options', () => {
       expect(create).not.toHaveBeenCalled()
     },
   )
+})
+
+describe('Pi output token limits', () => {
+  it('clamps only simple calls to the remaining context', async () => {
+    const { models, model, create } = setup()
+    const longContext = normalizeContext({
+      messages: [{ role: 'user' as const, content: 'x'.repeat(8_000), timestamp: 0 }],
+    })
+    const expected = clampMaxTokensToContext(model, longContext, model.maxTokens)
+
+    await models.complete(model, longContext)
+    expect(create.mock.calls[0]?.[0].max_tokens).toBe(model.maxTokens)
+
+    await models.completeSimple(model, longContext)
+    expect(create.mock.calls[1]?.[0].max_tokens).toBe(expected)
+
+    await models.completeSimple(model, longContext, { samplingParams: { max_tokens: 73 } })
+    expect(create.mock.calls[2]?.[0].max_tokens).toBe(73)
+  })
+
+  it('preserves a native null cap on long simple calls', async () => {
+    const { models, model, create } = setup(undefined, { request: { max_tokens: null } })
+    const longContext = normalizeContext({
+      messages: [{ role: 'user' as const, content: 'x'.repeat(8_000), timestamp: 0 }],
+    })
+    await models.completeSimple(model, longContext)
+
+    expect(create.mock.calls[0]?.[0].max_tokens).toBeNull()
+  })
+
+  it.each([false, true])('preserves a native null default (simple=%s)', async (simple) => {
+    const { models, model, create } = setup(undefined, {
+      maxTokens: 1,
+      request: { max_tokens: null },
+    })
+    const result = simple
+      ? await models.completeSimple(model, context)
+      : await models.complete(model, context)
+
+    expect(result.stopReason).toBe('stop')
+    expect(create.mock.calls[0]?.[0].max_tokens).toBeNull()
+  })
+
+  it.each(['request', 'samplingParams', 'model', 'level'] as const)(
+    'preserves native null from %s with the usual option precedence',
+    async (source) => {
+      const { models, model, create } = setup(undefined, { request: { max_tokens: 64 } })
+      if (source === 'model') model.samplingParams = { max_tokens: null }
+      if (source === 'level') model.samplingParamsByThinkingLevel = { off: { max_tokens: null } }
+      const result = await models.complete(model, context, {
+        ...(source !== 'request' && { maxTokens: 32 }),
+        ...(source === 'request' && { request: { max_tokens: null } }),
+        ...(source === 'samplingParams' && { samplingParams: { max_tokens: null } }),
+      })
+
+      expect(result.stopReason).toBe('stop')
+      expect(create.mock.calls[0]?.[0].max_tokens).toBeNull()
+    },
+  )
+
+  it.each(['defaults', 'request'])(
+    'lets named maxTokens override a native null from %s',
+    async (source) => {
+      const { models, model, create } = setup(undefined, {
+        request: { max_tokens: source === 'defaults' ? null : 64 },
+      })
+      await models.complete(model, context, {
+        maxTokens: 32,
+        ...(source === 'request' && { request: { max_tokens: null } }),
+      })
+
+      expect(create.mock.calls[0]?.[0].max_tokens).toBe(32)
+    },
+  )
+
+  it('inherits the native default when a JavaScript call contains undefined', async () => {
+    const { models, model, create } = setup(undefined, { request: { max_tokens: 64 } })
+    const request = { max_tokens: 32 }
+    Object.assign(request, { max_tokens: undefined })
+    await models.complete(model, context, { request })
+
+    expect(create.mock.calls[0]?.[0].max_tokens).toBe(64)
+  })
+
+  for (const simple of [false, true]) {
+    it.each(['samplingParams', 'model', 'level'] as const)(
+      `preserves an unset native token limit from %s (simple=${simple})`,
+      async (source) => {
+        const { models, model, create } = setup(undefined, { request: { max_tokens: 64 } })
+        if (source === 'model') model.samplingParams = { max_tokens: undefined }
+        if (source === 'level')
+          model.samplingParamsByThinkingLevel = { off: { max_tokens: undefined } }
+        const options = {
+          maxTokens: 32,
+          ...(source === 'samplingParams' && { samplingParams: { max_tokens: undefined } }),
+        }
+        const result = simple
+          ? await models.completeSimple(model, context, options)
+          : await models.complete(model, context, options)
+
+        expect(result.stopReason).toBe('stop')
+        expect(result.content).toEqual([{ type: 'text', text: 'Hello' }])
+        expect(create).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({ max_tokens: undefined }),
+        )
+      },
+    )
+  }
+
+  it.each([0, -1, NaN, Infinity, 1.5])('still rejects an invalid cap %s', async (max_tokens) => {
+    const { models, model, create } = setup()
+    const result = await models.complete(model, context, { request: { max_tokens } })
+
+    expect(result.stopReason).toBe('error')
+    expect(result.errorMessage).toContain('positive integer')
+    expect(create).not.toHaveBeenCalled()
+  })
 })
 
 describe('Pi response formats', () => {
@@ -206,5 +350,58 @@ describe('Pi response formats', () => {
 
     expect(create.mock.calls[0]?.[0].response_format).toEqual(before)
     expect(format).toEqual(before)
+  })
+})
+
+describe.each([false, true])('native thinking sampling (simple=%s)', (simple) => {
+  for (const source of ['model', 'level', 'call'] as const) {
+    it.each([false, true, null, undefined])(
+      `preserves enable_thinking=%s from ${source} sampling`,
+      async (enable_thinking) => {
+        const { models, model, create } = setup(undefined, { reasoning: true })
+        const reasoning = enable_thinking === true ? undefined : ('high' as const)
+        const extra_body = { enable_thinking, enable_latency_breakdown: true }
+        if (source === 'model') model.samplingParams = { extra_body }
+        if (source === 'level')
+          model.samplingParamsByThinkingLevel = { [reasoning ?? 'off']: { extra_body } }
+        const options = {
+          ...(reasoning !== undefined && { reasoning }),
+          ...(source === 'call' && { samplingParams: { extra_body } }),
+        } as const
+        const before = structuredClone({ model, options })
+        const result = simple
+          ? await models.completeSimple(model, context, options)
+          : await models.complete(model, context, options)
+
+        expect(result.stopReason).toBe('stop')
+        expect(create.mock.calls[0]?.[0].extra_body).toEqual(extra_body)
+        expect({ model, options }).toEqual(before)
+      },
+    )
+  }
+
+  it('forwards an explicit sampling body without adding thinking fields', async () => {
+    const { models, model, create } = setup(undefined, { reasoning: true })
+    const options = {
+      reasoning: 'high' as const,
+      samplingParams: { extra_body: { enable_latency_breakdown: true } },
+    }
+    if (simple) await models.completeSimple(model, context, options)
+    else await models.complete(model, context, options)
+    expect(create.mock.calls[0]?.[0].extra_body).toEqual({ enable_latency_breakdown: true })
+  })
+
+  it('keeps named reasoning above native defaults when sampling does not replace the body', async () => {
+    const { models, model, create } = setup(undefined, {
+      reasoning: true,
+      request: { extra_body: { enable_thinking: false, enable_latency_breakdown: true } },
+    })
+    const options = { reasoning: 'high' as const, samplingParams: { temperature: 0.7 } }
+    if (simple) await models.completeSimple(model, context, options)
+    else await models.complete(model, context, options)
+    expect(create.mock.calls[0]?.[0]).toMatchObject({
+      temperature: 0.7,
+      extra_body: { enable_thinking: true, enable_latency_breakdown: true },
+    })
   })
 })

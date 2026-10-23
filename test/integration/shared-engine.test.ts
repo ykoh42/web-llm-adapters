@@ -1,34 +1,62 @@
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
 import { HumanMessage } from '@langchain/core/messages'
 import { Message, TextBlock } from '@strands-agents/sdk'
+import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
 // Package exports load separate release bundles, each with its own copy of the queue code.
 import { WebLLMModel, withEngine as strandsAccess } from 'strands-web-llm'
 import { ChatWebLLM, withEngine as langchainAccess } from 'langchain-web-llm'
+import { createWebLLMProvider, withEngine as piAccess } from 'pi-ai-web-llm'
 import { chunk, chunks, pause, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
 
-type Client = 'strands' | 'langchain'
+const clients = ['strands', 'langchain', 'pi'] as const
+const access = { strands: strandsAccess, langchain: langchainAccess, pi: piAccess }
+type Client = (typeof clients)[number]
+const pairs = clients.flatMap((client) =>
+  clients.filter((other) => client !== other).map((other) => ({ client, other })),
+)
 
 async function read(
   client: Client,
   engine: MLCEngineInterface,
   text: string,
   signal?: AbortSignal,
+  onChunk?: () => void,
 ) {
   let output = ''
   if (client === 'strands') {
-    const model = new WebLLMModel({ engine, modelId: 'test-model' })
+    const model = new WebLLMModel({ engine, modelId: 'test-model', ...(onChunk && { onChunk }) })
     const messages = [new Message({ role: 'user', content: [new TextBlock(text)] })]
     for await (const event of model.stream(messages, signal ? { cancelSignal: signal } : {}))
       if (event.type === 'modelContentBlockDeltaEvent' && event.delta.type === 'textDelta')
         output += event.delta.text
-  } else {
-    const model = new ChatWebLLM({ engine, modelId: 'test-model' })
+  } else if (client === 'langchain') {
+    const model = new ChatWebLLM({ engine, modelId: 'test-model', ...(onChunk && { onChunk }) })
     for await (const chunk of model._streamResponseChunks(
       [new HumanMessage(text)],
       signal ? { signal } : {},
     ))
       output += chunk.text
+  } else {
+    const provider = createWebLLMProvider({
+      engine,
+      modelId: 'test-model',
+      contextWindow: 8192,
+      ...(onChunk && { onChunk }),
+    })
+    const model = provider.getModels()[0]!
+    const stream = provider.stream(
+      model,
+      normalizeContext({ messages: [{ role: 'user', content: text, timestamp: 0 }] }),
+      signal ? { signal } : {},
+    )
+    for await (const event of stream) if (event.type === 'text_delta') output += event.delta
+    const result = await stream.result()
+    if (result.stopReason === 'aborted') {
+      signal?.throwIfAborted()
+      throw new Error(result.errorMessage)
+    }
+    if (result.stopReason === 'error') throw new Error(result.errorMessage)
   }
   return output
 }
@@ -44,8 +72,34 @@ function turn() {
   return new Promise<void>((resolve) => setImmediate(resolve))
 }
 
-for (const client of ['strands', 'langchain'] as const) {
-  const other = client === 'strands' ? 'langchain' : 'strands'
+for (const { client, other } of pairs) {
+  it(`${client} leaves an independent ${other} engine free to run`, async () => {
+    const first = setup()
+    const second = setup(chunk({ content: 'independent' }, 'stop'))
+    const opened = pause()
+    const hold = pause()
+    first.create.mockResolvedValueOnce(
+      (async function* () {
+        opened.resume()
+        yield chunk({ content: 'active' })
+        await hold.wait
+        yield chunk({}, 'stop')
+      })(),
+    )
+    const active = settle(read(client, first.engine, 'active'))
+    await opened.wait
+    const independent = settle(read(other, second.engine, 'independent'))
+    try {
+      await turn()
+      expect(second.create).toHaveBeenCalledTimes(1)
+      expect(await independent).toEqual({ text: 'independent' })
+      expect(first.stop).not.toHaveBeenCalled()
+    } finally {
+      hold.resume()
+      await Promise.all([active, independent])
+    }
+    expect(await active).toEqual({ text: 'active' })
+  })
 
   it(`${client} owns the engine until its stream closes before ${other} starts`, async () => {
     const { engine, create } = setup(chunk({ content: 'queued' }, 'stop'))
@@ -136,6 +190,98 @@ for (const client of ['strands', 'langchain'] as const) {
     }
   })
 
+  it(`${client} closes a failed observer stream before queued ${other} work starts`, async () => {
+    const { engine, create, stop } = setup(chunk({ content: 'recovered' }, 'stop'))
+    const closing = pause()
+    const hold = pause()
+    const failure = new Error('Observer failed')
+    let closed = false
+    create.mockResolvedValueOnce({
+      [Symbol.asyncIterator]() {
+        return {
+          async next() {
+            return { done: false, value: chunk({ content: 'partial' }) }
+          },
+          async return() {
+            closing.resume()
+            await hold.wait
+            closed = true
+            return { done: true, value: undefined }
+          },
+        }
+      },
+    })
+    const active = settle(
+      read(client, engine, 'active', undefined, () => {
+        throw failure
+      }),
+    )
+    await closing.wait
+    const waiting = settle(read(other, engine, 'recovered'))
+    try {
+      await turn()
+      expect(create).toHaveBeenCalledTimes(1)
+      expect(stop).toHaveBeenCalledTimes(1)
+      expect(closed).toBe(false)
+      hold.resume()
+      expect(await active).toMatchObject({ error: { message: failure.message } })
+      expect(await waiting).toEqual({ text: 'recovered' })
+      expect(closed).toBe(true)
+      expect(create).toHaveBeenCalledTimes(2)
+    } finally {
+      hold.resume()
+      await Promise.all([active, waiting])
+    }
+  })
+
+  it(`${client} closes a cancelled opening stream before queued ${other} work starts`, async () => {
+    const { engine, create, stop } = setup(chunk({ content: 'recovered' }, 'stop'))
+    const opening = pause()
+    const started = pause()
+    const closing = pause()
+    const hold = pause()
+    const close = vi.fn(async () => {
+      closing.resume()
+      await hold.wait
+      return { done: true as const, value: undefined }
+    })
+    create.mockImplementationOnce(async () => {
+      started.resume()
+      await opening.wait
+      return {
+        [Symbol.asyncIterator]: () => ({
+          next: async () => ({ done: false as const, value: chunk({}, 'stop') }),
+          return: close,
+        }),
+      }
+    })
+    const controller = new AbortController()
+    const active = settle(read(client, engine, 'active', controller.signal))
+    await started.wait
+    const failure = new Error('Cancel while opening')
+    controller.abort(failure)
+    const waiting = settle(read(other, engine, 'recovered'))
+    try {
+      await turn()
+      expect(create).toHaveBeenCalledTimes(1)
+      opening.resume()
+      await closing.wait
+      await turn()
+      expect(close).toHaveBeenCalledTimes(1)
+      expect(create).toHaveBeenCalledTimes(1)
+      expect(stop).toHaveBeenCalledTimes(1)
+      hold.resume()
+      expect(await active).toEqual({ error: failure })
+      expect(await waiting).toEqual({ text: 'recovered' })
+      expect(close).toHaveBeenCalledTimes(1)
+      expect(create).toHaveBeenCalledTimes(2)
+    } finally {
+      opening.resume()
+      hold.resume()
+      await Promise.all([active, waiting])
+    }
+  })
+
   it(`${client} and ${other} keep queued requests in order after several cancellations`, async () => {
     const { engine, create, stop } = setup()
     create.mockImplementation(async (request) =>
@@ -192,9 +338,8 @@ for (const client of ['strands', 'langchain'] as const) {
     const { engine, create } = setup(chunk({ content: 'queued' }, 'stop'))
     const opened = pause()
     const hold = pause()
-    const access = client === 'strands' ? strandsAccess : langchainAccess
     const active = settle(
-      access(engine, async () => {
+      access[client](engine, async () => {
         opened.resume()
         await hold.wait
         return 'native'

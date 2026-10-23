@@ -152,6 +152,21 @@ describe('browser retry errors', () => {
     expect(original.message).toBe('Original')
   })
 
+  it('keeps a read-only cause getter when its transported copy is edited', () => {
+    const cause = new TypeError('Original cause')
+    const original = Object.defineProperty(new Error('Native failure'), 'cause', {
+      configurable: true,
+      get: () => cause,
+    })
+    const edited = transfer(original)
+    Reflect.deleteProperty(edited, 'cause')
+
+    applyBrowserError(original, serializeBrowserError(edited))
+
+    expect(original.cause).toBe(cause)
+    expect(Object.getOwnPropertyDescriptor(original, 'cause')?.get).toBeTypeOf('function')
+  })
+
   it('bounds cyclic cause chains to five entries', () => {
     const error = new Error('Opening failed')
     error.cause = error

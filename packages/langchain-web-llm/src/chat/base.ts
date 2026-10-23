@@ -12,7 +12,7 @@ import {
   isSerializableSchema,
   type SerializableSchema,
 } from '@langchain/core/utils/standard_schema'
-import type { Runnable } from '@langchain/core/runnables'
+import type { Runnable, RunnableConfig } from '@langchain/core/runnables'
 import type { BaseLanguageModelInput } from '@langchain/core/language_models/base'
 import type {
   AIMessageChunk,
@@ -32,8 +32,10 @@ import { formatTools } from './tools.js'
 import { normalizeResponseFormat } from '../../../../shared/web-llm/response.js'
 import { stringifyJSON } from '../../../../shared/web-llm/json.js'
 import type { WebLLMModelOptions, WebLLMCallOptions, WebLLMRequest } from '../types.js'
-import { readEvents } from './stream.js'
+import { readEvents } from './events.js'
 import { waitForCallback } from '../../../../shared/web-llm/callback.js'
+import { checkRequest } from '../../../../shared/web-llm/request.js'
+import { checkThinkingPrefill } from '../../../../shared/web-llm/qwen/prefill.js'
 
 export abstract class WebLLMChatModel extends BaseChatModel<
   WebLLMCallOptions,
@@ -44,9 +46,11 @@ export abstract class WebLLMChatModel extends BaseChatModel<
   protected readonly retries: number
   private readonly callerParams: AsyncCallerParams
   protected readonly request: WebLLMRequest
+  protected readonly thinkingPrefilled: boolean
 
   constructor({
     modelId,
+    thinkingPrefilled = false,
     request,
     temperature,
     maxTokens,
@@ -57,6 +61,8 @@ export abstract class WebLLMChatModel extends BaseChatModel<
   }: WebLLMModelOptions) {
     super({ ...params, maxRetries: params.maxRetries ?? 0 })
     if (!modelId) throw new Error('modelId must name a loaded WebLLM model.')
+    checkThinkingPrefill(modelId, thinkingPrefilled)
+    this.thinkingPrefilled = thinkingPrefilled
     this.disableStreaming = params.disableStreaming ?? false
     this.modelId = modelId
     this.retries = params.maxRetries ?? 0
@@ -65,7 +71,7 @@ export abstract class WebLLMChatModel extends BaseChatModel<
       ...(params.maxConcurrency !== undefined && { maxConcurrency: params.maxConcurrency }),
       ...(params.onFailedAttempt !== undefined && { onFailedAttempt: params.onFailedAttempt }),
     }
-    this.modelProfile = modelProfile(modelId, profile)
+    this.modelProfile = modelProfile(modelId, profile, request)
     this.request = structuredClone({
       ...request,
       ...(temperature !== undefined && { temperature }),
@@ -73,6 +79,7 @@ export abstract class WebLLMChatModel extends BaseChatModel<
       ...(topP !== undefined && { top_p: topP }),
       ...(stop !== undefined && { stop }),
     })
+    checkRequest(this.request)
   }
 
   override get profile(): ModelProfile {
@@ -115,11 +122,24 @@ export abstract class WebLLMChatModel extends BaseChatModel<
     return this.invocationParams()
   }
 
+  // Cache the effective output format and tool definitions, not tool instances.
+  override _getSerializedCacheKeyParametersForCall(
+    options: WebLLMCallOptions & { config?: RunnableConfig },
+  ): string {
+    return super._getSerializedCacheKeyParametersForCall({
+      ...options,
+      ...(options.tools && { tools: formatTools(options.tools) }),
+      outputVersion: options.outputVersion ?? this.outputVersion ?? 'v0',
+      ...(this.thinkingPrefilled && { thinkingPrefilled: true }),
+    })
+  }
+
   override invocationParams(options?: this['ParsedCallOptions']) {
     return { model: this.modelId, ...this.formatRequest(options) }
   }
 
   protected formatRequest(options?: this['ParsedCallOptions']): WebLLMRequest {
+    if (options?.request) checkRequest(options.request)
     const format = options?.response_format
     const request = structuredClone({
       ...this.request,
@@ -174,11 +194,12 @@ export abstract class WebLLMChatModel extends BaseChatModel<
   ):
     | Runnable<BaseLanguageModelInput, Output, WebLLMCallOptions>
     | Runnable<BaseLanguageModelInput, { raw: BaseMessage; parsed: Output }, WebLLMCallOptions> {
-    if (config?.strict) throw new Error('WebLLM cannot guarantee strict tool schemas.')
     const json =
       isInteropZodSchema(schema) || isSerializableSchema(schema) ? toJsonSchema(schema) : schema
     const method =
       config?.method ?? (this.profile.toolCalling === false ? 'jsonSchema' : 'functionCalling')
+    if (config?.strict && method !== 'jsonSchema')
+      throw new Error('WebLLM strict mode requires jsonSchema.')
     const tracing = { kwargs: { method }, schema: json }
     if (method === 'jsonMode' || method === 'jsonSchema') {
       const llm = this.withConfig({

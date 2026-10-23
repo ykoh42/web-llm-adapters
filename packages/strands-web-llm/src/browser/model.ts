@@ -55,7 +55,9 @@ export class BrowserModel extends WebLLMModelBase {
         cancelSignal?.throwIfAborted()
         if ('error' in result) {
           complete = true
-          throw fromBrowserError(result.error)
+          throw fromBrowserError(
+            result.errorJSON === undefined ? result.error : JSON.parse(result.errorJSON),
+          )
         }
         if (result.done) {
           complete = true

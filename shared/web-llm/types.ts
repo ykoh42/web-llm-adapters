@@ -1,6 +1,13 @@
+import type { ChatCompletionMessageParam } from '@mlc-ai/web-llm'
 import type { JSONSchema7 } from 'json-schema'
 
 export type JSONSchema = JSONSchema7
+
+export type ProtocolMessage = ChatCompletionMessageParam & {
+  reasoning?: string
+  response?: unknown
+  context?: string
+}
 export interface ToolSpec {
   name: string
   description: string

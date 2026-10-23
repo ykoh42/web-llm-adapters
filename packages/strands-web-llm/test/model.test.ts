@@ -279,6 +279,57 @@ describe('WebLLMModel', () => {
     expect(result.metadata?.trace).toEqual(usage.extra)
   })
 
+  it('exposes native log probabilities on the stop event', async () => {
+    const first = chunk({ content: 'Hi' })
+    first.choices[0]!.logprobs = {
+      content: [
+        {
+          token: 'Hi',
+          logprob: -0.25,
+          bytes: [72, 105],
+          top_logprobs: [{ token: 'Hi', logprob: -0.25, bytes: [72, 105] }],
+        },
+      ],
+    }
+    const last = chunk({}, 'stop')
+    last.choices[0]!.logprobs = {
+      content: [{ token: '!', logprob: Number.NEGATIVE_INFINITY, bytes: [33], top_logprobs: [] }],
+    }
+    const { engine, create } = setup()
+    create.mockImplementation(async () => chunks(first, last))
+    const onChunk = vi.fn()
+    const model = new WebLLMModel({
+      engine,
+      modelId: 'test-model',
+      request: { logprobs: true },
+      onChunk,
+    })
+
+    const events = await collect(model.stream(messages))
+    const stop = events.find((event) => event.type === 'modelMessageStopEvent')
+
+    expect(events).toContainEqual({
+      type: 'modelContentBlockDeltaEvent',
+      delta: { type: 'textDelta', text: 'Hi' },
+    })
+    expect(stop).toMatchObject({
+      additionalModelResponseFields: {
+        logprobs: {
+          content: [
+            {
+              token: 'Hi',
+              logprob: -0.25,
+              bytes: [72, 105],
+              top_logprobs: [{ token: 'Hi', logprob: -0.25, bytes: [72, 105] }],
+            },
+            { token: '!', logprob: Number.NEGATIVE_INFINITY, bytes: [33], top_logprobs: [] },
+          ],
+        },
+      },
+    })
+    expect(onChunk.mock.calls.map(([value]) => value)).toEqual([first, last])
+  })
+
   it('runs a tool and sends its result back through the Agent loop', async () => {
     const { model, create } = setup()
     create.mockResolvedValueOnce(
@@ -308,6 +359,32 @@ describe('WebLLMModel', () => {
     })
     const assistant = request.messages.find((message) => message.role === 'assistant')
     expect(assistant).toMatchObject({ content: '', tool_calls: [{ id: 'call-1' }] })
+  })
+
+  it('keeps streamed text beside a native tool call', async () => {
+    const { model } = setup(
+      chunk(
+        {
+          content: 'I will check the weather.',
+          tool_calls: [
+            {
+              index: 0,
+              id: 'call-1',
+              function: { name: 'weather', arguments: '{}' },
+            },
+          ],
+        },
+        'tool_calls',
+      ),
+    )
+    const blocks = await collect(model.streamAggregated(messages, { toolSpecs: tools }))
+
+    expect(
+      blocks.filter((block) => block instanceof TextBlock || block instanceof ToolUseBlock),
+    ).toEqual([
+      new TextBlock('I will check the weather.'),
+      new ToolUseBlock({ name: 'weather', toolUseId: 'call-1', input: {} }),
+    ])
   })
 
   it('joins split tool names and JSON without showing raw tool JSON as text', async () => {

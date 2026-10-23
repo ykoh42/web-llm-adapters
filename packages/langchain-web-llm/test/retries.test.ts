@@ -23,7 +23,7 @@ function browser(options: Omit<ChatWebLLMOptions, 'modelId' | 'engine'> = {}) {
     },
   }
   const model = new BrowserChatWebLLM(page, { modelId: 'test-model', ...options })
-  return { ...result, model, bridge }
+  return { ...result, page, model, bridge }
 }
 afterEach(async () => {
   try {
@@ -63,6 +63,19 @@ describe('local failed-attempt cancellation', () => {
 })
 
 describe('browser failed-attempt callbacks', () => {
+  it('batches the successful response after a failed-attempt callback', async () => {
+    const onFailedAttempt = vi.fn()
+    const { page, model, create } = browser({ maxRetries: 1, onFailedAttempt })
+    const evaluate = vi.spyOn(page, 'evaluate')
+    create.mockRejectedValueOnce(new Error('Opening failed'))
+
+    expect((await model.invoke('Hi')).text).toBe('Answer')
+
+    expect(onFailedAttempt).toHaveBeenCalledOnce()
+    expect(create).toHaveBeenCalledTimes(2)
+    expect(evaluate).toHaveBeenCalledTimes(4)
+  })
+
   it('awaits the handler before retrying without changing native requests or chunks', async () => {
     const hold = pause()
     const native = stampRetryable(

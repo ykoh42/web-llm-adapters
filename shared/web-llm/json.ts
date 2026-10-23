@@ -2,11 +2,16 @@ import { ModelError, type JSONValue } from './types.js'
 
 /** Reject numbers that JSON.stringify would silently replace with null. */
 export function parseJSON(source: string): JSONValue {
-  return JSON.parse(source, (_key, value: JSONValue) => {
-    if (typeof value === 'number' && !Number.isFinite(value))
-      throw new ModelError('Tool arguments must contain finite numbers.')
-    return value
-  })
+  const result: JSONValue = JSON.parse(source)
+  const pending = [[result]]
+  while (pending.length)
+    for (const value of pending.pop()!) {
+      if (typeof value === 'number' && !Number.isFinite(value))
+        throw new ModelError('Tool arguments must contain finite numbers.')
+      if (value && typeof value === 'object')
+        pending.push(Array.isArray(value) ? value : Object.values(value))
+    }
+  return result
 }
 
 /** Keep invalid JSON numbers from silently becoming null. */

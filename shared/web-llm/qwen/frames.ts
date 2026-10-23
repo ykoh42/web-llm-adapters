@@ -7,7 +7,7 @@ import {
   type ToolDelta,
   type ChunkOptions,
 } from '../stream/chunks.js'
-import { textEnd } from '../gemma/markers.js'
+import { textEnd } from '../stream/markers.js'
 import { QwenOutput } from './output.js'
 
 const thinkStart = '<think>'
@@ -18,6 +18,8 @@ const callEnd = '</tool_call>'
 interface ToolReader {
   end(text: string, limit: number): number
   parse(text: string, index: number): ToolDelta[]
+  /** Retain partial markers needed by a stateful reader. */
+  markers?: string[]
   /** XML requires a closing tag; JSON also accepts a complete object at a normal stop. */
   unclosedError?: string
 }
@@ -31,17 +33,22 @@ export async function* qwenFrames(
     signal,
     parseProtocol = true,
     parseThinking = true,
+    thinkingPrefilled = false,
     parseTools,
+    stopRequested = false,
   }: ChunkOptions<ChatCompletionChunk> & {
     parseProtocol?: boolean
     parseThinking?: boolean
+    thinkingPrefilled?: boolean
     parseTools: boolean
+    stopRequested?: boolean
   },
 ): AsyncGenerator<StreamChunk> {
   const textMarkers: string[] = []
   if (parseThinking) textMarkers.push(thinkStart)
   if (parseTools) textMarkers.push(callStart)
-  let mode: 'text' | 'thinking' | 'tool' = 'text'
+  let mode: 'text' | 'thinking' | 'tool' =
+    parseProtocol && parseThinking && thinkingPrefilled ? 'thinking' : 'text'
   let pending = ''
   let toolText = ''
   const output = new QwenOutput()
@@ -58,7 +65,7 @@ export async function* qwenFrames(
 
       while (pending) {
         if (mode === 'tool') {
-          const end = textEnd(pending, [callEnd])
+          const end = textEnd(pending, reader.markers ?? [callEnd])
           const at = reader.end(pending, end)
           if (at === -1) {
             output.add('tool', pending.slice(0, end))
@@ -126,6 +133,8 @@ export async function* qwenFrames(
         if (mode === 'thinking') {
           output.add('reasoning', pending)
           pending = ''
+          if (stop !== 'maxTokens' && stop !== 'cancelled' && !stopRequested)
+            throw new ModelError('Qwen ended inside a thinking block.')
         } else {
           output.add('text', pending)
           pending = ''
