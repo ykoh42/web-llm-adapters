@@ -1,3 +1,4 @@
+import { modelCheck } from '../../../../../scripts/release/support.js'
 import { ModelType, prebuiltAppConfig } from '@mlc-ai/web-llm'
 import { MemoryManager } from '@strands-agents/sdk'
 import { InMemoryStorage, LocalFileStorage } from '@strands-agents/sdk/storage'
@@ -66,70 +67,72 @@ test('memory example keeps real vectors after queued work reuses the native arra
 for (const { model_id: modelId } of prebuiltAppConfig.model_list.filter(
   (model) => model.model_type === ModelType.embedding,
 )) {
-  test(`${modelId}: FileMemoryStore reuses real WebLLM vectors after copies and renames`, async ({
-    page,
-  }) => {
-    await page.goto('http://127.0.0.1:4173/harness.html')
-    await page.waitForFunction(() => Boolean(window.harness))
-    await page.evaluate((id) => window.harness.open(id, 512), modelId)
-    try {
-      let documents = 0
-      let queries = 0
-      const strategy = new WebLLMEmbeddingSearchStrategy({
-        includeData: false,
-        embed: async (texts, type) => {
-          if (type === 'document') documents += texts.length
-          else queries += texts.length
-          return page.evaluate(
-            ({ input, model }) =>
-              window.webllmBridge.withEngine(async (engine) => {
-                const result = await engine.embeddings.create({
-                  model,
-                  input,
-                  encoding_format: 'float',
-                })
-                return [...result.data]
-                  .sort((a, b) => a.index - b.index)
-                  .map(({ embedding }) => embedding)
-              }),
-            {
-              model: modelId,
-              input: texts.map((text) =>
-                type === 'query'
-                  ? `Represent this sentence for searching relevant passages: ${text}`
-                  : text,
-              ),
-            },
-          )
-        },
-      })
-      const root = new InMemoryStorage({ searchStrategy: strategy })
-      const memory = new FileMemoryStore({ name: 'notes', storage: root })
-      const storage = root.namespace('memory/notes')
-      const content = 'A basket of fresh apples.'
-      const key = await memory.add(content)
-      expect(await root.list('')).toEqual([`memory/notes/${key}`])
-      const first = await memory.search('fruit')
-      expect(first).toHaveLength(1)
-      const score = Number(first[0]!.metadata?.score)
-      expect(score).toBeGreaterThan(0)
-      const data = new TextEncoder().encode(content)
-      await storage.write('copy.md', data)
-      expect(await memory.search('fruit')).toEqual(
-        [key, 'copy.md'].map((path) => ({ content, metadata: { path, score } })),
-      )
-      await storage.delete(key)
-      await storage.delete('copy.md')
-      await storage.write('moved.md', data)
-      expect(await memory.search('fruit')).toEqual([
-        { content, metadata: { path: 'moved.md', score } },
-      ])
-      expect(documents).toBe(2)
-      expect(queries).toBe(3)
-    } finally {
-      await page.evaluate(() => window.harness.close())
-    }
-  })
+  test(
+    `${modelId}: FileMemoryStore reuses real WebLLM vectors after copies and renames`,
+    modelCheck(modelId, 'embeddings'),
+    async ({ page }) => {
+      await page.goto('http://127.0.0.1:4173/harness.html')
+      await page.waitForFunction(() => Boolean(window.harness))
+      await page.evaluate((id) => window.harness.open(id, 512), modelId)
+      try {
+        let documents = 0
+        let queries = 0
+        const strategy = new WebLLMEmbeddingSearchStrategy({
+          includeData: false,
+          embed: async (texts, type) => {
+            if (type === 'document') documents += texts.length
+            else queries += texts.length
+            return page.evaluate(
+              ({ input, model }) =>
+                window.webllmBridge.withEngine(async (engine) => {
+                  const result = await engine.embeddings.create({
+                    model,
+                    input,
+                    encoding_format: 'float',
+                  })
+                  return [...result.data]
+                    .sort((a, b) => a.index - b.index)
+                    .map(({ embedding }) => embedding)
+                }),
+              {
+                model: modelId,
+                input: texts.map((text) =>
+                  type === 'query'
+                    ? `Represent this sentence for searching relevant passages: ${text}`
+                    : text,
+                ),
+              },
+            )
+          },
+        })
+        const root = new InMemoryStorage({ searchStrategy: strategy })
+        const memory = new FileMemoryStore({ name: 'notes', storage: root })
+        const storage = root.namespace('memory/notes')
+        const content = 'A basket of fresh apples.'
+        const key = await memory.add(content)
+        expect(await root.list('')).toEqual([`memory/notes/${key}`])
+        const first = await memory.search('fruit')
+        expect(first).toHaveLength(1)
+        const score = Number(first[0]!.metadata?.score)
+        expect(score).toBeGreaterThan(0)
+        const data = new TextEncoder().encode(content)
+        await storage.write('copy.md', data)
+        expect(await memory.search('fruit')).toEqual(
+          [key, 'copy.md'].map((path) => ({ content, metadata: { path, score } })),
+        )
+        await storage.delete(key)
+        await storage.delete('copy.md')
+        await storage.write('moved.md', data)
+        expect(await memory.search('fruit')).toEqual([
+          { content, metadata: { path: 'moved.md', score } },
+        ])
+        expect(documents).toBe(2)
+        expect(queries).toBe(3)
+      } finally {
+        await page.evaluate(() => window.harness.close())
+      }
+    },
+  )
 }
 
 test('Strands search recovers after a dimension error and owns cached vectors', async ({

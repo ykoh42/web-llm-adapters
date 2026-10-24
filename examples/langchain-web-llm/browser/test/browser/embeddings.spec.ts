@@ -1,3 +1,4 @@
+import { modelCheck } from '../../../../../scripts/release/support.js'
 import { BrowserWebLLMEmbeddings } from 'langchain-web-llm'
 import { ModelType, prebuiltAppConfig } from '@mlc-ai/web-llm'
 import { test, expect } from '../../../fixtures/browser.js'
@@ -5,65 +6,69 @@ import { test, expect } from '../../../fixtures/browser.js'
 for (const { model_id: modelId } of prebuiltAppConfig.model_list.filter(
   (model) => model.model_type === ModelType.embedding,
 )) {
-  test(`${modelId}: native vectors match local and browser adapters`, async ({ page }, info) => {
-    const documents = Array.from({ length: 33 }, (_, index) => `A flower numbered ${index}. 서울`)
-    const query = 'A flower.'
-    const queryInput = modelId.startsWith('snowflake-arctic-embed-')
-      ? 'Represent this sentence for searching relevant passages: ' + query
-      : query
-    await page.evaluate((id) => window.checks.load(id), modelId)
-    const expected = await page.evaluate(
-      async ({ modelId, documents, queryInput }) => {
-        const engine = window.checks.engine()
-        const documentsResponse = await engine.embeddings.create({
-          model: modelId,
-          input: documents,
-          encoding_format: 'float',
-        })
-        const vectors = documentsResponse.data
-          .sort((left, right) => left.index - right.index)
-          .map((item) => [...item.embedding])
-        const queryResponse = await engine.embeddings.create({
-          model: modelId,
-          input: [queryInput],
-          encoding_format: 'float',
-        })
-        return { documents: vectors, query: [...queryResponse.data[0]!.embedding] }
-      },
-      { modelId, documents, queryInput },
-    )
-    expect(expected.query.length).toBeGreaterThan(0)
-    expect(expected.documents).toHaveLength(documents.length)
-    expect(
-      [...expected.documents, expected.query].every(
-        (vector) => vector.length === expected.query.length && vector.every(Number.isFinite),
-      ),
-    ).toBe(true)
+  test(
+    `${modelId}: native vectors match local and browser adapters`,
+    modelCheck(modelId, 'embeddings'),
+    async ({ page }, info) => {
+      const documents = Array.from({ length: 33 }, (_, index) => `A flower numbered ${index}. 서울`)
+      const query = 'A flower.'
+      const queryInput = modelId.startsWith('snowflake-arctic-embed-')
+        ? 'Represent this sentence for searching relevant passages: ' + query
+        : query
+      await page.evaluate((id) => window.checks.load(id), modelId)
+      const expected = await page.evaluate(
+        async ({ modelId, documents, queryInput }) => {
+          const engine = window.checks.engine()
+          const documentsResponse = await engine.embeddings.create({
+            model: modelId,
+            input: documents,
+            encoding_format: 'float',
+          })
+          const vectors = documentsResponse.data
+            .sort((left, right) => left.index - right.index)
+            .map((item) => [...item.embedding])
+          const queryResponse = await engine.embeddings.create({
+            model: modelId,
+            input: [queryInput],
+            encoding_format: 'float',
+          })
+          return { documents: vectors, query: [...queryResponse.data[0]!.embedding] }
+        },
+        { modelId, documents, queryInput },
+      )
+      expect(expected.query.length).toBeGreaterThan(0)
+      expect(expected.documents).toHaveLength(documents.length)
+      expect(
+        [...expected.documents, expected.query].every(
+          (vector) => vector.length === expected.query.length && vector.every(Number.isFinite),
+        ),
+      ).toBe(true)
 
-    const local = await page.evaluate(
-      async ({ documents, query }) => {
-        const embeddings = window.checks.embeddings()
-        return {
-          documents: await embeddings.embedDocuments(documents),
-          query: await embeddings.embedQuery(query),
-        }
-      },
-      { documents, query },
-    )
-    expect(local).toEqual(expected)
+      const local = await page.evaluate(
+        async ({ documents, query }) => {
+          const embeddings = window.checks.embeddings()
+          return {
+            documents: await embeddings.embedDocuments(documents),
+            query: await embeddings.embedQuery(query),
+          }
+        },
+        { documents, query },
+      )
+      expect(local).toEqual(expected)
 
-    const embeddings = new BrowserWebLLMEmbeddings(page, { modelId })
-    expect(await embeddings.embedDocuments(documents)).toEqual(expected.documents)
-    expect(await embeddings.embedQuery(query)).toEqual(expected.query)
-    await info.attach('embedding-model', {
-      body: JSON.stringify({
-        modelId,
-        dimensions: expected.query.length,
-        documents: documents.length,
-      }),
-      contentType: 'application/json',
-    })
-  })
+      const embeddings = new BrowserWebLLMEmbeddings(page, { modelId })
+      expect(await embeddings.embedDocuments(documents)).toEqual(expected.documents)
+      expect(await embeddings.embedQuery(query)).toEqual(expected.query)
+      await info.attach('embedding-model', {
+        body: JSON.stringify({
+          modelId,
+          dimensions: expected.query.length,
+          documents: documents.length,
+        }),
+        contentType: 'application/json',
+      })
+    },
+  )
 }
 
 test('whitespace embedding inputs keep native values through local and browser adapters', async ({

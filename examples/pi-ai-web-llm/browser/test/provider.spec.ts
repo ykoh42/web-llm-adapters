@@ -1,3 +1,4 @@
+import { modelCheck } from '../../../../scripts/release/support.js'
 import { writeFile } from 'node:fs/promises'
 import type { AssistantMessage } from '@earendil-works/pi-ai'
 import { test, expect } from './browser.js'
@@ -214,95 +215,101 @@ for (const modelId of process.env.MODEL_IDS?.split(',') ?? [
   'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
   'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
 ]) {
-  test(`${modelId}: Pi Agent Core tools, usage, cancellation and recovery in a Worker`, async ({
-    page,
-  }, info) => {
-    const errors: string[] = []
-    page.on('pageerror', (error) => errors.push(error.message))
-    await page.goto('http://127.0.0.1:4173/pi/test/checks.html')
-    await page.evaluate((id) => window.piChecks.load(id), modelId)
-    const evidence = await page.evaluate(async (modelId) => {
-      const agent = await window.piChecks.createAgent(true)
-      const requests: unknown[] = []
-      const native: ChatCompletionChunk[] = []
-      agent.onPayload = (payload) => {
-        requests.push(structuredClone(payload))
-      }
-      agent.onProviderStreamEvent = (event) => {
-        native.push(structuredClone(event) as ChatCompletionChunk)
-      }
-      const error = await agent
-        .prompt(
-          modelId === 'Qwen3.5-0.8B-q4f16_1-MLC'
-            ? 'Call lookup with code A7 and report exactly the answer it returns.'
-            : 'Look up A7 and tell me the answer.',
-        )
-        .then(
-          () => null,
-          (error: unknown) => String(error),
-        )
-      return { messages: agent.state.messages, requests, native, error }
-    }, modelId)
-    const path = info.outputPath('model.json')
-    await writeFile(path, JSON.stringify(evidence, null, 2))
-    await info.attach('messages', {
-      path,
-      contentType: 'application/json',
-    })
-    expect(evidence.error).toBeNull()
-    const { messages } = evidence
-    expect(
-      messages.some(
-        (message) =>
-          message.role === 'assistant' &&
-          message.content.some(
-            (part) =>
-              part.type === 'toolCall' && part.name === 'lookup' && part.arguments.code === 'A7',
-          ),
-      ),
-    ).toBe(true)
-    expect(
-      messages.some(
-        (message) =>
-          message.role === 'toolResult' && message.toolName === 'lookup' && !message.isError,
-      ),
-    ).toBe(true)
-    const final = messages.at(-1)
-    expect(final).toMatchObject({ role: 'assistant', stopReason: 'stop' })
-    if (final?.role === 'assistant') {
-      expect(
-        final.content
-          .filter((part) => part.type === 'text')
-          .map((part) => part.text)
-          .join(''),
-      ).toContain('ORCHID-42')
-      expect(final.usage.totalTokens).toBeGreaterThan(0)
-    }
-    if (!modelId.startsWith('Qwen2.5-'))
+  test(
+    `${modelId}: Pi Agent Core tools, usage, cancellation and recovery in a Worker`,
+    modelCheck(
+      modelId,
+      'tools',
+      ...(!modelId.startsWith('Qwen2.5-') ? (['thinking'] as const) : []),
+    ),
+    async ({ page }, info) => {
+      const errors: string[] = []
+      page.on('pageerror', (error) => errors.push(error.message))
+      await page.goto('http://127.0.0.1:4173/pi/test/checks.html')
+      await page.evaluate((id) => window.piChecks.load(id), modelId)
+      const evidence = await page.evaluate(async (modelId) => {
+        const agent = await window.piChecks.createAgent(true)
+        const requests: unknown[] = []
+        const native: ChatCompletionChunk[] = []
+        agent.onPayload = (payload) => {
+          requests.push(structuredClone(payload))
+        }
+        agent.onProviderStreamEvent = (event) => {
+          native.push(structuredClone(event) as ChatCompletionChunk)
+        }
+        const error = await agent
+          .prompt(
+            modelId === 'Qwen3.5-0.8B-q4f16_1-MLC'
+              ? 'Call lookup with code A7 and report exactly the answer it returns.'
+              : 'Look up A7 and tell me the answer.',
+          )
+          .then(
+            () => null,
+            (error: unknown) => String(error),
+          )
+        return { messages: agent.state.messages, requests, native, error }
+      }, modelId)
+      const path = info.outputPath('model.json')
+      await writeFile(path, JSON.stringify(evidence, null, 2))
+      await info.attach('messages', {
+        path,
+        contentType: 'application/json',
+      })
+      expect(evidence.error).toBeNull()
+      const { messages } = evidence
       expect(
         messages.some(
           (message) =>
             message.role === 'assistant' &&
-            message.content.some((part) => part.type === 'thinking' && part.thinking.length > 0),
+            message.content.some(
+              (part) =>
+                part.type === 'toolCall' && part.name === 'lookup' && part.arguments.code === 'A7',
+            ),
         ),
       ).toBe(true)
-    const recovery = await page.evaluate(() => window.piChecks.cancelAndRecover())
-    await info.attach('cancellation', {
-      body: JSON.stringify(recovery, null, 2),
-      contentType: 'application/json',
-    })
-    expect(recovery.observed).toBe(true)
-    expect(recovery.cancelled.stopReason).toBe('aborted')
-    expect(recovery.recovered.message.stopReason).toBe('stop')
-    expect(recovery.recovered.events).toContain('text_delta')
-    expect(
-      recovery.recovered.message.content
-        .filter((part) => part.type === 'text')
-        .map((part) => part.text)
-        .join(''),
-    ).toContain('6')
-    expect(errors).toEqual([])
-  })
+      expect(
+        messages.some(
+          (message) =>
+            message.role === 'toolResult' && message.toolName === 'lookup' && !message.isError,
+        ),
+      ).toBe(true)
+      const final = messages.at(-1)
+      expect(final).toMatchObject({ role: 'assistant', stopReason: 'stop' })
+      if (final?.role === 'assistant') {
+        expect(
+          final.content
+            .filter((part) => part.type === 'text')
+            .map((part) => part.text)
+            .join(''),
+        ).toContain('ORCHID-42')
+        expect(final.usage.totalTokens).toBeGreaterThan(0)
+      }
+      if (!modelId.startsWith('Qwen2.5-'))
+        expect(
+          messages.some(
+            (message) =>
+              message.role === 'assistant' &&
+              message.content.some((part) => part.type === 'thinking' && part.thinking.length > 0),
+          ),
+        ).toBe(true)
+      const recovery = await page.evaluate(() => window.piChecks.cancelAndRecover())
+      await info.attach('cancellation', {
+        body: JSON.stringify(recovery, null, 2),
+        contentType: 'application/json',
+      })
+      expect(recovery.observed).toBe(true)
+      expect(recovery.cancelled.stopReason).toBe('aborted')
+      expect(recovery.recovered.message.stopReason).toBe('stop')
+      expect(recovery.recovered.events).toContain('text_delta')
+      expect(
+        recovery.recovered.message.content
+          .filter((part) => part.type === 'text')
+          .map((part) => part.text)
+          .join(''),
+      ).toContain('6')
+      expect(errors).toEqual([])
+    },
+  )
 }
 
 for (const modelId of ['Qwen3.5-9B-q4f16_1-MLC', 'Qwen3.5-2B-q4f16_1-MLC']) {

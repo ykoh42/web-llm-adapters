@@ -1,3 +1,4 @@
+import { modelCheck } from '../../../../../scripts/release/support.js'
 import { rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -127,71 +128,75 @@ for (const [modelId, fileName] of [
   ['Qwen3.5-9B-q4f16_1-MLC', `q35-${process.pid}.txt`],
 ] as const) {
   const note = modelId === 'Qwen3.5-0.8B-q4f16_1-MLC' ? ` (${fileName})` : ''
-  test(`${modelId} thinking calls Harness read and answers${note}`, async ({ page }) => {
-    const directory = process.platform === 'win32' ? tmpdir() : '/tmp'
-    const path = join(directory, fileName)
-    const code = 'code-' + crypto.randomUUID().slice(0, 8)
-    let agent: Awaited<ReturnType<typeof createHarness>> | undefined
+  test(
+    `${modelId} thinking calls Harness read and answers${note}`,
+    fileName === 'q35-40625.txt' ? {} : modelCheck(modelId, 'tools', 'thinking'),
+    async ({ page }) => {
+      const directory = process.platform === 'win32' ? tmpdir() : '/tmp'
+      const path = join(directory, fileName)
+      const code = 'code-' + crypto.randomUUID().slice(0, 8)
+      let agent: Awaited<ReturnType<typeof createHarness>> | undefined
 
-    await writeFile(path, `The secret code is ${code}.`, { flag: 'wx' })
-    try {
-      await page.goto('http://127.0.0.1:4173/harness.html')
-      await page.waitForFunction(() => Boolean(window.harness))
-      await page.evaluate((id) => window.harness.open(id), modelId)
-
-      agent = await createHarness({
-        model: new BrowserModel(page, {
-          modelId,
-          temperature: 0,
-          request: { extra_body: { enable_thinking: true } },
-        }),
-        builtinTools: ['read'],
-        builtinPlugins: [],
-        session: false,
-        skills: false,
-        memory: false,
-        contextManager: false,
-        caching: false,
-        backgroundTasks: false,
-        printer: false,
-      })
-      let modelCalls = 0
-      agent.addHook(BeforeModelCallEvent, () => {
-        modelCalls++
-      })
-
-      const result = await agent.invoke(
-        `Use the read tool to read ${path}. What secret code does it contain?`,
-        { limits: { turns: 3 } },
-      )
-
-      expect(modelCalls).toBe(2)
-      expect(result.stopReason).toBe('endTurn')
-      expect(result.lastMessage.content).toContainEqual(
-        expect.objectContaining({ type: 'textBlock', text: expect.stringContaining(code) }),
-      )
-      expect(
-        agent.messages
-          .flatMap((message) => message.content)
-          .some((block) => block.type === 'reasoningBlock' && block.text),
-      ).toBe(true)
-      const toolCalls = agent.messages
-        .flatMap((message) => message.content)
-        .filter((block) => block.type === 'toolUseBlock')
-      expect(toolCalls).toHaveLength(1)
-      expect(toolCalls[0]).toMatchObject({ name: 'read', input: { path } })
-      const toolResults = agent.messages
-        .flatMap((message) => message.content)
-        .filter((block) => block.type === 'toolResultBlock')
-      expect(toolResults.length).toBeGreaterThan(0)
-      expect(JSON.stringify(toolResults)).toContain(code)
-    } finally {
+      await writeFile(path, `The secret code is ${code}.`, { flag: 'wx' })
       try {
-        await agent?.shutdown()
-        await page.evaluate(() => window.harness?.close())
+        await page.goto('http://127.0.0.1:4173/harness.html')
+        await page.waitForFunction(() => Boolean(window.harness))
+        await page.evaluate((id) => window.harness.open(id), modelId)
+
+        agent = await createHarness({
+          model: new BrowserModel(page, {
+            modelId,
+            temperature: 0,
+            request: { extra_body: { enable_thinking: true } },
+          }),
+          builtinTools: ['read'],
+          builtinPlugins: [],
+          session: false,
+          skills: false,
+          memory: false,
+          contextManager: false,
+          caching: false,
+          backgroundTasks: false,
+          printer: false,
+        })
+        let modelCalls = 0
+        agent.addHook(BeforeModelCallEvent, () => {
+          modelCalls++
+        })
+
+        const result = await agent.invoke(
+          `Use the read tool to read ${path}. What secret code does it contain?`,
+          { limits: { turns: 3 } },
+        )
+
+        expect(modelCalls).toBe(2)
+        expect(result.stopReason).toBe('endTurn')
+        expect(result.lastMessage.content).toContainEqual(
+          expect.objectContaining({ type: 'textBlock', text: expect.stringContaining(code) }),
+        )
+        expect(
+          agent.messages
+            .flatMap((message) => message.content)
+            .some((block) => block.type === 'reasoningBlock' && block.text),
+        ).toBe(true)
+        const toolCalls = agent.messages
+          .flatMap((message) => message.content)
+          .filter((block) => block.type === 'toolUseBlock')
+        expect(toolCalls).toHaveLength(1)
+        expect(toolCalls[0]).toMatchObject({ name: 'read', input: { path } })
+        const toolResults = agent.messages
+          .flatMap((message) => message.content)
+          .filter((block) => block.type === 'toolResultBlock')
+        expect(toolResults.length).toBeGreaterThan(0)
+        expect(JSON.stringify(toolResults)).toContain(code)
       } finally {
-        await rm(path, { force: true })
+        try {
+          await agent?.shutdown()
+          await page.evaluate(() => window.harness?.close())
+        } finally {
+          await rm(path, { force: true })
+        }
       }
-    }
-  })
+    },
+  )
 }

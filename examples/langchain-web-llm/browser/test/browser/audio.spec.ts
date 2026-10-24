@@ -1,3 +1,4 @@
+import { modelCheck } from '../../../../../scripts/release/support.js'
 import { HumanMessage, ToolMessage } from '@langchain/core/messages'
 import { tool } from '@langchain/core/tools'
 import { scrubUnsupportedMultimodalContent } from 'deepagents'
@@ -6,79 +7,81 @@ import type { ChatCompletionRequestStreaming } from '@mlc-ai/web-llm'
 import { BrowserChatWebLLM } from 'langchain-web-llm'
 import { test, expect } from '../../../fixtures/browser.js'
 
-test('Float32 PCM matches native WebLLM through local and browser LangChain models', async ({
-  page,
-}) => {
-  const modelId = 'gemma-4-E2B-it-q4f16_1-MLC'
-  await page.evaluate((id) => window.checks.load(id), modelId)
-  const prompt = 'Describe any sound you hear in one short sentence.'
-  const request = { temperature: 0, top_p: 1, repetition_penalty: 1, max_tokens: 4096, seed: 7 }
-  const samples = Float32Array.from(
-    { length: 16000 },
-    (_, index) => 0.1 * Math.sin((2 * Math.PI * 440 * index) / 16000),
-  )
-  const native = await page.evaluate(
-    async ({ prompt, samples, request, modelId }) => {
-      const engine = window.checks.engine()
-      const messages = [
-        {
-          role: 'user' as const,
-          content: [
-            { type: 'text' as const, text: prompt },
-            {
-              type: 'input_audio' as const,
-              input_audio: {
-                format: 'pcm_f32' as const,
-                data: new Float32Array(samples),
-                sample_rate: 16000,
+test(
+  'Float32 PCM matches native WebLLM through local and browser LangChain models',
+  modelCheck('gemma-4-E2B-it-q4f16_1-MLC', 'audio'),
+  async ({ page }) => {
+    const modelId = 'gemma-4-E2B-it-q4f16_1-MLC'
+    await page.evaluate((id) => window.checks.load(id), modelId)
+    const prompt = 'Describe any sound you hear in one short sentence.'
+    const request = { temperature: 0, top_p: 1, repetition_penalty: 1, max_tokens: 4096, seed: 7 }
+    const samples = Float32Array.from(
+      { length: 16000 },
+      (_, index) => 0.1 * Math.sin((2 * Math.PI * 440 * index) / 16000),
+    )
+    const native = await page.evaluate(
+      async ({ prompt, samples, request, modelId }) => {
+        const engine = window.checks.engine()
+        const messages = [
+          {
+            role: 'user' as const,
+            content: [
+              { type: 'text' as const, text: prompt },
+              {
+                type: 'input_audio' as const,
+                input_audio: {
+                  format: 'pcm_f32' as const,
+                  data: new Float32Array(samples),
+                  sample_rate: 16000,
+                },
               },
-            },
-          ],
-        },
-      ]
-      await engine.resetChat()
-      let text = ''
-      let usage
-      for await (const chunk of await engine.chat.completions.create({
-        ...request,
-        model: modelId,
-        messages,
-        n: 1,
-        stream: true,
-        stream_options: { include_usage: true },
-      })) {
-        text += chunk.choices[0]?.delta.content ?? ''
-        usage = chunk.usage ?? usage
-      }
-      await engine.resetChat()
-      const local = await window.checks.model(false).invoke(messages, { request })
-      return { text, usage, local: { text: local.text, usage: local.usage_metadata } }
-    },
-    { prompt, samples: [...samples], request, modelId },
-  )
+            ],
+          },
+        ]
+        await engine.resetChat()
+        let text = ''
+        let usage
+        for await (const chunk of await engine.chat.completions.create({
+          ...request,
+          model: modelId,
+          messages,
+          n: 1,
+          stream: true,
+          stream_options: { include_usage: true },
+        })) {
+          text += chunk.choices[0]?.delta.content ?? ''
+          usage = chunk.usage ?? usage
+        }
+        await engine.resetChat()
+        const local = await window.checks.model(false).invoke(messages, { request })
+        return { text, usage, local: { text: local.text, usage: local.usage_metadata } }
+      },
+      { prompt, samples: [...samples], request, modelId },
+    )
 
-  await page.evaluate(() => window.checks.engine().resetChat())
-  const model = new BrowserChatWebLLM(page, { modelId, request })
-  const remote = await model.invoke([
-    new HumanMessage({
-      content: [
-        { type: 'text', text: prompt },
-        {
-          type: 'input_audio',
-          input_audio: { format: 'pcm_f32', data: samples, sample_rate: 16000 },
-        },
-      ],
-    }),
-  ])
+    await page.evaluate(() => window.checks.engine().resetChat())
+    const model = new BrowserChatWebLLM(page, { modelId, request })
+    const remote = await model.invoke([
+      new HumanMessage({
+        content: [
+          { type: 'text', text: prompt },
+          {
+            type: 'input_audio',
+            input_audio: { format: 'pcm_f32', data: samples, sample_rate: 16000 },
+          },
+        ],
+      }),
+    ])
 
-  expect(native.text.length).toBeGreaterThan(0)
-  expect(native.usage?.prompt_tokens).toBeGreaterThan(0)
-  for (const result of [native.local, { text: remote.text, usage: remote.usage_metadata }]) {
-    expect(result.text).toBe(native.text)
-    expect(result.usage?.input_tokens).toBe(native.usage?.prompt_tokens)
-    expect(result.usage?.output_tokens).toBe(native.usage?.completion_tokens)
-  }
-})
+    expect(native.text.length).toBeGreaterThan(0)
+    expect(native.usage?.prompt_tokens).toBeGreaterThan(0)
+    for (const result of [native.local, { text: remote.text, usage: remote.usage_metadata }]) {
+      expect(result.text).toBe(native.text)
+      expect(result.usage?.input_tokens).toBe(native.usage?.prompt_tokens)
+      expect(result.usage?.output_tokens).toBe(native.usage?.completion_tokens)
+    }
+  },
+)
 
 test('Hermes keeps unsupported tool audio out of its next native request', async ({ page }) => {
   const modelId = 'Hermes-3-Llama-3.1-8B-q4f16_1-MLC'

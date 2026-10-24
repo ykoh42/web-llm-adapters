@@ -1,3 +1,4 @@
+import { modelCheck } from '../../../../../scripts/release/support.js'
 import { z } from 'zod'
 import type { JSONSchema7 } from 'json-schema'
 import { createDeepAgent } from 'deepagents'
@@ -305,71 +306,77 @@ test('real WebLLM embeddings rank LangGraph semantic memory', async ({ page }) =
   expect((await store.search(['notes'], { query: 'a flower', limit: 1 }))[0]?.key).toBe('flower')
 })
 
-test('real vision model accepts LangChain standard image blocks', async ({ page }) => {
-  const modelId = 'Phi-3.5-vision-instruct-q4f16_1-MLC'
-  await page.evaluate((id) => window.checks.load(id), modelId)
-  const data = await page.evaluate(() => {
-    const canvas = document.createElement('canvas')
-    canvas.width = 224
-    canvas.height = 224
-    const context = canvas.getContext('2d')!
-    context.fillStyle = 'red'
-    context.fillRect(0, 0, 224, 224)
-    return canvas.toDataURL('image/png').split(',')[1]!
-  })
-  const model = new BrowserChatWebLLM(page, {
-    modelId,
-    request: { max_tokens: 256, temperature: 0 },
-  })
-  const response = await model.invoke([
-    new HumanMessage({
-      content: [
-        { type: 'text', text: 'What color is this image? Answer with the color.' },
-        { type: 'image', source_type: 'base64', data, mime_type: 'image/png' },
-      ],
-    }),
-  ])
-  expect(response.text.toLowerCase()).toContain('red')
-  const color = await model.withStructuredOutput(z.object({ color: z.string() })).invoke([
-    new HumanMessage({
-      content: [
-        { type: 'text', text: 'Return the color of this image.' },
-        {
-          type: 'image',
-          data: new Uint8Array(Buffer.from(data, 'base64')),
-          mimeType: 'image/png',
-        },
-      ],
-    }),
-  ])
-  expect(color.color.toLowerCase()).toContain('red')
-})
+test(
+  'real vision model accepts LangChain standard image blocks',
+  modelCheck('Phi-3.5-vision-instruct-q4f16_1-MLC', 'image'),
+  async ({ page }) => {
+    const modelId = 'Phi-3.5-vision-instruct-q4f16_1-MLC'
+    await page.evaluate((id) => window.checks.load(id), modelId)
+    const data = await page.evaluate(() => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 224
+      canvas.height = 224
+      const context = canvas.getContext('2d')!
+      context.fillStyle = 'red'
+      context.fillRect(0, 0, 224, 224)
+      return canvas.toDataURL('image/png').split(',')[1]!
+    })
+    const model = new BrowserChatWebLLM(page, {
+      modelId,
+      request: { max_tokens: 256, temperature: 0 },
+    })
+    const response = await model.invoke([
+      new HumanMessage({
+        content: [
+          { type: 'text', text: 'What color is this image? Answer with the color.' },
+          { type: 'image', source_type: 'base64', data, mime_type: 'image/png' },
+        ],
+      }),
+    ])
+    expect(response.text.toLowerCase()).toContain('red')
+    const color = await model.withStructuredOutput(z.object({ color: z.string() })).invoke([
+      new HumanMessage({
+        content: [
+          { type: 'text', text: 'Return the color of this image.' },
+          {
+            type: 'image',
+            data: new Uint8Array(Buffer.from(data, 'base64')),
+            mimeType: 'image/png',
+          },
+        ],
+      }),
+    ])
+    expect(color.color.toLowerCase()).toContain('red')
+  },
+)
 
-test('real engine serializes concurrent inference, cancels generation and recovers', async ({
-  page,
-}) => {
-  const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
-  await page.evaluate((id) => window.checks.load(id), modelId)
-  const model = new BrowserChatWebLLM(page, {
-    modelId,
-    request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
-  })
-  const responses = await Promise.all([
-    model.invoke('What is 1 + 1?'),
-    model.invoke('What is 2 + 2?'),
-  ])
-  expect(responses[0]?.text).toContain('2')
-  expect(responses[1]?.text).toContain('4')
-  const cancel = new AbortController()
-  const stream = await model.stream('Explain the history of mathematics in detail.', {
-    signal: cancel.signal,
-  })
-  const first = await stream.next()
-  expect(first.done).toBe(false)
-  cancel.abort()
-  await expect(stream.next()).rejects.toHaveProperty('name', 'AbortError')
-  expect((await model.invoke('What is 3 + 3?')).text).toContain('6')
-})
+test(
+  'real engine serializes concurrent inference, cancels generation and recovers',
+  modelCheck('engine', 'concurrency', 'cancel'),
+  async ({ page }) => {
+    const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
+    await page.evaluate((id) => window.checks.load(id), modelId)
+    const model = new BrowserChatWebLLM(page, {
+      modelId,
+      request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
+    })
+    const responses = await Promise.all([
+      model.invoke('What is 1 + 1?'),
+      model.invoke('What is 2 + 2?'),
+    ])
+    expect(responses[0]?.text).toContain('2')
+    expect(responses[1]?.text).toContain('4')
+    const cancel = new AbortController()
+    const stream = await model.stream('Explain the history of mathematics in detail.', {
+      signal: cancel.signal,
+    })
+    const first = await stream.next()
+    expect(first.done).toBe(false)
+    cancel.abort()
+    await expect(stream.next()).rejects.toHaveProperty('name', 'AbortError')
+    expect((await model.invoke('What is 3 + 3?')).text).toContain('6')
+  },
+)
 
 test('default Deep Agents subagents share the WebLLM engine and file state', async ({ page }) => {
   const modelId = 'Qwen3.5-4B-q4f16_1-MLC'

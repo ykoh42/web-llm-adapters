@@ -1,3 +1,4 @@
+import { modelCheck } from '../../../../../scripts/release/support.js'
 import { sampling } from '../../../sampling.js'
 import { createDeepAgent } from 'deepagents'
 import { createAgent } from 'langchain'
@@ -40,98 +41,106 @@ const selected =
   ) ?? cases
 
 for (const { modelId, prompt } of selected) {
-  test(`${modelId}: default Deep Agents tools and final answer`, async ({ page }, testInfo) => {
-    await page.evaluate((id) => window.checks.load(id), modelId)
-    const profile = await page.evaluate(() => window.checks.model().profile)
-    const configuredContext = await page.evaluate(() => window.checks.contextWindowSize())
-    expect(profile.maxInputTokens).toBe(configuredContext)
-    await page.evaluate(() => {
-      const engine = window.checks.engine()
-      const create = engine.chat.completions.create.bind(engine.chat.completions)
-      Object.assign(window, { nativeRequests: [] })
-      engine.chat.completions.create = new Proxy(create, {
-        apply(target, self, args) {
-          ;(window as unknown as { nativeRequests: unknown[] }).nativeRequests.push(
-            structuredClone(args[0]),
-          )
-          return Reflect.apply(target, self, args)
-        },
-      })
-    })
-    const thinking = !modelId.startsWith('Qwen2.5-')
-    const native: WebLLMChunk[] = []
-    const model = new BrowserChatWebLLM(page, {
+  test(
+    `${modelId}: default Deep Agents tools and final answer`,
+    modelCheck(
       modelId,
-      profile,
-      onChunk: (chunk) => native.push(chunk),
-      request: { ...sampling(modelId, thinking), max_tokens: 4096, seed: 7 },
-    })
-    const agent = createDeepAgent({ model })
-    let output: Awaited<ReturnType<typeof agent.invoke>>
-    try {
-      output = await agent.invoke({
-        messages: [{ role: 'user', content: prompt }],
-        files: {
-          '/answer.txt': {
-            content: ['The secret code is ORCHID-42.'],
-            created_at: '2026-10-19',
-            modified_at: '2026-10-19',
+      'tools',
+      ...(!modelId.startsWith('Qwen2.5-') ? (['thinking'] as const) : []),
+    ),
+    async ({ page }, testInfo) => {
+      await page.evaluate((id) => window.checks.load(id), modelId)
+      const profile = await page.evaluate(() => window.checks.model().profile)
+      const configuredContext = await page.evaluate(() => window.checks.contextWindowSize())
+      expect(profile.maxInputTokens).toBe(configuredContext)
+      await page.evaluate(() => {
+        const engine = window.checks.engine()
+        const create = engine.chat.completions.create.bind(engine.chat.completions)
+        Object.assign(window, { nativeRequests: [] })
+        engine.chat.completions.create = new Proxy(create, {
+          apply(target, self, args) {
+            ;(window as unknown as { nativeRequests: unknown[] }).nativeRequests.push(
+              structuredClone(args[0]),
+            )
+            return Reflect.apply(target, self, args)
           },
-        },
+        })
       })
-    } finally {
-      await writeFile(
-        testInfo.outputPath('requests.json'),
-        JSON.stringify(
-          await page.evaluate(
-            () => (window as unknown as { nativeRequests: unknown[] }).nativeRequests,
+      const thinking = !modelId.startsWith('Qwen2.5-')
+      const native: WebLLMChunk[] = []
+      const model = new BrowserChatWebLLM(page, {
+        modelId,
+        profile,
+        onChunk: (chunk) => native.push(chunk),
+        request: { ...sampling(modelId, thinking), max_tokens: 4096, seed: 7 },
+      })
+      const agent = createDeepAgent({ model })
+      let output: Awaited<ReturnType<typeof agent.invoke>>
+      try {
+        output = await agent.invoke({
+          messages: [{ role: 'user', content: prompt }],
+          files: {
+            '/answer.txt': {
+              content: ['The secret code is ORCHID-42.'],
+              created_at: '2026-10-19',
+              modified_at: '2026-10-19',
+            },
+          },
+        })
+      } finally {
+        await writeFile(
+          testInfo.outputPath('requests.json'),
+          JSON.stringify(
+            await page.evaluate(
+              () => (window as unknown as { nativeRequests: unknown[] }).nativeRequests,
+            ),
+            null,
+            2,
           ),
-          null,
-          2,
-        ),
-      )
-      const path = testInfo.outputPath('native.json')
-      await writeFile(path, JSON.stringify(native, null, 2))
-      await testInfo.attach('native', {
-        path,
+        )
+        const path = testInfo.outputPath('native.json')
+        await writeFile(path, JSON.stringify(native, null, 2))
+        await testInfo.attach('native', {
+          path,
+          contentType: 'application/json',
+        })
+      }
+      const result = output.messages.map((message) => ({
+        type: message.type,
+        text: message.text,
+        content: message.content,
+        ...('tool_calls' in message && { tool_calls: message.tool_calls }),
+      }))
+      await writeFile(testInfo.outputPath('messages.json'), JSON.stringify(result, null, 2))
+      await testInfo.attach('messages', {
+        body: JSON.stringify(result, null, 2),
         contentType: 'application/json',
       })
-    }
-    const result = output.messages.map((message) => ({
-      type: message.type,
-      text: message.text,
-      content: message.content,
-      ...('tool_calls' in message && { tool_calls: message.tool_calls }),
-    }))
-    await writeFile(testInfo.outputPath('messages.json'), JSON.stringify(result, null, 2))
-    await testInfo.attach('messages', {
-      body: JSON.stringify(result, null, 2),
-      contentType: 'application/json',
-    })
-    expect(
-      result.some((message) => message.type === 'tool' && message.text.includes('ORCHID-42')),
-    ).toBe(true)
-    expect(result.at(-1)?.type).toBe('ai')
-    expect(result.at(-1)?.text).toContain('ORCHID-42')
-    const finishes = native
-      .flatMap((chunk) => chunk.choices.map((choice) => choice.finish_reason))
-      .filter(Boolean)
-    expect(finishes.at(-1)).toBe('stop')
-    expect(finishes).not.toContain('length')
-    if (!modelId.startsWith('Qwen2.5-'))
       expect(
-        result.some(
-          (message) =>
-            Array.isArray(message.content) &&
-            message.content.some(
-              (block) =>
-                block.type === 'reasoning' &&
-                typeof block.reasoning === 'string' &&
-                block.reasoning.length > 0,
-            ),
-        ),
+        result.some((message) => message.type === 'tool' && message.text.includes('ORCHID-42')),
       ).toBe(true)
-  })
+      expect(result.at(-1)?.type).toBe('ai')
+      expect(result.at(-1)?.text).toContain('ORCHID-42')
+      const finishes = native
+        .flatMap((chunk) => chunk.choices.map((choice) => choice.finish_reason))
+        .filter(Boolean)
+      expect(finishes.at(-1)).toBe('stop')
+      expect(finishes).not.toContain('length')
+      if (!modelId.startsWith('Qwen2.5-'))
+        expect(
+          result.some(
+            (message) =>
+              Array.isArray(message.content) &&
+              message.content.some(
+                (block) =>
+                  block.type === 'reasoning' &&
+                  typeof block.reasoning === 'string' &&
+                  block.reasoning.length > 0,
+              ),
+          ),
+        ).toBe(true)
+    },
+  )
 }
 
 for (const modelId of ['Qwen3.5-2B-q4f16_1-MLC', 'Qwen3.5-0.8B-q4f16_1-MLC']) {
