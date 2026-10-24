@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Allow Qwen3 1.7B tool calls instead of blocking requests based on model output quality.
+
 ## 0.2.0 — 2026-10-24
 
 - Handle nested type exclusions in Qwen3.5 tool schemas.

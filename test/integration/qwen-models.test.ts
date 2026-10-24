@@ -41,12 +41,11 @@ afterEach(() => vi.unstubAllGlobals())
 
 for (const client of ['strands', 'strands-browser', 'langchain', 'langchain-browser', 'pi']) {
   it.each(modelIds)(`${client} uses the registered Qwen protocol for %s`, async (modelId) => {
-    const blocked = modelId.startsWith('Qwen3-1.7B-')
     const thinking = !modelId.startsWith('Qwen2.5-')
     const call = modelId.startsWith('Qwen3.5-')
       ? '<tool_call><function=lookup><parameter=code>123</parameter></function></tool_call>'
       : '<tool_call>{"name":"lookup","arguments":{"code":"123"}}</tool_call>'
-    const source = (thinking ? '<think>Plan.</think>' : '') + (blocked ? '42' : call)
+    const source = (thinking ? '<think>Plan.</think>' : '') + call
     const parts = source.match(/[\s\S]{1,3}/g)!
     const native = parts.map((content, index) => ({
       ...chunk({ content }, index === parts.length - 1 ? 'stop' : null),
@@ -75,7 +74,7 @@ for (const client of ['strands', 'strands-browser', 'langchain', 'langchain-brow
       onChunk,
       request: { seed: 7, ...(thinking && { extra_body: { enable_thinking: true } }) },
     }
-    async function run(useTools: boolean) {
+    async function run() {
       const input = 'Find code 123.'
       if (client === 'pi') {
         const provider = createWebLLMProvider({ engine, contextWindow: 4096, ...options })
@@ -84,9 +83,7 @@ for (const client of ['strands', 'strands-browser', 'langchain', 'langchain-brow
             provider.getModels()[0]!,
             normalizeContext({
               messages: [{ role: 'user', content: input, timestamp: 0 }],
-              ...(useTools && {
-                tools: [{ name: tool.name, description: tool.description, parameters: schema }],
-              }),
+              tools: [{ name: tool.name, description: tool.description, parameters: schema }],
             }),
           )
           .result()
@@ -111,10 +108,9 @@ for (const client of ['strands', 'strands-browser', 'langchain', 'langchain-brow
             ? new WebLLMModel({ engine, ...options })
             : new BrowserModel(page, options)
         const blocks = await collect(
-          model.streamAggregated(
-            [new Message({ role: 'user', content: [new TextBlock(input)] })],
-            useTools ? { toolSpecs: [tool] } : {},
-          ),
+          model.streamAggregated([new Message({ role: 'user', content: [new TextBlock(input)] })], {
+            toolSpecs: [tool],
+          }),
         )
         return {
           text: blocks
@@ -134,8 +130,8 @@ for (const client of ['strands', 'strands-browser', 'langchain', 'langchain-brow
         client === 'langchain'
           ? new ChatWebLLM({ engine, ...options })
           : new BrowserChatWebLLM(page, options)
-      expect(model.profile).toMatchObject({ toolCalling: !blocked, reasoningOutput: thinking })
-      const response = await model.invoke(input, useTools ? { tools: [definition] } : {})
+      expect(model.profile).toMatchObject({ toolCalling: true, reasoningOutput: thinking })
+      const response = await model.invoke(input, { tools: [definition] })
       return {
         text: response.text,
         thinking: response.contentBlocks
@@ -146,14 +142,10 @@ for (const client of ['strands', 'strands-browser', 'langchain', 'langchain-brow
       }
     }
     try {
-      if (blocked) {
-        await expect(run(true)).rejects.toThrow(`Tool calling is not supported for ${modelId}.`)
-        expect(create).not.toHaveBeenCalled()
-      }
-      expect(await run(!blocked)).toEqual({
-        text: blocked ? '42' : '',
+      expect(await run()).toEqual({
+        text: '',
         thinking: thinking ? 'Plan.' : '',
-        calls: blocked ? [] : [{ name: 'lookup', args: { code: '123' } }],
+        calls: [{ name: 'lookup', args: { code: '123' } }],
       })
       expect(create).toHaveBeenCalledOnce()
       expect(onChunk.mock.calls.map(([value]) => value)).toEqual(native)

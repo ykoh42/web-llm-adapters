@@ -26,10 +26,12 @@ const cases = [
     modelId,
     prompt: defaultPrompt,
   })),
-  {
-    modelId: 'Qwen3.5-2B-q4f16_1-MLC',
-    prompt: 'Use read_file to read /answer.txt, then report the secret code from its result.',
-  },
+  ...['Qwen3.5-2B-q4f16_1-MLC', 'Qwen3.5-0.8B-q4f16_1-MLC', 'Qwen3-1.7B-q4f16_1-MLC'].map(
+    (modelId) => ({
+      modelId,
+      prompt: 'Use read_file to read /answer.txt, then report the secret code from its result.',
+    }),
+  ),
 ]
 const selected =
   process.env.MODEL_IDS?.split(',').map(

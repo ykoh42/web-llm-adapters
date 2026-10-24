@@ -24,7 +24,3 @@ const modelIds = new Set([
 export function isQwen(modelId: string) {
   return modelIds.has(modelId)
 }
-
-export function hasQwenToolLimit(modelId: string) {
-  return modelId === 'Qwen3-1.7B-q4f16_1-MLC' || modelId === 'Qwen3-1.7B-q4f32_1-MLC'
-}

@@ -25,6 +25,7 @@ const customToolModels = new Set([
   'Qwen2.5-3B-Instruct',
   'Qwen2.5-7B-Instruct',
   'Qwen3-0.6B',
+  'Qwen3-1.7B',
   'Qwen3-4B',
   'Qwen3-8B',
   'Qwen3.5-0.8B',
@@ -267,31 +268,6 @@ describe('WebLLM model catalog', () => {
     }
   })
 
-  it.each(['Qwen3-1.7B-q4f16_1-MLC', 'Qwen3-1.7B-q4f32_1-MLC'])(
-    'rejects unreliable %s tool requests',
-    async (modelId) => {
-      const { engine, create } = setup()
-      const adapter = new WebLLMModel({ engine, modelId })
-      const toolSpecs = [{ name: 'clock', description: 'Get the time.' }]
-      const toolHistory = [
-        textHistory[0]!,
-        new Message({
-          role: 'assistant',
-          content: [new ToolUseBlock({ toolUseId: 'clock-1', name: 'clock', input: {} })],
-        }),
-      ]
-      const requests = [
-        () => collect(adapter.stream(textHistory, { toolSpecs })),
-        () => collect(adapter.stream(textHistory, { toolChoice: { any: {} } })),
-        () => collect(adapter.stream(toolHistory)),
-      ]
-
-      for (const request of requests)
-        await expect(request()).rejects.toThrow(`Tool calling is not supported for ${modelId}.`)
-      expect(create).not.toHaveBeenCalled()
-    },
-  )
-
   it('confirms other prebuilt chat models reject adapter tool requests at WebLLM validation', async () => {
     const { engine, create } = setup()
     create.mockImplementation(async () => chunks(chunk({ content: 'ok' }, 'stop')))
@@ -300,7 +276,6 @@ describe('WebLLM model catalog', () => {
       (model) =>
         !toolModelIds.has(model.model_id) &&
         !customToolModelIds.has(model.model_id) &&
-        !model.model_id.startsWith('Qwen3-1.7B-') &&
         !model.model_id.startsWith('gemma-4-'),
     )
 

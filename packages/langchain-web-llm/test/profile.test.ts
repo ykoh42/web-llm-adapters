@@ -11,7 +11,7 @@ import { ChatWebLLM } from '../src/index.js'
 import { formatMessages, nativeMessages } from '../src/chat/messages.js'
 import { setup } from '../fixtures/engine.js'
 
-it('keeps custom tool profiles independent of registered Qwen artifact limits', () => {
+it('allows custom tool profiles', () => {
   const { engine } = setup()
   const model = new ChatWebLLM({
     engine,

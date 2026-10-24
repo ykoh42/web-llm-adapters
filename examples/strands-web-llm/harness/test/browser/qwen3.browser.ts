@@ -10,10 +10,15 @@ import type { Page } from '@playwright/test'
 import { recordNative, replayNative } from '../../fixtures/native.js'
 import { sampling } from '../../../sampling.js'
 
-for (const modelId of ['Qwen3-0.6B-q4f16_1-MLC', 'Qwen3-4B-q4f16_1-MLC', 'Qwen3-8B-q4f16_1-MLC']) {
+for (const modelId of [
+  'Qwen3-1.7B-q4f16_1-MLC',
+  'Qwen3-0.6B-q4f16_1-MLC',
+  'Qwen3-4B-q4f16_1-MLC',
+  'Qwen3-8B-q4f16_1-MLC',
+]) {
   const behavior =
     modelId === 'Qwen3-0.6B-q4f16_1-MLC'
-      ? 'preserves incomplete thinking output'
+      ? 'matches native thinking and tool output'
       : 'thinking calls a Harness tool, uses its result, and answers'
   test(`${modelId} ${behavior}`, async ({ page }, info) => {
     const directory = process.platform === 'win32' ? tmpdir() : '/tmp'
@@ -65,9 +70,12 @@ for (const modelId of ['Qwen3-0.6B-q4f16_1-MLC', 'Qwen3-4B-q4f16_1-MLC', 'Qwen3-
           )
             throw error
 
-          const request = (await page.evaluate(() => window.qwen3Requests))[0]
-          const raw = rawContent(chunks[0] ?? [])
+          const request = (await page.evaluate(() => window.qwen3Requests)).at(-1)
+          const raw = rawContent(chunks.at(-1) ?? [])
+          const comparison = await compareNative(page, chunks)
+          expect(comparison.native.map(rawContent)).toEqual(comparison.adapted.map(rawContent))
           await recordNative(info, 'incomplete-thinking', {
+            ...comparison,
             modelId,
             request,
             raw,
@@ -77,18 +85,20 @@ for (const modelId of ['Qwen3-0.6B-q4f16_1-MLC', 'Qwen3-4B-q4f16_1-MLC', 'Qwen3-
           expect(raw).toContain('<think>')
           expect(raw).not.toContain('</think>')
           info.annotations.push({
-            type: 'model-limit',
+            type: 'native-output',
             description: 'Qwen3 0.6B stopped before closing its thinking block.',
           })
           return undefined
         })
       if (!result) return
 
+      const comparison = await compareNative(page, chunks)
+      expect(comparison.native.map(rawContent)).toEqual(comparison.adapted.map(rawContent))
       await recordNative(info, 'native-comparison', {
         code,
         path,
         messages: agent.messages.map((message) => message.toJSON()),
-        ...(await compareNative(page, chunks)),
+        ...comparison,
       })
 
       expect(modelCalls).toBe(2)
@@ -117,9 +127,7 @@ for (const modelId of ['Qwen3-0.6B-q4f16_1-MLC', 'Qwen3-4B-q4f16_1-MLC', 'Qwen3-
   })
 }
 
-test('Qwen3 can call a second distinct Harness tool after its first result', async ({
-  page,
-}, info) => {
+test('Qwen3 preserves native tool order and arguments through Harness', async ({ page }, info) => {
   const modelId = 'Qwen3-4B-q4f16_1-MLC'
   const code = 'code-' + crypto.randomUUID().slice(0, 8)
   const receipt = 'receipt-' + crypto.randomUUID().slice(0, 8)
@@ -190,6 +198,7 @@ test('Qwen3 can call a second distinct Harness tool after its first result', asy
       { limits: { turns: 4 } },
     )
     const comparison = await compareNative(page, chunks)
+    expect(comparison.native.map(rawContent)).toEqual(comparison.adapted.map(rawContent))
     await recordNative(info, 'native-comparison', {
       code,
       receipt,
@@ -208,7 +217,6 @@ test('Qwen3 can call a second distinct Harness tool after its first result', asy
       expect(inputs).toEqual(calls.map((call) => call.input))
       expect(inputs[0]).toEqual({ city: 'Seoul' })
       expect(calls.map((call) => call.name)).toEqual(['lookup', 'confirm'])
-      expect(comparison.native.map(rawContent)).toEqual(comparison.adapted.map(rawContent))
       expect(toolResults).toHaveLength(2)
       expect(JSON.stringify(toolResults)).toContain(code)
       expect(JSON.stringify(toolResults)).toContain(receipt)
@@ -217,7 +225,7 @@ test('Qwen3 can call a second distinct Harness tool after its first result', asy
         expect.objectContaining({ type: 'textBlock', text: expect.stringContaining(receipt) }),
       )
       info.annotations.push({
-        type: 'model-limit',
+        type: 'native-output',
         description:
           'Qwen3 4B emitted dependent tool calls in one response; native output matched.',
       })

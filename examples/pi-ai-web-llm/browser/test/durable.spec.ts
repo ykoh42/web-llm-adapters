@@ -35,6 +35,7 @@ const models = [
   'Qwen3.5-9B-q4f16_1-MLC',
   defaultModel,
   'Qwen3-4B-q4f16_1-MLC',
+  'Qwen3-1.7B-q4f16_1-MLC',
   'gemma-4-E2B-it-q4f16_1-MLC',
   'Qwen3-8B-q4f16_1-MLC',
   'Qwen2.5-3B-Instruct-q4f16_1-MLC',
@@ -49,10 +50,10 @@ const cases = [
     modelId,
     prompt: defaultPrompt,
   })),
-  {
-    modelId: 'Qwen3.5-2B-q4f16_1-MLC',
+  ...['Qwen3.5-2B-q4f16_1-MLC', 'Qwen3.5-0.8B-q4f16_1-MLC'].map((modelId) => ({
+    modelId,
     prompt: 'Call lookup with code A7 and report exactly the answer it returns.',
-  },
+  })),
 ]
 const selected =
   process.env.MODEL_IDS?.split(',').map(

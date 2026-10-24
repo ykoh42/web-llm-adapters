@@ -1,4 +1,4 @@
-import { isQwen, hasQwenToolLimit } from '../../../../shared/web-llm/qwen/models.js'
+import { isQwen } from '../../../../shared/web-llm/qwen/models.js'
 import { toolPrompt } from '../../../../shared/web-llm/qwen/tools.js'
 import { ModelError, type Message, type StreamOptions } from '@strands-agents/sdk'
 import type { ChatCompletionRequestStreaming } from '@mlc-ai/web-llm'
@@ -21,18 +21,6 @@ export function qwenRequest(
   const tools = options.toolSpecs ?? []
   if (tools.length && hasStructuredResponse(config))
     throw new ModelError('Qwen tool calls cannot use a structured response format.')
-  if (
-    hasQwenToolLimit(config.modelId) &&
-    (tools.length > 0 ||
-      (options.toolChoice && !('auto' in options.toolChoice)) ||
-      messages.some((message) =>
-        message.content.some(
-          (block) => block.type === 'toolUseBlock' || block.type === 'toolResultBlock',
-        ),
-      ))
-  )
-    throw new ModelError(`Tool calling is not supported for ${config.modelId}.`)
-
   const request = generationOptions(config)
   delete request.tool_choice
   const history = qwenMessages(config.modelId.startsWith('Qwen3-'), messages, options)

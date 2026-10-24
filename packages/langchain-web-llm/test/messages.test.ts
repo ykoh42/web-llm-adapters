@@ -722,7 +722,7 @@ it('exposes model capabilities and caller-owned context limits without guessing 
   expect(model.profile.maxInputTokens).toBe(32768)
   expect(new ChatWebLLM({ engine, modelId: 'test' }).profile.maxInputTokens).toBeUndefined()
   expect(new ChatWebLLM({ engine, modelId: 'Qwen3-1.7B-q4f16_1-MLC' }).profile.toolCalling).toBe(
-    false,
+    true,
   )
   expect(new ChatWebLLM({ engine, modelId: 'test' }).profile.imageToolMessage).toBe(false)
   expect(

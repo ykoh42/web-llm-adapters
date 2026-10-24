@@ -12,7 +12,7 @@ import { gemmaRequest, checkGemmaRequest } from './gemma/request.js'
 import { gemmaChunks } from './gemma/stream.js'
 import { qwenChunks } from './qwen/stream.js'
 import { qwen35Chunks } from './qwen35/stream.js'
-import { isQwen, hasQwenToolLimit } from './qwen/models.js'
+import { isQwen } from './qwen/models.js'
 import { isQwen35 } from './qwen35/models.js'
 import { isTextFormat } from './response.js'
 import { streamCall } from './engine/call.js'
@@ -98,16 +98,6 @@ export function protocolStream({
   if (isQwen(modelId) || isQwen35(modelId)) {
     if (tools.length && structured)
       throw new Error('Qwen tool calls cannot use a structured response format.')
-    if (
-      hasQwenToolLimit(modelId) &&
-      (tools.length ||
-        history.some(
-          (message) =>
-            message.role === 'tool' || (message.role === 'assistant' && message.tool_calls?.length),
-        ) ||
-        (choice && choice !== 'none' && !('auto' in choice)))
-    )
-      throw new Error(`Tool calling is not supported for ${modelId}.`)
     const xml = isQwen35(modelId)
     const messages = qwenHistory(
       modelId,

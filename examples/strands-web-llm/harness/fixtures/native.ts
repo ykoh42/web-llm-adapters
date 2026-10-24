@@ -8,8 +8,8 @@ export async function replayNative(page: Page, requests: ChatCompletionRequestSt
     (requests) =>
       window.webllmBridge.withEngine(async (engine) => {
         const outputs: ChatCompletionChunk[][] = []
+        await engine.resetChat()
         for (const request of requests) {
-          await engine.resetChat()
           const chunks: ChatCompletionChunk[] = []
           for await (const chunk of await engine.chat.completions.create(request))
             chunks.push(chunk)

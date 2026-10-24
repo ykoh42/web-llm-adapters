@@ -441,10 +441,8 @@ describe('model protocols', () => {
     expect(create.mock.calls[1]?.[0].messages[0]).toEqual({ role: 'system', content: '' })
   })
 
-  it('rejects Qwen3 1.7B tool requests and unknown tool choices', async () => {
+  it('rejects unknown Qwen tool choices', async () => {
     const { engine } = setup()
-    const model = new ChatWebLLM({ engine, modelId: 'Qwen3-1.7B-q4f16_1-MLC' })
-    await expect(model.bindTools([definition]).invoke('Hi')).rejects.toThrow('not supported')
     const supported = new ChatWebLLM({ engine, modelId: qwen })
     await expect(
       supported.bindTools([definition], { tool_choice: { type: 'bad' } }).invoke('Hi'),

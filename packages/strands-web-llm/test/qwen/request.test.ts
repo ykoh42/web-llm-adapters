@@ -281,3 +281,50 @@ it('rejects tool signatures that Qwen cannot preserve', () => {
     'tool calls with reasoning signatures',
   )
 })
+
+it.each(['Qwen3-1.7B-q4f16_1-MLC', 'Qwen3-1.7B-q4f32_1-MLC'])(
+  '%s preserves tool calls and their results in history',
+  (modelId) => {
+    const request = qwenRequest(
+      { modelId },
+      [
+        new Message({ role: 'user', content: [new TextBlock('Look up A7.')] }),
+        new Message({
+          role: 'assistant',
+          content: [new ToolUseBlock({ toolUseId: 'call', name: 'lookup', input: { code: 'A7' } })],
+        }),
+        new Message({
+          role: 'user',
+          content: [
+            new ToolResultBlock({
+              toolUseId: 'call',
+              status: 'success',
+              content: [new TextBlock('ORCHID-42')],
+            }),
+          ],
+        }),
+      ],
+      {
+        toolSpecs: [
+          {
+            name: 'lookup',
+            description: 'Look up a code.',
+            inputSchema: {
+              type: 'object',
+              properties: { code: { type: 'string' } },
+              required: ['code'],
+            },
+          },
+        ],
+      },
+    )
+    expect(request.messages[0]?.content).toContain('"name":"lookup"')
+    expect(request.messages[1]).toEqual({ role: 'user', content: 'Look up A7.' })
+    const call = /<tool_call>\n([\s\S]*?)\n<\/tool_call>/.exec(String(request.messages[2]?.content))
+    expect(JSON.parse(call?.[1] ?? 'null')).toEqual({ name: 'lookup', arguments: { code: 'A7' } })
+    expect(request.messages[3]?.content).toContain('ORCHID-42')
+    expect(() =>
+      postInitAndCheckFieldsChatCompletion(request, modelId, ModelType.LLM),
+    ).not.toThrow()
+  },
+)

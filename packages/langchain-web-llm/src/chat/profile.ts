@@ -1,5 +1,5 @@
 import type { ModelProfile } from '@langchain/core/language_models/profile'
-import { isQwen, hasQwenToolLimit } from '../../../../shared/web-llm/qwen/models.js'
+import { isQwen } from '../../../../shared/web-llm/qwen/models.js'
 import { isQwen35 } from '../../../../shared/web-llm/qwen35/models.js'
 import type { WebLLMRequest } from '../types.js'
 
@@ -49,9 +49,6 @@ export function modelProfile(
     midConversationSystemMessages: false,
     midConversationTools: false,
     ...(gemma && request?.extra_body?.enable_thinking === true && { structuredOutput: false }),
-    ...(hasQwenToolLimit(modelId) && {
-      toolCalling: false,
-    }),
     pdfInputs: false,
     videoInputs: false,
     fileMimeTypes: [],

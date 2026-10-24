@@ -205,6 +205,8 @@ for (const modelId of process.env.MODEL_IDS?.split(',') ?? [
   'Qwen3.5-4B-q4f16_1-MLC',
   'Qwen3.5-2B-q4f16_1-MLC',
   'Qwen3-4B-q4f16_1-MLC',
+  'Qwen3-1.7B-q4f16_1-MLC',
+  'Qwen3.5-0.8B-q4f16_1-MLC',
   'gemma-4-E2B-it-q4f16_1-MLC',
   'Qwen3-8B-q4f16_1-MLC',
   'Qwen2.5-7B-Instruct-q4f16_1-MLC',
@@ -219,7 +221,7 @@ for (const modelId of process.env.MODEL_IDS?.split(',') ?? [
     page.on('pageerror', (error) => errors.push(error.message))
     await page.goto('http://127.0.0.1:4173/pi/test/checks.html')
     await page.evaluate((id) => window.piChecks.load(id), modelId)
-    const evidence = await page.evaluate(async () => {
+    const evidence = await page.evaluate(async (modelId) => {
       const agent = await window.piChecks.createAgent(true)
       const requests: unknown[] = []
       const native: ChatCompletionChunk[] = []
@@ -229,12 +231,18 @@ for (const modelId of process.env.MODEL_IDS?.split(',') ?? [
       agent.onProviderStreamEvent = (event) => {
         native.push(structuredClone(event) as ChatCompletionChunk)
       }
-      const error = await agent.prompt('Look up A7 and tell me the answer.').then(
-        () => null,
-        (error: unknown) => String(error),
-      )
+      const error = await agent
+        .prompt(
+          modelId === 'Qwen3.5-0.8B-q4f16_1-MLC'
+            ? 'Call lookup with code A7 and report exactly the answer it returns.'
+            : 'Look up A7 and tell me the answer.',
+        )
+        .then(
+          () => null,
+          (error: unknown) => String(error),
+        )
       return { messages: agent.state.messages, requests, native, error }
-    })
+    }, modelId)
     const path = info.outputPath('model.json')
     await writeFile(path, JSON.stringify(evidence, null, 2))
     await info.attach('messages', {
