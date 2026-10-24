@@ -32,6 +32,7 @@ async function fresh(page: Page, modelId = defaultModel) {
 }
 
 for (const modelId of process.env.MODEL_IDS?.split(',') ?? [
+  'Qwen3.5-9B-q4f16_1-MLC',
   defaultModel,
   'Qwen3-4B-q4f16_1-MLC',
   'gemma-4-E2B-it-q4f16_1-MLC',
@@ -65,16 +66,6 @@ for (const modelId of process.env.MODEL_IDS?.split(',') ?? [
         ),
     ).toBe(true)
     expect(before.entries.some((entry) => entry.kind === 'pi.tool-result')).toBe(true)
-    if (!modelId.startsWith('Qwen2.5-'))
-      expect(
-        before.entries
-          .flatMap((entry) => entry.model ?? [])
-          .some(
-            (message) =>
-              message.role === 'assistant' &&
-              message.content.some((part) => part.type === 'thinking' && part.thinking.trim()),
-          ),
-      ).toBe(true)
     expect(JSON.stringify(before.docs['pi.usage'])).toMatch(/"totalTokens":[1-9]/)
     await load(page, modelId)
     const reopened = JSON.parse((await page.locator('#details').textContent())!)

@@ -339,7 +339,12 @@ for (const modelId of ['Qwen3.5-9B-q4f16_1-MLC', 'Qwen3.5-2B-q4f16_1-MLC']) {
   })
 }
 
-for (const modelId of ['Qwen3.5-4B-q4f16_1-MLC', 'Qwen3-8B-q4f16_1-MLC']) {
+for (const modelId of [
+  'Qwen3.5-9B-q4f16_1-MLC',
+  'Qwen3.5-4B-q4f16_1-MLC',
+  'Qwen3.5-2B-q4f16_1-MLC',
+  'Qwen3-8B-q4f16_1-MLC',
+]) {
   test(`${modelId}: native thinking sampling overrides named Pi reasoning on a real Worker`, async ({
     page,
   }, info) => {
@@ -400,12 +405,12 @@ for (const modelId of ['Qwen3.5-4B-q4f16_1-MLC', 'Qwen3-8B-q4f16_1-MLC']) {
       })
       expect(native, mode).toBe(direct)
       expect(message.stopReason, mode).toBe('stop')
-      expect(
-        message.content
-          .filter((part) => part.type === 'text')
-          .map((part) => part.text)
-          .join(''),
-      ).toContain('391')
+      const text = message.content
+        .filter((part) => part.type === 'text')
+        .map((part) => part.text)
+        .join('')
+      expect(text, mode).toContain('391')
+      expect(text, mode).toBe(direct.replace(/^<think>[\s\S]*?<\/think>/, ''))
       const thinking = message.content
         .filter((part) => part.type === 'thinking')
         .map((part) => part.thinking)

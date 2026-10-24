@@ -3,7 +3,12 @@ import type { ChatOptions } from '@mlc-ai/web-llm'
 import { test, expect } from '../../../fixtures/browser.js'
 import { sampling } from '../../../sampling.js'
 
-for (const modelId of ['Qwen3-8B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC']) {
+for (const modelId of [
+  'Qwen3-8B-q4f16_1-MLC',
+  'Qwen3.5-9B-q4f16_1-MLC',
+  'Qwen3.5-4B-q4f16_1-MLC',
+  'Qwen3.5-2B-q4f16_1-MLC',
+]) {
   test(`${modelId} reads thinking prefilled by the loaded template`, async ({
     page,
     request,
