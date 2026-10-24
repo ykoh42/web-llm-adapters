@@ -4,4 +4,4 @@
 - Keep packages independent and examples self-contained.
 - Preserve model input and output; add only protocol-required content.
 - Verify real WebLLM flows; report limits without filler, fakes, or fallbacks.
-- Publish through GitHub Releases; follow [.github/RELEASING.md](.github/RELEASING.md).
+- Pass local real-model tests before publishing through GitHub Releases; follow [.github/RELEASING.md](.github/RELEASING.md).
