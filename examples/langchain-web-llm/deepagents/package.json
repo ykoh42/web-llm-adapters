@@ -8,7 +8,10 @@
   },
   "dependencies": {
     "deepagents": "1.15.1",
-    "langchain-web-llm": "*",
+    "langchain-web-llm": "workspace:*",
     "playwright": "1.64.1"
+  },
+  "devDependencies": {
+    "vite": "^8.3.5"
   }
 }

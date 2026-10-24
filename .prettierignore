@@ -4,4 +4,4 @@ coverage
 test-results
 playwright-report
 .cache
-package-lock.json
+pnpm-lock.yaml

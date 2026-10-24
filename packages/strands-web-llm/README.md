@@ -116,7 +116,7 @@ Decode speeds are local measurements on M4 Pro (24 GB), Chrome 155.
 Qwen3 0.6B can miscopy arguments or omit answers with thinking on;
 Qwen3 4B can call dependent tools together.
 For Qwen3.5, declare object/array types to preserve XML in JSON. History cannot preserve `>` in top-level argument names or `<parameter=` / `</parameter>` in raw strings.
-Gemma 4 E2B requires the bundled [runtime setup and protocol limits](https://github.com/ykoh42/web-llm-adapters/blob/main/shared/runtime/README.md). Audio works in ordinary chat, without tools or thinking.
+Install WebLLM `0.2.79` or later in the `0.2.x` series. Gemma 4 E2B was verified with WebLLM `0.2.86` and needs the bundled [runtime setup and protocol limits](https://github.com/ykoh42/web-llm-adapters/blob/main/shared/runtime/README.md). Audio works in ordinary chat, without tools or thinking.
 
 <details>
 <summary>Benchmark notes and tool formats</summary>
@@ -143,10 +143,11 @@ Tool formats follow [Hermes](https://github.com/QwenLM/Qwen3/blob/main/docs/sour
 
 `WebLLMEmbeddingSearchStrategy` connects WebLLM to Strands memory; see the
 [memory example](https://github.com/ykoh42/web-llm-adapters/blob/main/examples/strands-web-llm/harness/src/memory.ts).
+This strategy embeds UTF-8 text only. Entries with invalid UTF-8 stay in storage but are excluded from semantic search.
 These embedding models have a 512-token input limit. Prefix queries with
 `Represent this sentence for searching relevant passages: `; leave stored text unprefixed.
 Search returns positive cosine matches by default; set `minScore` to include lower scores.
-For FileMemoryStore, set `includeData: false` to avoid retaining bytes it reads back itself.
+`includeData: false` reduces memory use; FileMemoryStore rereads the returned matches.
 Searches scan all entries, and vectors rebuild after restart. Keep each stored record within 512 tokens;
 FileMemoryStore appends facts that share a heading.
 

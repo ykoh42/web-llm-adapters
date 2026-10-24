@@ -1,12 +1,10 @@
 import { execFileSync } from 'node:child_process'
 import { copyFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('../../../../../', import.meta.url))
-const npm = process.env.npm_execpath
-if (!npm) throw new Error('Run this check with npm run test:install.')
 const directory = await mkdtemp(join(tmpdir(), 'webllm-install-'))
 
 function run(command: string, args: string[]) {
@@ -22,8 +20,8 @@ try {
   console.log('Pack the library and install it outside the workspace.')
   const packed = JSON.parse(
     execFileSync(
-      process.execPath,
-      [npm, 'pack', '--workspace', 'strands-web-llm', '--pack-destination', directory, '--json'],
+      'pnpm',
+      ['--filter', 'strands-web-llm', 'pack', '--pack-destination', directory, '--json'],
       { cwd: root, encoding: 'utf8' },
     ),
   )
@@ -33,7 +31,7 @@ try {
       private: true,
       type: 'module',
       dependencies: {
-        'strands-web-llm': `file:${join(directory, packed[0].filename)}`,
+        'strands-web-llm': `file:${resolve(directory, packed.filename)}`,
         '@mlc-ai/web-llm': library.devDependencies['@mlc-ai/web-llm'],
         '@strands-agents/sdk': library.devDependencies['@strands-agents/sdk'],
         '@strands-agents/harness': example.dependencies['@strands-agents/harness'],
@@ -41,14 +39,7 @@ try {
       },
     }),
   )
-  run(process.execPath, [
-    npm,
-    'install',
-    '--ignore-scripts',
-    '--no-audit',
-    '--no-fund',
-    '--package-lock=false',
-  ])
+  run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false'])
   console.log('Verify the installed runtime asset, hash, source patch and notices.')
   run(process.execPath, [
     '--input-type=module',
@@ -89,7 +80,11 @@ try {
         include: [file],
       }),
     )
-    run(process.execPath, [join(root, 'node_modules/.bin/tsc6'), '--project', 'tsconfig.json'])
+    run(process.execPath, [
+      fileURLToPath(import.meta.resolve('typescript/bin/tsc6')),
+      '--project',
+      'tsconfig.json',
+    ])
   }
   console.log('Run the installed package.')
   run(process.execPath, ['--test', 'consumer.ts'])

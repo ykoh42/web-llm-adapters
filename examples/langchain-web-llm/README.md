@@ -8,8 +8,8 @@ These are local demos, not a requirement for using the package.
 From the repository root, install dependencies and start the local browser example:
 
 ```sh
-npm ci
-npm run dev:langchain
+pnpm install
+pnpm dev:langchain
 ```
 
 Open the local URL printed by the server, load a model, and send a message. Web Worker is on by default to keep inference off the UI thread. The first load fetches WebLLM's runtime and model files; later runs use the browser cache.

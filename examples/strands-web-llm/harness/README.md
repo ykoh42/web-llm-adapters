@@ -8,14 +8,14 @@ Tools use your account's file and shell permissions; configure a Harness sandbox
 From the repository root, start the local browser host:
 
 ```sh
-npm ci
-npm run dev:strands
+pnpm install
+pnpm dev:strands
 ```
 
 Keep it running at <http://127.0.0.1:4173>. In another terminal:
 
 ```sh
-npm run start --workspace @web-llm-adapters/strands-harness -- 'Say hello.'
+pnpm --filter @web-llm-adapters/strands-harness start 'Say hello.'
 ```
 
 The CLI opens Chrome and caches model downloads. Gemma 4 E2B is the example default;
@@ -32,7 +32,7 @@ The demo includes Gemma's required runtime setup.
 For example, read a file with thinking enabled:
 
 ```sh
-npm run start --workspace @web-llm-adapters/strands-harness -- --think --tool read 'Read /absolute/path/to/note.txt and summarize it.'
+pnpm --filter @web-llm-adapters/strands-harness start --think --tool read 'Read /absolute/path/to/note.txt and summarize it.'
 ```
 
 ## Source
@@ -67,7 +67,7 @@ for adapter features and the [browser examples](../browser/README.md) for native
 <summary>Run real-model tests</summary>
 
 ```sh
-npm run test:browser -- --project=strands-harness
+pnpm test:browser --project=strands-harness
 ```
 
 Tests use isolated files, sessions, skills, and memory. Some use named tool choice

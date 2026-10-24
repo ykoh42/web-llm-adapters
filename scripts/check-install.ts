@@ -1,14 +1,13 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runtimeFiles } from '../shared/build.ts'
 
 interface PackedFile {
   path: string
-  mode: number
 }
 
 interface InstallCheck {
@@ -39,15 +38,13 @@ export async function checkInstall({
   const run = (cmd: string, args: string[], cwd = temporary) =>
     execFileSync(cmd, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
   try {
-    const packs: { filename: string; files: PackedFile[] }[] = JSON.parse(
+    const pack: { filename: string; files: PackedFile[] } = JSON.parse(
       run(
-        'npm',
-        ['pack', '--ignore-scripts', '--json', '--pack-destination', temporary],
+        'pnpm',
+        ['--ignore-scripts', 'pack', '--json', '--pack-destination', temporary],
         directory,
       ),
     )
-    const pack = packs[0]
-    if (!pack) throw new Error('npm pack returned no package.')
     checkFiles(pack.files)
     await writeFile(
       join(temporary, 'package.json'),
@@ -62,7 +59,7 @@ export async function checkInstall({
         '--ignore-scripts',
         '--no-fund',
         '--no-audit',
-        join(temporary, pack.filename),
+        resolve(temporary, pack.filename),
         ...dependencies,
       ])
       await checkDependencyVersions(temporary, dependencies)
@@ -132,9 +129,6 @@ async function checkDependencyVersions(directory: string, dependencies: string[]
 }
 
 function checkFiles(files: PackedFile[]): void {
-  const wasm = files.find(({ path }) => path === 'dist/runtime/gemma-4-e2b.wasm')
-  if (!wasm || (wasm.mode & 0o111) !== 0)
-    throw new Error('Wasm package file must not be executable.')
   const allowed = new Set([
     'README.md',
     'LICENSE',
@@ -165,6 +159,8 @@ async function checkPrivateFiles(directory: string, files: PackedFile[]): Promis
 
 async function checkRuntime(directory: string): Promise<void> {
   const runtime = join(directory, 'dist/runtime')
+  if (((await stat(join(runtime, 'gemma-4-e2b.wasm'))).mode & 0o111) !== 0)
+    throw new Error('Wasm package file must not be executable.')
   const manifest = JSON.parse(await readFile(join(runtime, 'manifest.json'), 'utf8'))
   for (const [name, hash] of Object.entries(manifest.files)) {
     const bytes = await readFile(join(runtime, name))

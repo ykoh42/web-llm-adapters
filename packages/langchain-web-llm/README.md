@@ -120,7 +120,7 @@ These exact WebLLM IDs passed real-model checks. Tools includes default Deep Age
 | `snowflake-arctic-embed-s-q0f32-MLC-b32` | —     | —        | —      | —     | O          |
 | `snowflake-arctic-embed-s-q0f32-MLC-b4`  | —     | —        | —      | —     | O          |
 
-Gemma 4 E2B uses WebLLM 0.2.86 with the bundled [runtime setup and protocol limits](https://github.com/ykoh42/web-llm-adapters/blob/main/shared/runtime/README.md). Audio works in ordinary chat; the default profile keeps it disabled for Deep Agents. Tools and thinking accept text and tool results only. Model-selected tools and arguments still need validation.
+Install WebLLM `0.2.79` or later in the `0.2.x` series. Gemma 4 E2B was verified with WebLLM `0.2.86` and needs the bundled [runtime setup and protocol limits](https://github.com/ykoh42/web-llm-adapters/blob/main/shared/runtime/README.md). Audio works in ordinary chat; the default profile keeps it disabled for Deep Agents. Tools and thinking accept text and tool results only. Model-selected tools and arguments still need validation.
 
 For Qwen3.5, declare object/array types to preserve XML in JSON. History cannot preserve `>` in top-level argument names or `<parameter=` / `</parameter>` in raw strings.
 

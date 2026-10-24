@@ -8,13 +8,13 @@ export default defineConfig({
   webServer: [
     {
       command:
-        'npm exec --workspace @web-llm-adapters/strands-browser -- vite preview --host 127.0.0.1 --port 4173 --strictPort',
+        'pnpm --filter @web-llm-adapters/strands-browser exec vite preview --host 127.0.0.1 --port 4173 --strictPort',
       url: 'http://localhost:4173',
       reuseExistingServer: !process.env.CI,
     },
     {
       command:
-        'npm exec --workspace @web-llm-adapters/strands-browser -- vite preview --host 127.0.0.1 --port 4174 --strictPort',
+        'pnpm --filter @web-llm-adapters/strands-browser exec vite preview --host 127.0.0.1 --port 4174 --strictPort',
       url: 'http://localhost:4174',
       reuseExistingServer: !process.env.CI,
     },

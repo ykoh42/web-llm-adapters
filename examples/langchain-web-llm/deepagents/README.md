@@ -3,7 +3,7 @@
 Start the [browser example](../README.md), then run from this directory:
 
 ```sh
-npm start
+pnpm start
 ```
 
 The agent and default tools run in Node.js. WebLLM runs in its private browser page. `run.ts` owns that page and closes it when the agent finishes.

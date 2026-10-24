@@ -5,8 +5,8 @@ Run the agent, tools, and model inference in the browser. Model inference uses a
 From the repository root:
 
 ```sh
-npm ci
-npm run dev:pi
+pnpm install
+pnpm dev:pi
 ```
 
 Open the printed `/pi/` URL. Choose an example using the link at the top of either page:
@@ -33,7 +33,7 @@ The example's `contextWindow` is 32768 and is passed to both the engine loader a
 [engine.ts](browser/src/engine.ts) owns model loading and provider registration. [main.ts](browser/src/main.ts) connects Agent Core to its page; [durable.ts](browser/src/durable.ts) connects the Durable conversation to its page. Browser diagnostics live under `browser/test/` and run on a separate test page.
 
 ```sh
-npm run test:pi
+pnpm test:pi
 ```
 
 Checks use installed Chrome with the `.cache/chrome` profile and save results under `test-results/pi-ai-web-llm`. Set `HEADLESS=1` for headless Chrome with WebGPU. Run browser suites one at a time because they share this profile.

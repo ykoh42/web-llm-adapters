@@ -13,7 +13,7 @@
   "dependencies": {
     "@mlc-ai/web-llm": "0.2.86",
     "@strands-agents/sdk": "1.22.0",
-    "strands-web-llm": "*"
+    "strands-web-llm": "workspace:*"
   },
   "devDependencies": {
     "@types/chrome": "^0.3.6",

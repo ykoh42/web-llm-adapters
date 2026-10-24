@@ -1,0 +1,8 @@
+packages:
+  - packages/*
+  - examples/*/*
+allowBuilds:
+  '@google/genai': false
+  esbuild: true
+  protobufjs: false
+  tesseract.js: false

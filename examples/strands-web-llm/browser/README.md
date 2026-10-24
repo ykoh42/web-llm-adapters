@@ -5,8 +5,8 @@ A local demo and real-model test page for `strands-web-llm`. It is not required 
 From the repository root:
 
 ```sh
-npm ci
-npm run dev:strands
+pnpm install
+pnpm dev:strands
 ```
 
 Open <http://127.0.0.1:4173>. Choose an **Example** and **Engine**, click **Load model**,
@@ -31,7 +31,7 @@ Audio examples check input handling; they do not establish speech transcription 
 <summary>Chrome extension</summary>
 
 Selecting Cross-origin Storage switches the engine to Main thread mode.
-To try the Chrome extension worker, run `npm run build`, open `chrome://extensions`,
+To try the Chrome extension worker, run `pnpm build`, open `chrome://extensions`,
 enable Developer mode, and load `examples/strands-web-llm/browser/dist` as an unpacked extension.
 Open its `index.html` page and choose **Chrome extension worker**.
 
@@ -41,14 +41,14 @@ Open its `index.html` page and choose **Chrome extension worker**.
 <summary>Run real-model tests</summary>
 
 ```sh
-npm run test:browser -- --project=strands-browser
+pnpm test:browser --project=strands-browser
 ```
 
 These checks use Chrome and a real WebGPU device. For extension checks:
 
 ```sh
-npx playwright install chromium
-npm run test:extensions
+pnpm exec playwright install chromium
+pnpm test:extensions
 ```
 
 Model files and GPU memory must fit on the machine.
