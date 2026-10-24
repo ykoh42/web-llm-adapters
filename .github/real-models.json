@@ -1,0 +1,333 @@
+{
+  "commit": "8b1d55450902f280e0bbf19334f580b5aa682080",
+  "source": "fd6e8d8429df3dbdec1054f05b1d10264be73ac4e9a6c719608d9d63ac7bfad6",
+  "webllm": "0.2.86",
+  "checkedAt": "2026-10-24T04:30:13.419Z",
+  "environment": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "node": "v26.10.0",
+    "browser": "156.0.8078.47",
+    "gpu": { "vendor": "apple", "architecture": "metal-3", "device": "", "description": "" }
+  },
+  "tests": [
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/concurrent.browser.ts > concurrent Harness agents keep tools and answers isolated on one Gemma engine",
+      "status": "passed",
+      "checks": ["engine/concurrency"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/concurrent.browser.ts > cancelling a queued browser request leaves the active and later calls usable",
+      "status": "passed",
+      "checks": ["engine/cancel"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/embedding-memory.browser.ts > snowflake-arctic-embed-m-q0f32-MLC-b32: FileMemoryStore reuses real WebLLM vectors after copies and renames",
+      "status": "passed",
+      "checks": ["snowflake-arctic-embed-m-q0f32-MLC-b32/embeddings"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/embedding-memory.browser.ts > snowflake-arctic-embed-m-q0f32-MLC-b4: FileMemoryStore reuses real WebLLM vectors after copies and renames",
+      "status": "passed",
+      "checks": ["snowflake-arctic-embed-m-q0f32-MLC-b4/embeddings"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/embedding-memory.browser.ts > snowflake-arctic-embed-s-q0f32-MLC-b32: FileMemoryStore reuses real WebLLM vectors after copies and renames",
+      "status": "passed",
+      "checks": ["snowflake-arctic-embed-s-q0f32-MLC-b32/embeddings"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/embedding-memory.browser.ts > snowflake-arctic-embed-s-q0f32-MLC-b4: FileMemoryStore reuses real WebLLM vectors after copies and renames",
+      "status": "passed",
+      "checks": ["snowflake-arctic-embed-s-q0f32-MLC-b4/embeddings"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/native.browser.ts > Gemma returns constrained JSON, native logprobs and PCM results through BrowserModel",
+      "status": "passed",
+      "checks": ["gemma-4-E2B-it-q4f16_1-MLC/audio"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/qwen25.browser.ts > Qwen2.5-0.5B-Instruct-q4f16_1-MLC calls Harness read and answers from its result",
+      "status": "passed",
+      "checks": ["Qwen2.5-0.5B-Instruct-q4f16_1-MLC/tools"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/qwen25.browser.ts > Qwen2.5-1.5B-Instruct-q4f16_1-MLC calls Harness read and answers from its result",
+      "status": "passed",
+      "checks": ["Qwen2.5-1.5B-Instruct-q4f16_1-MLC/tools"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/qwen25.browser.ts > Qwen2.5-3B-Instruct-q4f16_1-MLC calls Harness read and answers from its result",
+      "status": "passed",
+      "checks": ["Qwen2.5-3B-Instruct-q4f16_1-MLC/tools"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/qwen25.browser.ts > Qwen2.5-7B-Instruct-q4f16_1-MLC calls Harness read and answers from its result",
+      "status": "passed",
+      "checks": ["Qwen2.5-7B-Instruct-q4f16_1-MLC/tools"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/qwen3.browser.ts > Qwen3-1.7B-q4f16_1-MLC thinking calls a Harness tool, uses its result, and answers",
+      "status": "passed",
+      "checks": ["Qwen3-1.7B-q4f16_1-MLC/tools", "Qwen3-1.7B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/qwen3.browser.ts > Qwen3-4B-q4f16_1-MLC thinking calls a Harness tool, uses its result, and answers",
+      "status": "passed",
+      "checks": ["Qwen3-4B-q4f16_1-MLC/tools", "Qwen3-4B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/qwen3.browser.ts > Qwen3-8B-q4f16_1-MLC thinking calls a Harness tool, uses its result, and answers",
+      "status": "passed",
+      "checks": ["Qwen3-8B-q4f16_1-MLC/tools", "Qwen3-8B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/qwen35.browser.ts > Qwen3.5-0.8B-q4f16_1-MLC thinking calls Harness read and answers (q35-diagnosis.txt)",
+      "status": "passed",
+      "checks": ["Qwen3.5-0.8B-q4f16_1-MLC/tools", "Qwen3.5-0.8B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/qwen35.browser.ts > Qwen3.5-2B-q4f16_1-MLC thinking calls Harness read and answers",
+      "status": "passed",
+      "checks": ["Qwen3.5-2B-q4f16_1-MLC/tools", "Qwen3.5-2B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/qwen35.browser.ts > Qwen3.5-4B-q4f16_1-MLC thinking calls Harness read and answers",
+      "status": "passed",
+      "checks": ["Qwen3.5-4B-q4f16_1-MLC/tools", "Qwen3.5-4B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/qwen35.browser.ts > Qwen3.5-9B-q4f16_1-MLC thinking calls Harness read and answers",
+      "status": "passed",
+      "checks": ["Qwen3.5-9B-q4f16_1-MLC/tools", "Qwen3.5-9B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/thinking.browser.ts > Gemma thinks, calls Harness read, answers, and strips old thoughts on the next turn",
+      "status": "passed",
+      "checks": ["gemma-4-E2B-it-q4f16_1-MLC/tools", "gemma-4-E2B-it-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/vision.browser.ts > Phi vision reads a Strands ImageBlock through Harness",
+      "status": "passed",
+      "checks": ["Phi-3.5-vision-instruct-q4f16_1-MLC/image"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/audio.spec.ts > Float32 PCM matches native WebLLM through local and browser LangChain models",
+      "status": "passed",
+      "checks": ["gemma-4-E2B-it-q4f16_1-MLC/audio"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/embeddings.spec.ts > snowflake-arctic-embed-m-q0f32-MLC-b32: native vectors match local and browser adapters",
+      "status": "passed",
+      "checks": ["snowflake-arctic-embed-m-q0f32-MLC-b32/embeddings"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/embeddings.spec.ts > snowflake-arctic-embed-m-q0f32-MLC-b4: native vectors match local and browser adapters",
+      "status": "passed",
+      "checks": ["snowflake-arctic-embed-m-q0f32-MLC-b4/embeddings"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/embeddings.spec.ts > snowflake-arctic-embed-s-q0f32-MLC-b32: native vectors match local and browser adapters",
+      "status": "passed",
+      "checks": ["snowflake-arctic-embed-s-q0f32-MLC-b32/embeddings"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/embeddings.spec.ts > snowflake-arctic-embed-s-q0f32-MLC-b4: native vectors match local and browser adapters",
+      "status": "passed",
+      "checks": ["snowflake-arctic-embed-s-q0f32-MLC-b4/embeddings"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/features.spec.ts > real vision model accepts LangChain standard image blocks",
+      "status": "passed",
+      "checks": ["Phi-3.5-vision-instruct-q4f16_1-MLC/image"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/features.spec.ts > real engine serializes concurrent inference, cancels generation and recovers",
+      "status": "passed",
+      "checks": ["engine/concurrency", "engine/cancel"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen3.5-9B-q4f16_1-MLC: default Deep Agents tools and final answer",
+      "status": "passed",
+      "checks": ["Qwen3.5-9B-q4f16_1-MLC/tools", "Qwen3.5-9B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen3.5-4B-q4f16_1-MLC: default Deep Agents tools and final answer",
+      "status": "passed",
+      "checks": ["Qwen3.5-4B-q4f16_1-MLC/tools", "Qwen3.5-4B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen3-4B-q4f16_1-MLC: default Deep Agents tools and final answer",
+      "status": "passed",
+      "checks": ["Qwen3-4B-q4f16_1-MLC/tools", "Qwen3-4B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > gemma-4-E2B-it-q4f16_1-MLC: default Deep Agents tools and final answer",
+      "status": "passed",
+      "checks": ["gemma-4-E2B-it-q4f16_1-MLC/tools", "gemma-4-E2B-it-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen2.5-7B-Instruct-q4f16_1-MLC: default Deep Agents tools and final answer",
+      "status": "passed",
+      "checks": ["Qwen2.5-7B-Instruct-q4f16_1-MLC/tools"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen2.5-3B-Instruct-q4f16_1-MLC: default Deep Agents tools and final answer",
+      "status": "passed",
+      "checks": ["Qwen2.5-3B-Instruct-q4f16_1-MLC/tools"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen2.5-1.5B-Instruct-q4f16_1-MLC: default Deep Agents tools and final answer",
+      "status": "passed",
+      "checks": ["Qwen2.5-1.5B-Instruct-q4f16_1-MLC/tools"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen2.5-0.5B-Instruct-q4f16_1-MLC: default Deep Agents tools and final answer",
+      "status": "passed",
+      "checks": ["Qwen2.5-0.5B-Instruct-q4f16_1-MLC/tools"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen3-8B-q4f16_1-MLC: default Deep Agents tools and final answer",
+      "status": "passed",
+      "checks": ["Qwen3-8B-q4f16_1-MLC/tools", "Qwen3-8B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen3.5-2B-q4f16_1-MLC: default Deep Agents tools and final answer",
+      "status": "passed",
+      "checks": ["Qwen3.5-2B-q4f16_1-MLC/tools", "Qwen3.5-2B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen3.5-0.8B-q4f16_1-MLC: default Deep Agents tools and final answer",
+      "status": "passed",
+      "checks": ["Qwen3.5-0.8B-q4f16_1-MLC/tools", "Qwen3.5-0.8B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen3-1.7B-q4f16_1-MLC: default Deep Agents tools and final answer",
+      "status": "passed",
+      "checks": ["Qwen3-1.7B-q4f16_1-MLC/tools", "Qwen3-1.7B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "pi",
+      "name": "examples/pi-ai-web-llm/browser/test/provider.spec.ts > Qwen3.5-9B-q4f16_1-MLC: Pi Agent Core tools, usage, cancellation and recovery in a Worker",
+      "status": "passed",
+      "checks": ["Qwen3.5-9B-q4f16_1-MLC/tools", "Qwen3.5-9B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "pi",
+      "name": "examples/pi-ai-web-llm/browser/test/provider.spec.ts > Qwen3.5-4B-q4f16_1-MLC: Pi Agent Core tools, usage, cancellation and recovery in a Worker",
+      "status": "passed",
+      "checks": ["Qwen3.5-4B-q4f16_1-MLC/tools", "Qwen3.5-4B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "pi",
+      "name": "examples/pi-ai-web-llm/browser/test/provider.spec.ts > Qwen3.5-2B-q4f16_1-MLC: Pi Agent Core tools, usage, cancellation and recovery in a Worker",
+      "status": "passed",
+      "checks": ["Qwen3.5-2B-q4f16_1-MLC/tools", "Qwen3.5-2B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "pi",
+      "name": "examples/pi-ai-web-llm/browser/test/provider.spec.ts > Qwen3-4B-q4f16_1-MLC: Pi Agent Core tools, usage, cancellation and recovery in a Worker",
+      "status": "passed",
+      "checks": ["Qwen3-4B-q4f16_1-MLC/tools", "Qwen3-4B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "pi",
+      "name": "examples/pi-ai-web-llm/browser/test/provider.spec.ts > Qwen3-1.7B-q4f16_1-MLC: Pi Agent Core tools, usage, cancellation and recovery in a Worker",
+      "status": "passed",
+      "checks": ["Qwen3-1.7B-q4f16_1-MLC/tools", "Qwen3-1.7B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "pi",
+      "name": "examples/pi-ai-web-llm/browser/test/provider.spec.ts > Qwen3.5-0.8B-q4f16_1-MLC: Pi Agent Core tools, usage, cancellation and recovery in a Worker",
+      "status": "passed",
+      "checks": ["Qwen3.5-0.8B-q4f16_1-MLC/tools", "Qwen3.5-0.8B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "pi",
+      "name": "examples/pi-ai-web-llm/browser/test/provider.spec.ts > gemma-4-E2B-it-q4f16_1-MLC: Pi Agent Core tools, usage, cancellation and recovery in a Worker",
+      "status": "passed",
+      "checks": ["gemma-4-E2B-it-q4f16_1-MLC/tools", "gemma-4-E2B-it-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "pi",
+      "name": "examples/pi-ai-web-llm/browser/test/provider.spec.ts > Qwen3-8B-q4f16_1-MLC: Pi Agent Core tools, usage, cancellation and recovery in a Worker",
+      "status": "passed",
+      "checks": ["Qwen3-8B-q4f16_1-MLC/tools", "Qwen3-8B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "pi",
+      "name": "examples/pi-ai-web-llm/browser/test/provider.spec.ts > Qwen2.5-7B-Instruct-q4f16_1-MLC: Pi Agent Core tools, usage, cancellation and recovery in a Worker",
+      "status": "passed",
+      "checks": ["Qwen2.5-7B-Instruct-q4f16_1-MLC/tools"]
+    },
+    {
+      "adapter": "pi",
+      "name": "examples/pi-ai-web-llm/browser/test/provider.spec.ts > Qwen2.5-3B-Instruct-q4f16_1-MLC: Pi Agent Core tools, usage, cancellation and recovery in a Worker",
+      "status": "passed",
+      "checks": ["Qwen2.5-3B-Instruct-q4f16_1-MLC/tools"]
+    },
+    {
+      "adapter": "pi",
+      "name": "examples/pi-ai-web-llm/browser/test/provider.spec.ts > Qwen2.5-1.5B-Instruct-q4f16_1-MLC: Pi Agent Core tools, usage, cancellation and recovery in a Worker",
+      "status": "passed",
+      "checks": ["Qwen2.5-1.5B-Instruct-q4f16_1-MLC/tools"]
+    },
+    {
+      "adapter": "pi",
+      "name": "examples/pi-ai-web-llm/browser/test/provider.spec.ts > Qwen2.5-0.5B-Instruct-q4f16_1-MLC: Pi Agent Core tools, usage, cancellation and recovery in a Worker",
+      "status": "passed",
+      "checks": ["Qwen2.5-0.5B-Instruct-q4f16_1-MLC/tools"]
+    },
+    {
+      "adapter": "pi",
+      "name": "examples/pi-ai-web-llm/browser/test/timeout.spec.ts > a queued timeout leaves the active Worker request and its next request usable",
+      "status": "passed",
+      "checks": ["engine/concurrency", "engine/cancel"]
+    },
+    {
+      "adapter": "pi",
+      "name": "examples/pi-ai-web-llm/browser/test/vision.spec.ts > Phi images match native WebLLM through Pi and recover after an invalid image",
+      "status": "passed",
+      "checks": ["Phi-3.5-vision-instruct-q4f16_1-MLC/image"]
+    }
+  ]
+}
