@@ -1,6 +1,6 @@
 {
   "name": "strands-web-llm",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "WebLLM model provider for Strands Agents.",
   "repository": {
     "type": "git",

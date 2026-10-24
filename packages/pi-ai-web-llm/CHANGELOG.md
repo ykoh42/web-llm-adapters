@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.1 — 2026-10-24
 
 - Allow Qwen3 1.7B tool calls instead of blocking requests based on model output quality.
 
