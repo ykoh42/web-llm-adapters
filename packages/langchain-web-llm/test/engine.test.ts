@@ -1,3 +1,4 @@
+import { setImmediate as nextTurn } from 'node:timers/promises'
 import { describe, expect, it, vi } from 'vitest'
 import { ContextOverflowError } from '@langchain/core/errors'
 import { HumanMessage } from '@langchain/core/messages'
@@ -91,7 +92,7 @@ describe('engine ownership', () => {
     )
     const first = model.invoke('One')
     const second = model.invoke('Two')
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await nextTurn()
     expect(create).toHaveBeenCalledTimes(1)
     hold.resume()
     expect((await Promise.all([first, second])).map((message) => message.text)).toEqual([
@@ -108,7 +109,7 @@ describe('engine ownership', () => {
       await hold.wait
     })
     const result = model.invoke('Hi')
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await nextTurn()
     expect(create).not.toHaveBeenCalled()
     hold.resume()
     await native
@@ -122,10 +123,9 @@ describe('engine ownership', () => {
       await hold.wait
     })
     const cancel = new AbortController()
-    const failed = expect(
-      model.invoke('Cancelled', { signal: cancel.signal }),
-    ).rejects.toBeDefined()
-    cancel.abort(new Error('Stop waiting'))
+    const reason = new Error('Stop waiting')
+    const failed = expect(model.invoke('Cancelled', { signal: cancel.signal })).rejects.toBe(reason)
+    cancel.abort(reason)
     await failed
     expect(stop).not.toHaveBeenCalled()
     hold.resume()
@@ -151,10 +151,10 @@ describe('engine ownership', () => {
     const first = model.invoke('First', { signal: cancel.signal })
     await opening.wait
     cancel.abort()
-    const failed = expect(first).rejects.toBeDefined()
+    const failed = expect(first).rejects.toHaveProperty('name', 'AbortError')
     const second = model.invoke('Second')
 
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await nextTurn()
     expect(create).toHaveBeenCalledTimes(1)
 
     hold.resume()
@@ -189,7 +189,7 @@ describe('engine ownership', () => {
     cancel.abort()
     const failed = expect(first).rejects.toHaveProperty('name', 'AbortError')
     const second = model.invoke('Second')
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await nextTurn()
     expect(create).toHaveBeenCalledTimes(1)
 
     hold.resume()
@@ -221,7 +221,7 @@ describe('engine ownership', () => {
       expect(vi.getTimerCount()).toBeGreaterThan(0)
 
       cancel.abort()
-      await expect(first).rejects.toBeDefined()
+      await expect(first).rejects.toHaveProperty('name', 'AbortError')
       expect((await model.invoke('Second')).text).toBe('Recovered')
       await vi.runOnlyPendingTimersAsync()
       expect(create).toHaveBeenCalledTimes(2)
@@ -247,7 +247,7 @@ describe('engine ownership', () => {
     const stream = await model.stream('Hi', { signal: cancel.signal })
     expect((await stream.next()).value?.text).toBe('Started')
     cancel.abort()
-    await expect(collect(stream)).rejects.toBeDefined()
+    await expect(collect(stream)).rejects.toHaveProperty('name', 'AbortError')
     expect((await model.invoke('After')).text).toBe('Recovered')
     expect(stop).toHaveBeenCalledTimes(1)
   })
@@ -330,7 +330,7 @@ it('shares native scheduling between the independently bundled npm packages', as
   const second = useLangChain(engine, async () => {
     entered = true
   })
-  await new Promise((resolve) => setTimeout(resolve, 0))
+  await nextTurn()
   expect(entered).toBe(false)
   hold.resume()
   await Promise.all([first, second])

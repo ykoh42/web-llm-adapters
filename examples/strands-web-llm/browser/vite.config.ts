@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 export default defineConfig({
   resolve: { dedupe: ['@strands-agents/sdk', '@mlc-ai/web-llm'] },
   build: {
+    manifest: true,
     rolldownOptions: {
       input: {
         'extension-worker': fileURLToPath(new URL('./src/engine/extension.ts', import.meta.url)),

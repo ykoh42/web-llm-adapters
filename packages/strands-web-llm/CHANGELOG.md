@@ -23,6 +23,8 @@
 - Expose native log probabilities on Strands stop events.
 - Read model identity without copying the full configuration.
 - Reduce CPU work and browser reads for streaming, tool JSON, history, and audio.
+- Reuse vectors for duplicate document writes through Strands storage indexing.
+- Skip invalid UTF-8 entries instead of embedding replacement text.
 
 ## 0.1.1
 

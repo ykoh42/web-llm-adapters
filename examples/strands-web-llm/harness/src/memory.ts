@@ -27,7 +27,7 @@ export function createEmbeddingMemory(
   contextWindow: number,
   dir: string,
 ) {
-  const search = new WebLLMEmbeddingSearchStrategy({
+  const strategy = new WebLLMEmbeddingSearchStrategy({
     includeData: false,
     embed: async (texts, inputType) =>
       page.evaluate(
@@ -48,9 +48,7 @@ export function createEmbeddingMemory(
   return new FileMemoryStore({
     name: 'semantic-memory',
     description: 'Durable facts ranked with WebLLM embeddings.',
-    // FileMemoryStore searches a namespace view; a storage-level index would be a separate cache.
-    storage: new LocalFileStorage(dir).namespace(''),
-    search,
+    storage: new LocalFileStorage(dir, { searchStrategy: strategy }).namespace(''),
     extraction: { model: createMemoryModel(page, chatModelId, contextWindow) },
   })
 }

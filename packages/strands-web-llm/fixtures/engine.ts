@@ -1,42 +1,10 @@
-import { MLCEngine, type ChatCompletionChunk } from '@mlc-ai/web-llm'
-import { vi } from 'vitest'
 import { WebLLMModel } from '../src/index.js'
+import { setupEngine } from '../../../fixtures/web-llm.js'
 
-export function chunk(
-  delta: ChatCompletionChunk.Choice.Delta = {},
-  finish: ChatCompletionChunk.Choice['finish_reason'] = null,
-): ChatCompletionChunk {
-  return {
-    id: 'test',
-    model: 'test-model',
-    object: 'chat.completion.chunk',
-    created: 0,
-    choices: [{ index: 0, delta, finish_reason: finish }],
-  }
-}
+export { chunk, chunks, collect, pause } from '../../../fixtures/web-llm.js'
 
-export async function* chunks(...items: ChatCompletionChunk[]) {
-  yield* items
-}
-
-export function setup(...items: ChatCompletionChunk[]) {
-  const engine = new MLCEngine({ logLevel: 'SILENT' })
-  const create = vi.spyOn(engine.chat.completions, 'create').mockResolvedValue(chunks(...items))
-  const stop = vi.spyOn(engine, 'interruptGenerate').mockResolvedValue(undefined)
+export function setup(...items: Parameters<typeof setupEngine>) {
+  const { engine, create, stop } = setupEngine(...items)
   const model = new WebLLMModel({ engine, modelId: 'test-model' })
   return { engine, model, create, stop }
-}
-
-export async function collect<T>(stream: AsyncIterable<T>): Promise<T[]> {
-  const items: T[] = []
-  for await (const item of stream) items.push(item)
-  return items
-}
-
-export function pause() {
-  let resume!: () => void
-  const wait = new Promise<void>((resolve) => {
-    resume = resolve
-  })
-  return { wait, resume }
 }

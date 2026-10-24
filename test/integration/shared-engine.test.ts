@@ -7,7 +7,7 @@ import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
 import { WebLLMModel, withEngine as strandsAccess } from 'strands-web-llm'
 import { ChatWebLLM, withEngine as langchainAccess } from 'langchain-web-llm'
 import { createWebLLMProvider, withEngine as piAccess } from 'pi-ai-web-llm'
-import { chunk, chunks, pause, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
+import { chunk, chunks, pause, setupEngine } from '../../fixtures/web-llm.js'
 
 const clients = ['strands', 'langchain', 'pi'] as const
 const access = { strands: strandsAccess, langchain: langchainAccess, pi: piAccess }
@@ -74,8 +74,8 @@ function turn() {
 
 for (const { client, other } of pairs) {
   it(`${client} leaves an independent ${other} engine free to run`, async () => {
-    const first = setup()
-    const second = setup(chunk({ content: 'independent' }, 'stop'))
+    const first = setupEngine()
+    const second = setupEngine(chunk({ content: 'independent' }, 'stop'))
     const opened = pause()
     const hold = pause()
     first.create.mockResolvedValueOnce(
@@ -102,7 +102,7 @@ for (const { client, other } of pairs) {
   })
 
   it(`${client} owns the engine until its stream closes before ${other} starts`, async () => {
-    const { engine, create } = setup(chunk({ content: 'queued' }, 'stop'))
+    const { engine, create } = setupEngine(chunk({ content: 'queued' }, 'stop'))
     const opened = pause()
     const hold = pause()
     create.mockResolvedValueOnce(
@@ -130,7 +130,7 @@ for (const { client, other } of pairs) {
   })
 
   it(`${other} can cancel its waiter without interrupting an active ${client} stream`, async () => {
-    const { engine, create, stop } = setup(chunk({ content: 'later' }, 'stop'))
+    const { engine, create, stop } = setupEngine(chunk({ content: 'later' }, 'stop'))
     const opened = pause()
     const hold = pause()
     create.mockResolvedValueOnce(
@@ -162,7 +162,7 @@ for (const { client, other } of pairs) {
   })
 
   it(`${client} releases a failed stream before queued ${other} work starts`, async () => {
-    const { engine, create, stop } = setup(chunk({ content: 'recovered' }, 'stop'))
+    const { engine, create, stop } = setupEngine(chunk({ content: 'recovered' }, 'stop'))
     const opened = pause()
     const hold = pause()
     const failure = new Error('Native stream failed')
@@ -191,7 +191,7 @@ for (const { client, other } of pairs) {
   })
 
   it(`${client} closes a failed observer stream before queued ${other} work starts`, async () => {
-    const { engine, create, stop } = setup(chunk({ content: 'recovered' }, 'stop'))
+    const { engine, create, stop } = setupEngine(chunk({ content: 'recovered' }, 'stop'))
     const closing = pause()
     const hold = pause()
     const failure = new Error('Observer failed')
@@ -235,7 +235,7 @@ for (const { client, other } of pairs) {
   })
 
   it(`${client} closes a cancelled opening stream before queued ${other} work starts`, async () => {
-    const { engine, create, stop } = setup(chunk({ content: 'recovered' }, 'stop'))
+    const { engine, create, stop } = setupEngine(chunk({ content: 'recovered' }, 'stop'))
     const opening = pause()
     const started = pause()
     const closing = pause()
@@ -283,7 +283,7 @@ for (const { client, other } of pairs) {
   })
 
   it(`${client} and ${other} keep queued requests in order after several cancellations`, async () => {
-    const { engine, create, stop } = setup()
+    const { engine, create, stop } = setupEngine()
     create.mockImplementation(async (request) =>
       chunks(chunk({ content: String(request.messages.at(-1)?.content) }, 'stop')),
     )
@@ -335,7 +335,7 @@ for (const { client, other } of pairs) {
   })
 
   it(`${client} native access shares the release-bundle queue with ${other}`, async () => {
-    const { engine, create } = setup(chunk({ content: 'queued' }, 'stop'))
+    const { engine, create } = setupEngine(chunk({ content: 'queued' }, 'stop'))
     const opened = pause()
     const hold = pause()
     const active = settle(

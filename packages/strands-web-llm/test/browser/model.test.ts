@@ -631,7 +631,10 @@ it('cleans up after early consumer return', async () => {
   await stream.next()
   await stream.return(undefined)
   expect(stop).toHaveBeenCalledTimes(1)
-  await expect(collect(model.stream(messages))).resolves.toBeDefined()
+  await expect(collect(model.stream(messages))).resolves.toContainEqual({
+    type: 'modelMessageStopEvent',
+    stopReason: 'endTurn',
+  })
 })
 
 it('waits for every stream to close and leaves engine unloading to the caller', async () => {
@@ -669,7 +672,10 @@ it('keeps a failed stop visible to the consumer and still permits reuse', async 
   const first = model.stream(messages)
   await first.next()
   await expect(first.return(undefined)).rejects.toThrow('Interrupt failed')
-  await expect(collect(model.stream(messages))).resolves.toBeDefined()
+  await expect(collect(model.stream(messages))).resolves.toContainEqual({
+    type: 'modelMessageStopEvent',
+    stopReason: 'endTurn',
+  })
 })
 
 it('forwards tool choices and trailing context without sharing per-call options', async () => {

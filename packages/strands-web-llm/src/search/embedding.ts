@@ -21,17 +21,25 @@ interface IndexedText {
   content: string
   vector: readonly number[]
   sumSquares: number
+  references: number
 }
 
-const decoder = new TextDecoder()
+interface StorageIndex {
+  byKey: Map<string, IndexedText>
+  byContent: Map<string, IndexedText>
+}
+
+type QueryEmbeddingResult = { vector: number[] } | { error: unknown }
+
+const decoder = new TextDecoder('utf-8', { fatal: true })
 const batchSize = 32
 
-/** Use WebLLM vectors to rank a Strands storage or FileMemoryStore. */
+/** Use WebLLM vectors to rank UTF-8 text in a Strands storage or FileMemoryStore. */
 export class WebLLMEmbeddingSearchStrategy implements SearchStrategy {
   readonly #embed: EmbedTexts
   readonly #minScore: number | undefined
   readonly #includeData: boolean
-  readonly #stores = new WeakMap<Storage, Map<string, IndexedText>>()
+  readonly #stores = new WeakMap<Storage, StorageIndex>()
   readonly #tails = new WeakMap<Storage, Promise<void>>()
 
   constructor(options: WebLLMEmbeddingSearchOptions) {
@@ -47,45 +55,76 @@ export class WebLLMEmbeddingSearchStrategy implements SearchStrategy {
   }
 
   index(storage: Storage, key: string, data: Uint8Array): Promise<void> {
-    const content = decoder.decode(data)
+    const content = decodeText(data)
     return this.#run(storage, async () => {
-      const vectors = this.#vectors(storage)
-      if (!content.trim()) {
-        vectors.delete(key)
+      const index = this.#cache(storage)
+      if (!content?.trim()) {
+        this.#remove(index, key)
         return
       }
-      if (vectors.get(key)?.content === content) return
+      if (index.byKey.get(key)?.content === content) return
 
-      vectors.delete(key)
+      this.#remove(index, key)
+      const cached = index.byContent.get(content)
+      if (cached) {
+        this.#assign(index, key, cached)
+        return
+      }
+
       const [vector] = this.#readVectors(await this.#embed([content], 'document'), 1)
-      vectors.set(key, { content, vector: vector!, sumSquares: scaleVector(vector!) })
+      this.#assign(index, key, {
+        content,
+        vector: vector!,
+        sumSquares: scaleVector(vector!),
+        references: 0,
+      })
     })
   }
 
   search(storage: Storage, query: string): Promise<StorageSearchResult[]> {
     return this.#run(storage, async () => {
       if (!query.trim()) return []
-      const cached = this.#vectors(storage)
+      const index = this.#cache(storage)
+      const cached = index.byKey
 
       const keys = await storage.list('')
       const documents: { key: string; data?: Uint8Array; content: string }[] = []
+      let queryEmbedding: Promise<QueryEmbeddingResult> | undefined
+      const startQueryEmbedding = () => {
+        queryEmbedding ??= Promise.resolve()
+          .then(() => this.#embed([query], 'query'))
+          .then((vectors) => this.#readVectors(vectors, 1)[0]!)
+          .then(
+            (vector) => ({ vector }),
+            (error: unknown) => ({ error }),
+          )
+        return queryEmbedding
+      }
+
       for (let offset = 0; offset < keys.length; offset += batchSize) {
         // Bound open reads and finish the batch before reporting an error.
-        const reads = keys
-          .slice(offset, offset + batchSize)
-          .map((key) => readText(storage, key, this.#includeData))
+        const reads = keys.slice(offset, offset + batchSize).map((key) =>
+          readText(storage, key, this.#includeData).then((record) => {
+            if (record) startQueryEmbedding()
+            return record
+          }),
+        )
         const records = await Promise.all(reads).catch(async (error) => {
           await Promise.allSettled(reads)
+          if (queryEmbedding) await queryEmbedding
           throw error
         })
         for (const record of records) if (record) documents.push(record)
       }
       if (!documents.length) {
-        cached.clear()
+        index.byKey.clear()
+        index.byContent.clear()
         return []
       }
 
-      const queryVector = this.#readVectors(await this.#embed([query], 'query'), 1)[0]!
+      const queryResult = await startQueryEmbedding()
+      if ('error' in queryResult) throw queryResult.error
+      const queryVector = queryResult.vector
       const querySumSquares = scaleVector(queryVector)
       const missing = new Map<string, string[]>()
 
@@ -97,14 +136,13 @@ export class WebLLMEmbeddingSearchStrategy implements SearchStrategy {
         else missing.set(content, [key])
       }
 
-      // Keep all old entries available when document contents swap between keys.
-      const previousTexts = missing.size ? [...cached.values()] : []
-      for (const previous of previousTexts) {
-        if (!missing.size) break
-        const keys = missing.get(previous.content)
-        if (!keys || previous.vector.length !== queryVector.length) continue
-        for (const key of keys) cached.set(key, previous)
-        missing.delete(previous.content)
+      const reusable = [...missing].flatMap(([content, keys]) => {
+        const previous = index.byContent.get(content)
+        return previous?.vector.length === queryVector.length ? [{ content, keys, previous }] : []
+      })
+      for (const { content, keys, previous } of reusable) {
+        for (const key of keys) this.#assign(index, key, previous)
+        missing.delete(content)
       }
 
       const entries = [...missing]
@@ -118,16 +156,21 @@ export class WebLLMEmbeddingSearchStrategy implements SearchStrategy {
           batch.length,
           queryVector.length,
         )
-        batch.forEach(([content, keys], index) => {
-          const vector = vectors[index]!
-          const sumSquares = scaleVector(vector)
-          for (const key of keys) cached.set(key, { content, vector, sumSquares })
+        batch.forEach(([content, keys], offset) => {
+          const vector = vectors[offset]!
+          const entry = {
+            content,
+            vector,
+            sumSquares: scaleVector(vector),
+            references: 0,
+          }
+          for (const key of keys) this.#assign(index, key, entry)
         })
       }
 
       const activeKeys = new Set(documents.map(({ key }) => key))
       for (const key of cached.keys()) {
-        if (!activeKeys.has(key)) cached.delete(key)
+        if (!activeKeys.has(key)) this.#remove(index, key)
       }
 
       return documents
@@ -141,13 +184,30 @@ export class WebLLMEmbeddingSearchStrategy implements SearchStrategy {
     })
   }
 
-  #vectors(storage: Storage) {
-    let vectors = this.#stores.get(storage)
-    if (!vectors) {
-      vectors = new Map<string, IndexedText>()
-      this.#stores.set(storage, vectors)
+  #cache(storage: Storage) {
+    let index = this.#stores.get(storage)
+    if (!index) {
+      index = { byKey: new Map(), byContent: new Map() }
+      this.#stores.set(storage, index)
     }
-    return vectors
+    return index
+  }
+
+  #assign(index: StorageIndex, key: string, entry: IndexedText) {
+    if (index.byKey.get(key) === entry) return
+    this.#remove(index, key)
+    entry.references++
+    index.byKey.set(key, entry)
+    index.byContent.set(entry.content, entry)
+  }
+
+  #remove(index: StorageIndex, key: string) {
+    const entry = index.byKey.get(key)
+    if (!entry) return
+    index.byKey.delete(key)
+    entry.references--
+    if (entry.references === 0 && index.byContent.get(entry.content) === entry)
+      index.byContent.delete(entry.content)
   }
 
   #readVectors(vectors: readonly (readonly number[])[], count: number, dimensions?: number) {
@@ -190,9 +250,17 @@ export class WebLLMEmbeddingSearchStrategy implements SearchStrategy {
 async function readText(storage: Storage, key: string, includeData: boolean) {
   const data = await storage.read(key)
   if (!data) return undefined
-  const content = decoder.decode(data)
-  if (!content.trim()) return undefined
+  const content = decodeText(data)
+  if (!content?.trim()) return undefined
   return { key, content, ...(includeData && { data }) }
+}
+
+function decodeText(data: Uint8Array) {
+  try {
+    return decoder.decode(data)
+  } catch {
+    return undefined
+  }
 }
 
 // Scale private copies once instead of on every cached search.

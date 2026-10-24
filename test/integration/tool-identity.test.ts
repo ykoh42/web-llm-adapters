@@ -2,13 +2,13 @@ import { expect, it } from 'vitest'
 import { Message, TextBlock, ToolUseBlock } from '@strands-agents/sdk'
 import { WebLLMModel } from '../../packages/strands-web-llm/src/index.js'
 import { ChatWebLLM } from '../../packages/langchain-web-llm/src/index.js'
-import { chunk, chunks, collect, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
+import { chunk, chunks, collect, setupEngine } from '../../fixtures/web-llm.js'
 
 for (const client of ['strands', 'langchain']) {
   it.each(['together', 'separate'])(
     `${client} rejects duplicate tool IDs in %s chunks`,
     async (mode) => {
-      const { engine, create } = setup(chunk({ content: 'Recovered' }, 'stop'))
+      const { engine, create } = setupEngine(chunk({ content: 'Recovered' }, 'stop'))
       const calls = [0, 1].map((index) => ({
         index,
         id: 'shared',
@@ -56,7 +56,7 @@ for (const client of ['strands', 'langchain']) {
     { name: 'late', first: undefined, last: 'call-1', invalid: false },
     { name: 'omitted', first: 'call-1', last: undefined, invalid: false },
   ])(`${client} handles a $name native tool ID`, async ({ first, last, invalid }) => {
-    const { engine, create } = setup(chunk({ content: 'Recovered' }, 'stop'))
+    const { engine, create } = setupEngine(chunk({ content: 'Recovered' }, 'stop'))
     create.mockResolvedValueOnce(
       chunks(
         chunk({

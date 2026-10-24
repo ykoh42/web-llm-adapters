@@ -13,7 +13,7 @@ import { createWebLLMProvider } from 'pi-ai-web-llm'
 import type { Completion } from '@mlc-ai/web-llm'
 import { nativeChunks } from '../../shared/web-llm/native.js'
 import type { JSONValue } from '../../shared/web-llm/types.js'
-import { chunk, chunks, collect, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
+import { chunk, chunks, collect, setupEngine } from '../../fixtures/web-llm.js'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -40,7 +40,7 @@ for (const array of [false, true]) {
       it.each(clients)(
         `%s preserves deep ${modelId} history (array=${array}, different=${different})`,
         async (client) => {
-          const { engine, create } = setup(chunk({ content: 'Done' }, 'stop'))
+          const { engine, create } = setupEngine(chunk({ content: 'Done' }, 'stop'))
           const gemma = modelId.startsWith('gemma-')
           const content = gemma ? '' : raw
           async function* response(): AsyncGenerator<Completion> {

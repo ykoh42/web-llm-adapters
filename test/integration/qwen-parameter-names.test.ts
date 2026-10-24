@@ -16,7 +16,7 @@ import {
   type BrowserPage,
 } from 'langchain-web-llm'
 import { createWebLLMProvider } from 'pi-ai-web-llm'
-import { chunk, collect, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
+import { chunk, collect, setupEngine } from '../../fixtures/web-llm.js'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -24,7 +24,7 @@ const clients = ['strands', 'strands-browser', 'langchain', 'langchain-browser',
 const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
 
 function client(kind: (typeof clients)[number]) {
-  const { engine, create } = setup(chunk({ content: 'Recovered' }, 'stop'))
+  const { engine, create } = setupEngine(chunk({ content: 'Recovered' }, 'stop'))
   const strands = strandsBridge(engine)
   const langchain = langchainBridge(engine)
   vi.stubGlobal('window', { webllmBridge: strands, webllmLangChainBridge: langchain })

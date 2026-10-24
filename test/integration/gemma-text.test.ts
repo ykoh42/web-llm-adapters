@@ -14,7 +14,7 @@ import {
 import { createWebLLMProvider } from 'pi-ai-web-llm'
 import { gemmaChunks } from '../../shared/web-llm/gemma/stream.js'
 import type { StreamChunk } from '../../shared/web-llm/stream/chunks.js'
-import { collect, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
+import { collect, setupEngine } from '../../fixtures/web-llm.js'
 
 const modelId = 'gemma-4-E2B-it-q4f16_1-MLC'
 const example = 'Example: <|tool_call>call:lookup{code:<|"|>A7<|"|>}<tool_call|>'
@@ -42,7 +42,7 @@ for (const client of ['strands', 'strands-browser', 'langchain', 'langchain-brow
         '<|channel>thought\nFirst.<channel|>' +
         literal +
         '<|channel>thought\nSecond.<channel|> Done.'
-      const { engine, create: chat } = setup()
+      const { engine, create: chat } = setupEngine()
       const native: Completion[] = Array.from(
         { length: Math.ceil(value.length / size) },
         (_, index) => ({

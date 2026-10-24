@@ -4,6 +4,12 @@ test('selects a Web Worker by default', async ({ page }) => {
   await expect(page.getByLabel('Engine', { exact: true })).toHaveValue('worker')
 })
 
+test('Harness page is ready before loading a model', async ({ page }) => {
+  await page.goto('http://127.0.0.1:4173/harness.html')
+  await expect(page.getByRole('status')).toHaveText('Ready')
+  await expect.poll(() => page.evaluate(() => typeof window.harness.open)).toBe('function')
+})
+
 test('selects Main thread for Cross-origin Storage', async ({ page }) => {
   const engine = page.getByLabel('Engine', { exact: true })
   await page.getByLabel('Cache', { exact: true }).selectOption('cross-origin')

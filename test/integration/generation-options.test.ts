@@ -18,7 +18,7 @@ import {
   WebLLMModel,
   createBrowserBridge as createStrandsBridge,
 } from 'strands-web-llm'
-import { chunk, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
+import { chunk, setupEngine } from '../../fixtures/web-llm.js'
 
 // A new native option must have an explicit coverage decision.
 const request = {
@@ -62,7 +62,7 @@ for (const client of ['langchain', 'browser', 'pi'] as const) {
     `${client} preserves every native generation option from %s`,
     async (source) => {
       const native = chunk({ content: '{}' }, 'stop')
-      const { engine, create } = setup(native)
+      const { engine, create } = setupEngine(native)
       const onChunk = vi.fn()
       const options = {
         modelId: 'test-model',
@@ -150,7 +150,7 @@ for (const client of [
       choices: [{ index: 0, text: '{}', finish_reason: 'stop' }],
     }
     const chat = chunk({ content: '{}' }, 'stop')
-    const { engine, create } = setup(chat)
+    const { engine, create } = setupEngine(chat)
     const complete = vi.spyOn(engine.completions, 'create').mockImplementation(async () =>
       (async function* () {
         yield native

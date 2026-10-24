@@ -424,6 +424,23 @@ it.each([
   ).rejects.toThrow(error)
 })
 
+it.each([
+  {
+    name: 'nested function tag',
+    content: '<tool_call><function=lookup><function=lookup></function></tool_call>',
+  },
+  {
+    name: 'text after function end',
+    content: '<tool_call><function=lookup></function>unexpected</tool_call>',
+  },
+])('rejects a Qwen3.5 tool call with $name', async ({ content }) => {
+  const output = qwen35Chunks(chunks(chunk({ content }, 'stop')), [
+    { name: 'lookup', description: 'Look up a city.' },
+  ])
+
+  await expect(collect(output)).rejects.toThrow('malformed tool call')
+})
+
 it.each(nullableStringSchemas)('keeps a nullable string argument as text', async (city) => {
   const inputSchema: JSONSchema = {
     type: 'object',

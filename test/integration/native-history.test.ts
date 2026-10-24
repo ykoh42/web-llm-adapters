@@ -3,7 +3,7 @@ import { AIMessage, HumanMessage, ToolMessage } from '@langchain/core/messages'
 import { Message, TextBlock, ToolUseBlock, ToolResultBlock } from '@strands-agents/sdk'
 import { WebLLMModel } from '../../packages/strands-web-llm/src/index.js'
 import { ChatWebLLM } from '../../packages/langchain-web-llm/src/index.js'
-import { chunk, collect, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
+import { chunk, collect, setupEngine } from '../../fixtures/web-llm.js'
 
 const modelId = 'Hermes-3-Llama-3.1-8B-q4f16_1-MLC'
 const original = {
@@ -29,7 +29,7 @@ for (const client of ['strands', 'langchain']) {
     `${client} keeps native history only when JSON arguments match: %j`,
     async ({ input, same }) => {
       const raw = JSON.stringify([{ name: 'lookup', arguments: original, note: 'Keep this note.' }])
-      const { engine, create } = setup(chunk({ content: 'Done' }, 'stop'))
+      const { engine, create } = setupEngine(chunk({ content: 'Done' }, 'stop'))
       if (client === 'strands') {
         const model = new WebLLMModel({ engine, modelId })
         await collect(
@@ -77,7 +77,7 @@ for (const client of ['strands', 'langchain']) {
       const raw = JSON.stringify([
         { name: 'lookup', arguments: original, ...(extra && { note: 'Keep this note.' }) },
       ])
-      const { engine } = setup(
+      const { engine } = setupEngine(
         chunk({ content: raw }),
         chunk(
           {

@@ -9,7 +9,7 @@ import type { ToolSpec } from '../../shared/web-llm/types.js'
 import { readStream } from '../../packages/strands-web-llm/src/stream/read.js'
 import { readChunks } from '../../packages/langchain-web-llm/src/chat/chunks.js'
 import { responseStream } from '../../packages/pi-ai-web-llm/src/events.js'
-import { chunk } from '../../packages/langchain-web-llm/fixtures/engine.js'
+import { chunk } from '../../fixtures/web-llm.js'
 
 type Finish = 'stop' | 'length' | 'abort' | null
 type Framework = 'Strands' | 'LangChain' | 'Pi'

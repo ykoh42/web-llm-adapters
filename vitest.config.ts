@@ -22,7 +22,14 @@ export default defineConfig({
       provider: 'v8',
       include: ['packages/*/src/**/*.ts', 'shared/web-llm/**/*.ts', 'shared/browser/stream.ts'],
       reporter: ['text', 'html'],
-      thresholds: { lines: 95, branches: 90 },
+      thresholds: {
+        lines: 95,
+        branches: 90,
+        'packages/langchain-web-llm/src/**': { lines: 95, branches: 90 },
+        'packages/pi-ai-web-llm/src/**': { lines: 95, branches: 90 },
+        'packages/strands-web-llm/src/**': { lines: 95, branches: 90 },
+        'shared/web-llm/**': { lines: 95, branches: 90 },
+      },
     },
   },
 })

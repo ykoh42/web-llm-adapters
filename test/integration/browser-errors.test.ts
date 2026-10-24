@@ -9,7 +9,7 @@ import {
   createBrowserBridge as langchainBridge,
   type BrowserPage,
 } from '../../packages/langchain-web-llm/src/index.js'
-import { chunk, collect, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
+import { chunk, collect, setupEngine } from '../../fixtures/web-llm.js'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -58,7 +58,7 @@ for (const client of ['strands', 'langchain']) {
   it.each(failures)(
     `${client} transfers $name failures and recovers`,
     async ({ error, expected }) => {
-      const { engine, create } = setup(chunk({ content: 'Recovered' }, 'stop'))
+      const { engine, create } = setupEngine(chunk({ content: 'Recovered' }, 'stop'))
       create.mockRejectedValueOnce(error())
       const bridge = client === 'strands' ? strandsBridge(engine) : langchainBridge(engine)
       vi.stubGlobal('window', {

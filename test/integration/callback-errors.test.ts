@@ -6,7 +6,7 @@ import { tool } from '@langchain/core/tools'
 import { z } from 'zod'
 import { WebLLMModel } from '../../packages/strands-web-llm/src/index.js'
 import { ChatWebLLM } from '../../packages/langchain-web-llm/src/index.js'
-import { chunk, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
+import { chunk, setupEngine } from '../../fixtures/web-llm.js'
 
 const schema = z.object({ code: z.string() })
 const jsonCall = '<tool_call>{"name":"lookup","arguments":{"code":"A7"}}</tool_call>'
@@ -41,7 +41,7 @@ for (const framework of ['strands', 'langchain']) {
     it.each(protocols)(
       `${framework} blocks $modelId tools when callback ${failAt} fails and recovers`,
       async ({ modelId, before, call }) => {
-        const { engine, create, stop } = setup(chunk({ content: 'Recovered' }, 'stop'))
+        const { engine, create, stop } = setupEngine(chunk({ content: 'Recovered' }, 'stop'))
         let closed = false
         async function* source<T>(values: T[]) {
           try {

@@ -3,7 +3,7 @@ import type { Completion } from '@mlc-ai/web-llm'
 import { Message, TextBlock } from '@strands-agents/sdk'
 import { WebLLMModel } from '../../packages/strands-web-llm/src/index.js'
 import { ChatWebLLM } from '../../packages/langchain-web-llm/src/index.js'
-import { chunk, collect, pause, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
+import { chunk, collect, pause, setupEngine } from '../../fixtures/web-llm.js'
 
 const tools = [{ name: 'lookup', description: 'Look up a code.' }]
 const definition = {
@@ -55,7 +55,7 @@ for (const client of ['strands', 'langchain']) {
         for (const size of [1, 3, text.length]) {
           const pieces = text.match(new RegExp(`[\\s\\S]{1,${size}}`, 'g'))!
           const failure = finish === 'error' ? new Error('Native stream failed') : undefined
-          const { engine, create } = setup(chunk({ content: 'Recovered' }, 'stop'))
+          const { engine, create } = setupEngine(chunk({ content: 'Recovered' }, 'stop'))
           if (modelId.startsWith('gemma-')) {
             vi.spyOn(engine.completions, 'create')
               .mockImplementation(async () => source([raw('Recovered', 'stop')]))
@@ -143,7 +143,7 @@ for (const client of ['strands', 'langchain']) {
     ])(
       `${client} cancels $modelId during ${phase} without observing late data`,
       async ({ modelId, thought, call }) => {
-        const { engine, create, stop } = setup(chunk({ content: 'Recovered' }, 'stop'))
+        const { engine, create, stop } = setupEngine(chunk({ content: 'Recovered' }, 'stop'))
         const waiting = pause()
         const hold = pause()
         let closed = false

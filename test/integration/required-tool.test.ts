@@ -13,7 +13,7 @@ import {
   createBrowserBridge as langchainBridge,
   type BrowserPage,
 } from 'langchain-web-llm'
-import { chunk, collect, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
+import { chunk, collect, setupEngine } from '../../fixtures/web-llm.js'
 
 const models = ['gemma-4-E2B-it-q4f16_1-MLC', 'Hermes-3-Llama-3.1-8B-q4f16_1-MLC']
 const clients = ['strands', 'strands-browser', 'langchain', 'langchain-browser']
@@ -30,7 +30,7 @@ for (const client of clients) {
   it.each(models)(
     `${client} maps one required %s tool to the same named request`,
     async (modelId) => {
-      const { engine, create } = setup()
+      const { engine, create } = setupEngine()
       const raw = vi.spyOn(engine.completions, 'create').mockImplementation(async (request) => {
         postInitAndCheckFieldsCompletion(request, modelId)
         return (async function* () {
@@ -142,7 +142,7 @@ for (const client of clients) {
   it.each(models.flatMap((modelId) => [0, 2].map((count) => ({ modelId, count }))))(
     `${client} rejects a required $modelId choice with $count tools before inference`,
     async ({ modelId, count }) => {
-      const { engine, create } = setup()
+      const { engine, create } = setupEngine()
       const raw = vi.spyOn(engine.completions, 'create')
       const first = strandsBridge(engine)
       const second = langchainBridge(engine)
@@ -193,7 +193,7 @@ for (const client of clients) {
 
   it(`${client} rejects an unoffered native tool for a required choice`, async () => {
     const modelId = models[1]!
-    const { engine } = setup(
+    const { engine } = setupEngine(
       chunk(
         { tool_calls: [{ index: 0, id: 'wrong', function: { name: 'other', arguments: '{}' } }] },
         'tool_calls',
@@ -253,7 +253,7 @@ for (const modelId of ['Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC']) {
     const source = modelId.startsWith('Qwen3.5-')
       ? '<tool_call><function=lookup><parameter=code>A7</parameter></function></tool_call>'
       : '<tool_call>{"name":"lookup","arguments":{"code":"A7"}}</tool_call>'
-    const { engine, create } = setup(chunk({ content: source }, 'stop'))
+    const { engine, create } = setupEngine(chunk({ content: source }, 'stop'))
     const model = new ChatWebLLM({ engine, modelId })
     const output = await model.invoke('Look up A7.', {
       tools: ['lookup', 'other'].slice(0, count).map((name) => ({
@@ -269,7 +269,7 @@ for (const modelId of ['Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC']) {
 }
 
 it.each(models)('%s accepts LangChain toolStrategy with one response schema', async (modelId) => {
-  const { engine, create } = setup()
+  const { engine, create } = setupEngine()
   const raw = vi.spyOn(engine.completions, 'create').mockImplementation(async (request) => {
     postInitAndCheckFieldsCompletion(request, modelId)
     return (async function* () {

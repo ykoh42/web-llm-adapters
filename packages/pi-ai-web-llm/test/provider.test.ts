@@ -349,32 +349,127 @@ describe('Pi AI WebLLM provider', () => {
     ])
   })
 
-  it('runs the real Pi Agent Core tool loop and replays the result to WebLLM', async () => {
-    const { models, model, create } = setup()
-    create
-      .mockResolvedValueOnce(chunks(call()))
-      .mockResolvedValueOnce(chunks(chunk({ content: 'ORCHID-42' }, 'stop')))
-    const execute = vi.fn(async (id: string, args: unknown) => {
-      expect(id).toBe('call-1')
-      expect(args).toEqual({ code: 'A7' })
-      return { content: [{ type: 'text' as const, text: 'ORCHID-42' }], details: {} }
+  it.each([true, false])(
+    'runs the Pi Agent tool loop when the native ID is present=%s',
+    async (includeNativeId) => {
+      const { models, model, create } = setup()
+      const toolCall = chunk(
+        {
+          tool_calls: [
+            {
+              index: 0,
+              ...(includeNativeId && { id: 'call-1' }),
+              type: 'function',
+              function: { name: 'lookup', arguments: '{"code":"A7"}' },
+            },
+          ],
+        },
+        'tool_calls',
+      )
+      create
+        .mockResolvedValueOnce(chunks(toolCall))
+        .mockResolvedValueOnce(chunks(chunk({ content: 'ORCHID-42' }, 'stop')))
+      const executedIds: string[] = []
+      const execute = vi.fn(async (id: string, args: unknown) => {
+        executedIds.push(id)
+        expect(args).toEqual({ code: 'A7' })
+        return { content: [{ type: 'text' as const, text: 'ORCHID-42' }], details: {} }
+      })
+      const agent = new Agent({
+        initialState: { model, tools: [{ ...lookup, label: 'Lookup', execute }] },
+        streamFn: models.streamSimple.bind(models),
+      })
+      await agent.prompt('Look up A7.')
+
+      expect(execute).toHaveBeenCalledOnce()
+      const executedId = executedIds[0]!
+      if (includeNativeId) expect(executedId).toBe('call-1')
+      else
+        expect(executedId).toMatch(
+          /^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/i,
+        )
+      expect(create.mock.calls[1]?.[0]).toMatchObject({
+        messages: expect.arrayContaining([
+          { role: 'tool', tool_call_id: executedId, content: 'ORCHID-42' },
+        ]),
+      })
+      expect(agent.state.messages.at(-1)).toMatchObject({
+        role: 'assistant',
+        stopReason: 'stop',
+        content: [{ type: 'text', text: 'ORCHID-42' }],
+      })
+    },
+  )
+
+  it('rejects a tool call when its native ID changes between chunks', async () => {
+    const { models, model } = setup([
+      chunk({
+        tool_calls: [
+          {
+            index: 0,
+            id: 'call-1',
+            type: 'function',
+            function: { name: 'look', arguments: '{"code":' },
+          },
+        ],
+      }),
+      chunk(
+        {
+          tool_calls: [
+            {
+              index: 0,
+              id: 'call-2',
+              function: { name: 'up', arguments: '"A7"}' },
+            },
+          ],
+        },
+        'tool_calls',
+      ),
+    ])
+
+    expect(await models.completeSimple(model, tools)).toMatchObject({
+      stopReason: 'error',
+      errorMessage: expect.stringContaining('changed a tool call ID'),
     })
-    const agent = new Agent({
-      initialState: { model, tools: [{ ...lookup, label: 'Lookup', execute }] },
-      streamFn: models.streamSimple.bind(models),
+  })
+
+  it('rejects parallel tool calls with the same native ID', async () => {
+    const { models, model } = setup([
+      chunk(
+        {
+          tool_calls: [
+            {
+              index: 0,
+              id: 'call-1',
+              type: 'function',
+              function: { name: 'lookup', arguments: '{"code":"A7"}' },
+            },
+            {
+              index: 1,
+              id: 'call-1',
+              type: 'function',
+              function: { name: 'lookup', arguments: '{"code":"B8"}' },
+            },
+          ],
+        },
+        'tool_calls',
+      ),
+    ])
+
+    expect(await models.completeSimple(model, tools)).toMatchObject({
+      stopReason: 'error',
+      errorMessage: 'WebLLM returned duplicate tool call IDs.',
+      content: [],
     })
-    await agent.prompt('Look up A7.')
-    expect(execute).toHaveBeenCalledTimes(1)
-    expect(execute.mock.calls[0]?.[1]).toEqual({ code: 'A7' })
-    expect(create.mock.calls[1]?.[0]).toMatchObject({
-      messages: expect.arrayContaining([
-        { role: 'tool', tool_call_id: 'call-1', content: 'ORCHID-42' },
-      ]),
-    })
-    expect(agent.state.messages.at(-1)).toMatchObject({
-      role: 'assistant',
-      stopReason: 'stop',
-      content: [{ type: 'text', text: 'ORCHID-42' }],
+  })
+
+  it('rejects a tool-use stop without any tool calls', async () => {
+    const { models, model } = setup([chunk({}, 'tool_calls')])
+
+    expect(await models.completeSimple(model, tools)).toMatchObject({
+      stopReason: 'error',
+      errorMessage: 'WebLLM returned no tool calls.',
+      content: [],
     })
   })
 

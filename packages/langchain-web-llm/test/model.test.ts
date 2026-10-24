@@ -211,7 +211,7 @@ describe('LangChain model', () => {
           },
         ],
       }),
-    ).rejects.toBeDefined()
+    ).rejects.toHaveProperty('name', 'AbortError')
     expect(stop).toHaveBeenCalledTimes(1)
     expect((await model.invoke('Next')).text).toBe('Recovered')
   })

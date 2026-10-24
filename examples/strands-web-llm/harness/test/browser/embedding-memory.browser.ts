@@ -103,8 +103,8 @@ for (const { model_id: modelId } of prebuiltAppConfig.model_list.filter(
           )
         },
       })
-      const root = new InMemoryStorage()
-      const memory = new FileMemoryStore({ name: 'notes', storage: root, search: strategy })
+      const root = new InMemoryStorage({ searchStrategy: strategy })
+      const memory = new FileMemoryStore({ name: 'notes', storage: root })
       const storage = root.namespace('memory/notes')
       const content = 'A basket of fresh apples.'
       const key = await memory.add(content)
@@ -124,7 +124,7 @@ for (const { model_id: modelId } of prebuiltAppConfig.model_list.filter(
       expect(await memory.search('fruit')).toEqual([
         { content, metadata: { path: 'moved.md', score } },
       ])
-      expect(documents).toBe(1)
+      expect(documents).toBe(2)
       expect(queries).toBe(3)
     } finally {
       await page.evaluate(() => window.harness.close())

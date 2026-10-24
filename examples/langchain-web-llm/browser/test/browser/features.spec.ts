@@ -367,7 +367,7 @@ test('real engine serializes concurrent inference, cancels generation and recove
   const first = await stream.next()
   expect(first.done).toBe(false)
   cancel.abort()
-  await expect(stream.next()).rejects.toBeDefined()
+  await expect(stream.next()).rejects.toHaveProperty('name', 'AbortError')
   expect((await model.invoke('What is 3 + 3?')).text).toContain('6')
 })
 
@@ -537,7 +537,7 @@ for (const modelId of ['Qwen3.5-4B-q4f16_1-MLC', 'gemma-4-E2B-it-q4f16_1-MLC']) 
     })
     expect((await stream.next()).done).toBe(false)
     cancel.abort()
-    await expect(stream.next()).rejects.toBeDefined()
+    await expect(stream.next()).rejects.toHaveProperty('name', 'AbortError')
     expect((await model.invoke('What is 3 + 3?')).text).toContain('6')
   })
 }

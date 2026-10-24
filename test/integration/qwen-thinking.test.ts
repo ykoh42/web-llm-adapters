@@ -13,7 +13,7 @@ import {
   type BrowserPage,
 } from '../../packages/strands-web-llm/src/index.js'
 import { createWebLLMProvider } from '../../packages/pi-ai-web-llm/src/index.js'
-import { chunk, chunks, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
+import { chunk, chunks, setupEngine } from '../../fixtures/web-llm.js'
 import type { WebLLMRequest } from '../../shared/web-llm/request.js'
 
 const clients = ['strands', 'strands browser', 'langchain', 'langchain browser', 'pi'] as const
@@ -36,7 +36,7 @@ describe.each(clients)('%s Qwen thinking', (client) => {
       'honors native stop $stop without accepting malformed completion',
       async ({ stop }) => {
         const raw = chunk({ content: '<think>' + thought }, 'stop')
-        const { engine, create } = setup(chunk({ content: 'Recovered' }, 'stop'))
+        const { engine, create } = setupEngine(chunk({ content: 'Recovered' }, 'stop'))
         create.mockResolvedValueOnce(chunks(raw))
         const observed = vi.fn()
         const request: WebLLMRequest = {

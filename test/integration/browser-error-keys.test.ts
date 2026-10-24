@@ -8,7 +8,7 @@ import {
   type BrowserPage,
   type ChatWebLLMOptions,
 } from 'langchain-web-llm'
-import { chunk, collect, pause, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
+import { chunk, collect, pause, setupEngine } from '../../fixtures/web-llm.js'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -32,7 +32,7 @@ function open(
   failure: Error,
   options: Pick<ChatWebLLMOptions, 'onFailedAttempt' | 'onChunk'> = {},
 ) {
-  const { engine, create } = setup(chunk({ content: 'Recovered' }, 'stop'))
+  const { engine, create } = setupEngine(chunk({ content: 'Recovered' }, 'stop'))
   if (client === 'embeddings')
     vi.spyOn(engine.embeddings, 'create')
       .mockRejectedValueOnce(failure)

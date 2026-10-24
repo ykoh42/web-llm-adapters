@@ -10,7 +10,7 @@ import {
   createBrowserBridge as langchainBridge,
   type BrowserPage,
 } from 'langchain-web-llm'
-import { chunk, chunks, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
+import { chunk, chunks, setupEngine } from '../../fixtures/web-llm.js'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -19,7 +19,7 @@ const clients = (['Strands', 'LangChain'] as const).flatMap((framework) =>
 )
 
 function setupModels(browser: boolean) {
-  const { engine, create } = setup(chunk({ content: 'Recovered' }, 'stop'))
+  const { engine, create } = setupEngine(chunk({ content: 'Recovered' }, 'stop'))
   const strands = strandsBridge(engine)
   const langchain = langchainBridge(engine)
   vi.stubGlobal('window', { webllmBridge: strands, webllmLangChainBridge: langchain })

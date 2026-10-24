@@ -1,3 +1,4 @@
+import { setImmediate as nextTurn } from 'node:timers/promises'
 import { describe, expect, it, vi } from 'vitest'
 import { Message, TextBlock, ToolUseBlock, ToolResultBlock } from '@strands-agents/sdk'
 import { WebLLMModel, withEngine } from '../../src/index.js'
@@ -118,7 +119,7 @@ describe('native WebLLM messages', () => {
     const toolChoice = { tool: { name: 'weather' } }
     const pending = collect(model.stream(messages, { toolSpecs, toolChoice }))
     try {
-      await new Promise((resolve) => setTimeout(resolve, 0))
+      await nextTurn()
       toolSpecs[0]!.name = 'changed'
       toolSpecs[0]!.inputSchema.properties.city = { type: 'string', description: 'Changed schema' }
       toolChoice.tool.name = 'changed'

@@ -3,7 +3,7 @@ import { Message, TextBlock, ToolUseBlock } from '@strands-agents/sdk'
 import type { JSONSchema7 } from 'json-schema'
 import { WebLLMModel } from '../../packages/strands-web-llm/src/index.js'
 import { ChatWebLLM } from '../../packages/langchain-web-llm/src/index.js'
-import { chunk, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
+import { chunk, setupEngine } from '../../fixtures/web-llm.js'
 
 const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
 const messages = [new Message({ role: 'user', content: [new TextBlock('Find code 123.')] })]
@@ -76,7 +76,7 @@ const cases: { name: string; schema: JSONSchema7; text?: string; expected?: unkn
 ]
 
 async function read(client: string, schema: JSONSchema7, text = '123', name = 'code') {
-  const { engine } = setup(
+  const { engine } = setupEngine(
     chunk(
       {
         content:

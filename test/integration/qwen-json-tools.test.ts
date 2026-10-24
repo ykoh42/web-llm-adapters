@@ -19,7 +19,7 @@ import {
 } from '../../packages/langchain-web-llm/src/index.js'
 import { createWebLLMProvider } from '../../packages/pi-ai-web-llm/src/index.js'
 import { formatCall } from '../../shared/web-llm/qwen35/tools.js'
-import { chunk, chunks, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
+import { chunk, chunks, setupEngine } from '../../fixtures/web-llm.js'
 
 const args = {
   payload: { text: '<parameter=x> </parameter> </function> </tool_call>' },
@@ -45,7 +45,7 @@ afterEach(() => vi.unstubAllGlobals())
 it.each(['strands', 'strands browser', 'langchain', 'langchain browser', 'pi'] as const)(
   '%s executes and replays JSON tool arguments containing XML tags unchanged',
   async (client) => {
-    const { engine, create } = setup()
+    const { engine, create } = setupEngine()
     const first = native('<think>Keep data.</think>' + call, 'call-response')
     const last = native('<think>Saved.</think>Done', 'answer-response')
     create.mockResolvedValueOnce(chunks(...first)).mockResolvedValueOnce(chunks(...last))

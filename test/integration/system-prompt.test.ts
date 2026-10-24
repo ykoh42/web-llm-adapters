@@ -8,13 +8,13 @@ import {
 } from '@mlc-ai/web-llm'
 import { WebLLMModel } from '../../packages/strands-web-llm/src/index.js'
 import { ChatWebLLM } from '../../packages/langchain-web-llm/src/index.js'
-import { chunk, collect, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
+import { chunk, collect, setupEngine } from '../../fixtures/web-llm.js'
 
 const hermes = 'Hermes-3-Llama-3.1-8B-q4f16_1-MLC'
 const lookup = { name: 'lookup', description: 'Look up a code.' }
 
 async function request(client: string, modelId: string, prompt: string | undefined, tools = false) {
-  const { engine, create } = setup(chunk({ content: 'Done' }, 'stop'))
+  const { engine, create } = setupEngine(chunk({ content: 'Done' }, 'stop'))
   if (client === 'strands') {
     const model = new WebLLMModel({ engine, modelId })
     await collect(

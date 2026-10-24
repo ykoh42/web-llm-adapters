@@ -9,6 +9,7 @@ export default defineConfig({
   },
   build: {
     chunkSizeWarningLimit: 2000,
+    manifest: true,
     rolldownOptions: {
       input: {
         main: fileURLToPath(new URL('./index.html', import.meta.url)),

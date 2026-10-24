@@ -13,7 +13,7 @@ import {
 import { WebLLMModel } from '../../packages/strands-web-llm/src/index.js'
 import { ChatWebLLM } from '../../packages/langchain-web-llm/src/index.js'
 import { createWebLLMProvider } from '../../packages/pi-ai-web-llm/src/index.js'
-import { chunk, collect, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
+import { chunk, collect, setupEngine } from '../../fixtures/web-llm.js'
 
 const ids = [
   'Qwen3.5-9B-q4f16_1-MLC',
@@ -41,7 +41,7 @@ const nativeTool = {
 }
 
 function record(modelId: string) {
-  const { engine, create } = setup(chunk({ content: '42' }, 'stop'))
+  const { engine, create } = setupEngine(chunk({ content: '42' }, 'stop'))
   const raw = vi.spyOn(engine.completions, 'create').mockImplementation(async () =>
     (async function* () {
       yield {

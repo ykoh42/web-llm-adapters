@@ -24,7 +24,7 @@ import {
 } from '../../packages/langchain-web-llm/src/index.js'
 import { createWebLLMProvider } from '../../packages/pi-ai-web-llm/src/index.js'
 import type { WebLLMRequest } from '../../shared/web-llm/request.js'
-import { chunk, collect, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
+import { chunk, collect, setupEngine } from '../../fixtures/web-llm.js'
 
 const gemma = 'gemma-4-E2B-it-q4f16_1-MLC'
 const clients = ['strands', 'strands browser', 'langchain', 'langchain browser', 'pi'] as const
@@ -144,7 +144,7 @@ function open(
   override?: WebLLMRequest,
   bound = false,
 ) {
-  const { engine, create } = setup(chunk({ content: 'Done' }, 'stop'))
+  const { engine, create } = setupEngine(chunk({ content: 'Done' }, 'stop'))
   const raw = vi.spyOn(engine.completions, 'create').mockImplementation(async () =>
     (async function* () {
       yield {
@@ -321,7 +321,7 @@ it.each(['langchain', 'langchain browser'] as const)(
 it.each([false, true])(
   'Strands reports invalid preservation through the SDK error contract (browser: %s)',
   async (browser) => {
-    const { engine, create } = setup()
+    const { engine, create } = setupEngine()
     const raw = vi.spyOn(engine.completions, 'create')
     const request: WebLLMRequest = {}
     Object.assign(request, { extra_body: { preserve_thinking: 'true' } })
@@ -346,7 +346,7 @@ it.each([false, true])(
 it.each([false, true])(
   'Strands counts retained Gemma tool-call reasoning (browser: %s)',
   async (browser) => {
-    const { engine } = setup()
+    const { engine } = setupEngine()
     const config = { modelId: gemma, request: { extra_body: { preserve_thinking: true } } }
     const page: BrowserPage = {
       evaluate: () => Promise.reject(new Error('No inference expected.')),

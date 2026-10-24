@@ -16,7 +16,7 @@ import {
 } from 'langchain-web-llm'
 import { BrowserModel, WebLLMModel, createBrowserBridge as strandsBridge } from 'strands-web-llm'
 import { createWebLLMProvider, type WebLLMRequest } from 'pi-ai-web-llm'
-import { chunk, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
+import { chunk, setupEngine } from '../../fixtures/web-llm.js'
 
 const clients = ['langchain', 'langchain-browser', 'strands', 'strands-browser', 'pi'] as const
 const models = ['Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC']
@@ -41,7 +41,7 @@ async function read(client: Client, modelId: string, source: string, options: Op
   const native = parts.map((content, index) =>
     chunk({ content }, index === parts.length - 1 ? (options.finish ?? 'stop') : null),
   )
-  const { engine, create } = setup(...native)
+  const { engine, create } = setupEngine(...native)
   const onChunk = vi.fn()
   const config = {
     modelId,
@@ -251,7 +251,7 @@ const noPage: BrowserPage = {
 }
 
 function construct(client: Client, config: { modelId: string; thinkingPrefilled?: boolean }) {
-  const { engine, create } = setup()
+  const { engine, create } = setupEngine()
   const build = () => {
     if (client === 'langchain') return new ChatWebLLM({ engine, ...config })
     if (client === 'langchain-browser') return new BrowserChatWebLLM(noPage, config)
@@ -286,7 +286,7 @@ for (const client of clients) {
 it.each([false, true])(
   'keeps Strands config updates atomic when prefill metadata is invalid (browser=%s)',
   (browser) => {
-    const { engine } = setup()
+    const { engine } = setupEngine()
     const config = { modelId: models[0]!, thinkingPrefilled: true }
     const model = browser
       ? new BrowserModel(noPage, config)

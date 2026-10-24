@@ -7,6 +7,33 @@ import { setup } from './helpers.js'
 const context = { messages: [{ role: 'user' as const, content: 'Hello', timestamp: 0 }] }
 
 describe('Pi sampling options', () => {
+  it.each([
+    ['deferred request', { deferred: true }, 'WebLLM does not support deferred requests.'],
+    [
+      'deferred window',
+      { deferred: { window: '1h' } },
+      'WebLLM does not support deferred requests.',
+    ],
+    [
+      'thinking budget',
+      { thinkingBudgets: { high: 100 } },
+      'WebLLM does not support thinking token budgets.',
+    ],
+  ] as const)(
+    'rejects unsupported %s before opening WebLLM',
+    async (_name, options, errorMessage) => {
+      const { models, model, create } = setup()
+      const results = await Promise.all([
+        models.complete(model, context, options),
+        models.completeSimple(model, context, options),
+      ])
+
+      for (const result of results)
+        expect(result).toMatchObject({ stopReason: 'error', errorMessage })
+      expect(create).not.toHaveBeenCalled()
+    },
+  )
+
   it('accepts empty thinking budgets', async () => {
     const { models, model, create } = setup()
     const result = await models.complete(model, context, { thinkingBudgets: {} })

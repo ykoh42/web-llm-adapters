@@ -13,12 +13,12 @@ import {
   createBrowserBridge as langchainBridge,
   type BrowserPage,
 } from 'langchain-web-llm'
-import { chunk, collect, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
+import { chunk, collect, setupEngine } from '../../fixtures/web-llm.js'
 
 afterEach(() => vi.unstubAllGlobals())
 
 function open(client: 'strands' | 'langchain', error: unknown) {
-  const { engine, create } = setup(chunk({ content: 'Recovered' }, 'stop'))
+  const { engine, create } = setupEngine(chunk({ content: 'Recovered' }, 'stop'))
   create.mockRejectedValueOnce(error)
   const bridge = client === 'strands' ? strandsBridge(engine) : langchainBridge(engine)
   vi.stubGlobal('window', { webllmBridge: bridge, webllmLangChainBridge: bridge })

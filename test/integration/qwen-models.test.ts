@@ -11,7 +11,7 @@ import {
 } from 'langchain-web-llm'
 import { createWebLLMProvider } from 'pi-ai-web-llm'
 import { ModelType, postInitAndCheckFieldsChatCompletion, prebuiltAppConfig } from '@mlc-ai/web-llm'
-import { chunk, chunks, collect, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
+import { chunk, chunks, collect, setupEngine } from '../../fixtures/web-llm.js'
 
 const bases = new Set([
   'Qwen2.5-0.5B-Instruct',
@@ -52,7 +52,7 @@ for (const client of ['strands', 'strands-browser', 'langchain', 'langchain-brow
       ...chunk({ content }, index === parts.length - 1 ? 'stop' : null),
       model: modelId,
     }))
-    const { engine, create } = setup()
+    const { engine, create } = setupEngine()
     create.mockImplementation(async (request) => {
       postInitAndCheckFieldsChatCompletion(request, modelId, ModelType.LLM)
       return chunks(...native)

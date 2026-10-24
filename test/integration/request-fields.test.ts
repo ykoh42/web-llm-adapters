@@ -13,7 +13,7 @@ import {
   WebLLMModel,
   createBrowserBridge as createStrandsBridge,
 } from 'strands-web-llm'
-import { chunk, collect, setup } from '../../packages/langchain-web-llm/fixtures/engine.js'
+import { chunk, collect, setupEngine } from '../../fixtures/web-llm.js'
 
 const fields = [
   { key: 'model', value: 'other-model' },
@@ -35,7 +35,7 @@ for (const client of clients) {
   it.each(fields.flatMap((field) => ['defaults', 'call'].map((scope) => ({ ...field, scope }))))(
     `${client} rejects request.$key from $scope before native inference`,
     async ({ key, value, scope }) => {
-      const { engine, create } = setup(chunk({ content: 'Recovered' }, 'stop'))
+      const { engine, create } = setupEngine(chunk({ content: 'Recovered' }, 'stop'))
       const bridge = createBrowserBridge(engine)
       const strandsBridge = createStrandsBridge(engine)
       vi.stubGlobal('window', { webllmLangChainBridge: bridge, webllmBridge: strandsBridge })
@@ -107,7 +107,7 @@ for (const client of clients) {
 it.each([false, true])(
   'keeps Strands config after a rejected update (browser: %s)',
   async (browser) => {
-    const { engine } = setup()
+    const { engine } = setupEngine()
     const page: BrowserPage = { evaluate: vi.fn() }
     const options = { modelId: 'test-model', request: { seed: 7, tool_choice: 'none' as const } }
     const model = browser
@@ -127,7 +127,7 @@ for (const browser of [false, true]) {
   it.each(['none', undefined] as const)(
     `keeps Strands optional tool_choice %s (browser: ${browser})`,
     async (tool_choice) => {
-      const { engine, create } = setup(chunk({ content: 'Done' }, 'stop'))
+      const { engine, create } = setupEngine(chunk({ content: 'Done' }, 'stop'))
       const bridge = createStrandsBridge(engine)
       vi.stubGlobal('window', { webllmBridge: bridge })
       const page: BrowserPage = {
