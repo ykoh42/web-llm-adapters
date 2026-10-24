@@ -8,7 +8,7 @@ import { test, expect } from '../../../fixtures/browser.js'
 import type {} from '../../src/main.js'
 import { writeFile } from 'node:fs/promises'
 
-for (const modelId of process.env.MODEL_IDS?.split(',') ?? [
+const models = [
   'Qwen3.5-9B-q4f16_1-MLC',
   'Qwen3.5-4B-q4f16_1-MLC',
   'Qwen3-4B-q4f16_1-MLC',
@@ -18,7 +18,26 @@ for (const modelId of process.env.MODEL_IDS?.split(',') ?? [
   'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
   'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
   'Qwen3-8B-q4f16_1-MLC',
-]) {
+]
+
+const defaultPrompt = 'Read /answer.txt and tell me the secret code exactly.'
+const cases = [
+  ...models.map((modelId) => ({
+    modelId,
+    prompt: defaultPrompt,
+  })),
+  {
+    modelId: 'Qwen3.5-2B-q4f16_1-MLC',
+    prompt: 'Use read_file to read /answer.txt, then report the secret code from its result.',
+  },
+]
+const selected =
+  process.env.MODEL_IDS?.split(',').map(
+    (modelId) =>
+      cases.find((item) => item.modelId === modelId) ?? { modelId, prompt: defaultPrompt },
+  ) ?? cases
+
+for (const { modelId, prompt } of selected) {
   test(`${modelId}: default Deep Agents tools and final answer`, async ({ page }, testInfo) => {
     await page.evaluate((id) => window.checks.load(id), modelId)
     const profile = await page.evaluate(() => window.checks.model().profile)
@@ -49,9 +68,7 @@ for (const modelId of process.env.MODEL_IDS?.split(',') ?? [
     let output: Awaited<ReturnType<typeof agent.invoke>>
     try {
       output = await agent.invoke({
-        messages: [
-          { role: 'user', content: 'Read /answer.txt and tell me the secret code exactly.' },
-        ],
+        messages: [{ role: 'user', content: prompt }],
         files: {
           '/answer.txt': {
             content: ['The secret code is ORCHID-42.'],

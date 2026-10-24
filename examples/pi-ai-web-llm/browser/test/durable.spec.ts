@@ -31,7 +31,7 @@ async function fresh(page: Page, modelId = defaultModel) {
   await load(page, modelId)
 }
 
-for (const modelId of process.env.MODEL_IDS?.split(',') ?? [
+const models = [
   'Qwen3.5-9B-q4f16_1-MLC',
   defaultModel,
   'Qwen3-4B-q4f16_1-MLC',
@@ -41,13 +41,33 @@ for (const modelId of process.env.MODEL_IDS?.split(',') ?? [
   'Qwen2.5-7B-Instruct-q4f16_1-MLC',
   'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
   'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
-]) {
+]
+
+const defaultPrompt = 'Look up A7 and tell me the answer.'
+const cases = [
+  ...models.map((modelId) => ({
+    modelId,
+    prompt: defaultPrompt,
+  })),
+  {
+    modelId: 'Qwen3.5-2B-q4f16_1-MLC',
+    prompt: 'Call lookup with code A7 and report exactly the answer it returns.',
+  },
+]
+const selected =
+  process.env.MODEL_IDS?.split(',').map(
+    (modelId) =>
+      cases.find((item) => item.modelId === modelId) ?? { modelId, prompt: defaultPrompt },
+  ) ?? cases
+
+for (const { modelId, prompt } of selected) {
   test(`${modelId}: Durable tools and conversation survive a page reload`, async ({
     page,
   }, info) => {
     const errors: string[] = []
     page.on('pageerror', (error) => errors.push(error.message))
     await fresh(page, modelId)
+    await page.locator('#message').fill(prompt)
     await page.getByRole('button', { name: 'Send', exact: true }).click()
     await expect(page.locator('#status')).toHaveText('Done', { timeout: 120_000 })
     await expect(page.locator('#answer')).toContainText('ORCHID-42')
