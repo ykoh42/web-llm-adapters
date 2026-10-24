@@ -25,6 +25,7 @@
     "test:extensions": "pnpm build:strands:browser && pnpm test:extensions:built",
     "test:extensions:built": "node examples/strands-web-llm/browser/scripts/setup-extension.ts && playwright test --config playwright.extension.config.ts",
     "test:install": "pnpm -r --workspace-concurrency=1 run test:install",
+    "test:install:manager": "pnpm --filter \"./packages/*\" --workspace-concurrency=1 run test:install",
     "check:release": "pnpm check && pnpm test:install && pnpm test:browser:built && pnpm test:extensions:built && pnpm test:langchain:built && pnpm test:pi:built",
     "dev:strands": "pnpm --filter strands-web-llm build && pnpm --filter @web-llm-adapters/strands-browser dev",
     "preview:strands": "pnpm --filter @web-llm-adapters/strands-browser preview",

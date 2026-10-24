@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runtimeFiles } from '../shared/build.ts'
+import { checkManagerInstall } from './install/manager.ts'
 
 interface PackedFile {
   path: string
@@ -30,6 +31,14 @@ export async function checkInstall({
   compatibilityDependencies,
   consumerDependencies = [],
 }: InstallCheck): Promise<void> {
+  const manager = process.argv[2]
+  if (
+    manager !== undefined &&
+    manager !== 'yarn-pnp' &&
+    manager !== 'yarn-node-modules' &&
+    manager !== 'pnpm'
+  )
+    throw new Error(`Unknown consumer package manager: ${manager}`)
   const directory = fileURLToPath(root)
   const { name }: { name: string } = JSON.parse(
     await readFile(join(directory, 'package.json'), 'utf8'),
@@ -46,6 +55,19 @@ export async function checkInstall({
       ),
     )
     checkFiles(pack.files)
+    if (manager) {
+      const dependencies = compatibilityDependencies.at(-1)
+      if (!dependencies) throw new Error('Missing consumer dependencies.')
+      await checkManagerInstall({
+        manager,
+        directory: temporary,
+        name,
+        archive: resolve(temporary, pack.filename),
+        dependencies,
+        source,
+      })
+      return
+    }
     await writeFile(
       join(temporary, 'package.json'),
       JSON.stringify({ private: true, type: 'module' }),

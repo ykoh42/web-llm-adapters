@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 /** Check consumers in both module modes and public declarations with Bundler resolution. */
 export function checkTypes(directory: string, packageName: string): void {
@@ -13,7 +13,7 @@ export function checkTypes(directory: string, packageName: string): void {
 
   const files = [
     join(directory, 'consumer.ts'),
-    join(directory, 'node_modules', packageName, 'dist/index.d.ts'),
+    join(dirname(require.resolve(`${packageName}/runtime/manifest.json`)), '../index.d.ts'),
   ]
   for (const [module, moduleResolution] of [
     [ts.ModuleKind.ESNext, ts.ModuleResolutionKind.Bundler],
