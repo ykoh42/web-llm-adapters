@@ -109,19 +109,7 @@ Use literal `~0`/`~1` in `$ref` paths; LangChain's tool validator cannot resolve
 
 ## Models
 
-These exact WebLLM IDs passed real-model checks. Tools includes default Deep Agents → tool result → final answer. `O` = verified; `—` = unavailable for this artifact.
-
-| WebLLM model ID                          | Tools | Thinking | Images | Audio | Embeddings |
-| ---------------------------------------- | ----- | -------- | ------ | ----- | ---------- |
-| `Qwen3.5-4B-q4f16_1-MLC`                 | O     | O        | —      | —     | —          |
-| `Qwen3-8B-q4f16_1-MLC`                   | O     | O        | —      | —     | —          |
-| `gemma-4-E2B-it-q4f16_1-MLC`             | O     | O        | —      | O     | —          |
-| `Qwen2.5-3B-Instruct-q4f16_1-MLC`        | O     | —        | —      | —     | —          |
-| `Phi-3.5-vision-instruct-q4f16_1-MLC`    | —     | —        | O      | —     | —          |
-| `snowflake-arctic-embed-m-q0f32-MLC-b32` | —     | —        | —      | —     | O          |
-| `snowflake-arctic-embed-m-q0f32-MLC-b4`  | —     | —        | —      | —     | O          |
-| `snowflake-arctic-embed-s-q0f32-MLC-b32` | —     | —        | —      | —     | O          |
-| `snowflake-arctic-embed-s-q0f32-MLC-b4`  | —     | —        | —      | —     | O          |
+See the [verified models](https://github.com/ykoh42/web-llm-adapters#models) for exact IDs and features. LangChain tool checks include default Deep Agents → tool result → final answer.
 
 Install WebLLM `0.2.79` or later in the `0.2.x` series. Gemma 4 E2B was verified with WebLLM `0.2.86` and needs the bundled [runtime setup and protocol limits](https://github.com/ykoh42/web-llm-adapters/blob/main/shared/runtime/README.md). Audio works in ordinary chat; the default profile keeps it disabled for Deep Agents. Tools and thinking accept text and tool results only. Model-selected tools and arguments still need validation.
 
