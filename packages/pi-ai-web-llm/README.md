@@ -8,6 +8,9 @@ Install the package, or run the [Agent Core and Durable browser examples](https:
 npm install pi-ai-web-llm
 ```
 
+- Yarn: also install `@mlc-ai/web-llm` and `@earendil-works/pi-ai`. Check compatible versions with `yarn explain peer-requirements`.
+- pnpm: if dependency scripts are blocked, run [`pnpm approve-builds`](https://pnpm.io/cli/approve-builds) to allow or deny them, then rerun `pnpm install`.
+
 ## Use
 
 Create a worker that runs WebLLM:

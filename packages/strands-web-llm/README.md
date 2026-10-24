@@ -9,6 +9,9 @@ WebGPU browser while tools run in your application.
 npm install strands-web-llm
 ```
 
+- Yarn: also install compatible versions of `@mlc-ai/web-llm`, `@strands-agents/sdk`, and the SDK peers listed by `yarn explain peer-requirements`.
+- pnpm: if dependency scripts are blocked, run [`pnpm approve-builds`](https://pnpm.io/cli/approve-builds) to allow or deny them, then rerun `pnpm install`.
+
 ## Browser
 
 Create a worker that runs WebLLM:

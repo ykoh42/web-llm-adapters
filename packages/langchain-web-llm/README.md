@@ -6,6 +6,9 @@ Run [WebLLM](https://github.com/mlc-ai/web-llm) models locally with WebGPU throu
 npm install langchain-web-llm
 ```
 
+- Yarn: also install `@mlc-ai/web-llm` and `@langchain/core`. Check compatible versions with `yarn explain peer-requirements`.
+- pnpm: if dependency scripts are blocked, run [`pnpm approve-builds`](https://pnpm.io/cli/approve-builds) to allow or deny them, then rerun `pnpm install`.
+
 ## Use
 
 Create a worker that runs WebLLM:
