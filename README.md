@@ -13,25 +13,26 @@ The first load fetches WebLLM's runtime and model files; the browser caches them
 ## Models
 
 Exact WebLLM **0.2.86** IDs checked with the adapters below. **All** = LangChain, Pi, and Strands.
-`O` = verified; `△` = unreliable; `X` = unverified. Tools covers call → result → final answer; Think means separate reasoning blocks.
+`O` = verified; `△` = limited; `X` = unverified. Tools covers call → result → final answer; Think means separate reasoning blocks.
 Audio is verified in LangChain and Strands only. Decode speeds are local M4 Pro (24 GB), Chrome 155 measurements.
 
-| Exact WebLLM `model_id`             |                                                                                 MMLU-Pro | Decode tok/s | Tools | Think | Image | Audio | Video | Verified adapters |
-| ----------------------------------- | ---------------------------------------------------------------------------------------: | -----------: | ----- | ----- | ----- | ----- | ----- | ----------------- |
-| `Qwen3.5-9B-q4f16_1-MLC`            |                                           [82.5](https://huggingface.co/Qwen/Qwen3.5-9B) |         19.7 | O     | O     | X     | X     | X     | Strands           |
-| `Qwen3.5-4B-q4f16_1-MLC`            |                                           [79.1](https://huggingface.co/Qwen/Qwen3.5-4B) |         33.0 | O     | O     | X     | X     | X     | All               |
-| `Qwen3-8B-q4f16_1-MLC`              |                 [74.2](https://huggingface.co/nvidia/Qwen3-8B-DMS-8x#evaluation-dataset) |         32.0 | O     | O     | X     | X     | X     | All               |
-| `Qwen3-4B-q4f16_1-MLC`              |                   [70.4](https://huggingface.co/Qwen/Qwen3-4B-Thinking-2507#performance) |         51.5 | △     | O     | X     | X     | X     | Strands           |
-| `Qwen3.5-2B-q4f16_1-MLC`            |                                           [66.5](https://huggingface.co/Qwen/Qwen3.5-2B) |         59.7 | O     | O     | X     | X     | X     | Strands           |
-| `gemma-4-E2B-it-q4f16_1-MLC`        |                                     [60.0](https://huggingface.co/google/gemma-4-E2B-it) |         38.5 | O     | O     | X     | O     | X     | All               |
-| `Qwen2.5-7B-Instruct-q4f16_1-MLC`   |                                       [56.3](https://qwenlm.github.io/blog/qwen2.5-llm/) |         38.0 | O     | X     | X     | X     | X     | Strands           |
-| `Qwen2.5-3B-Instruct-q4f16_1-MLC`   |                                       [43.7](https://qwenlm.github.io/blog/qwen2.5-llm/) |         59.5 | O     | X     | X     | X     | X     | All               |
-| `Qwen3.5-0.8B-q4f16_1-MLC`          |                                         [42.3](https://huggingface.co/Qwen/Qwen3.5-0.8B) |         71.2 | O     | O     | X     | X     | X     | Strands           |
-| `Qwen3-0.6B-q4f16_1-MLC`            | [38.27](https://huggingface.co/MultiverseComputingCAI/LittleLamb#evaluation--benchmarks) |         90.4 | △     | O     | X     | X     | X     | Strands           |
-| `Qwen2.5-1.5B-Instruct-q4f16_1-MLC` |                                       [32.4](https://qwenlm.github.io/blog/qwen2.5-llm/) |         87.6 | O     | X     | X     | X     | X     | Strands           |
-| `Qwen2.5-0.5B-Instruct-q4f16_1-MLC` |                                       [15.0](https://qwenlm.github.io/blog/qwen2.5-llm/) |        136.8 | O     | X     | X     | X     | X     | Strands           |
+| Exact WebLLM `model_id`             |                                                                 MMLU-Pro | Decode tok/s | Tools | Think | Image | Audio | Video | Verified adapters   |
+| ----------------------------------- | -----------------------------------------------------------------------: | -----------: | ----- | ----- | ----- | ----- | ----- | ------------------- |
+| `Qwen3.5-9B-q4f16_1-MLC`            |                           [82.5](https://huggingface.co/Qwen/Qwen3.5-9B) |         19.7 | O     | △     | X     | X     | X     | All†                |
+| `Qwen3.5-4B-q4f16_1-MLC`            |                           [79.1](https://huggingface.co/Qwen/Qwen3.5-4B) |         33.0 | O     | O     | X     | X     | X     | All                 |
+| `Qwen3-8B-q4f16_1-MLC`              | [74.2](https://huggingface.co/nvidia/Qwen3-8B-DMS-8x#evaluation-dataset) |         32.0 | O     | O     | X     | X     | X     | All                 |
+| `Qwen3-4B-q4f16_1-MLC`              |   [70.4](https://huggingface.co/Qwen/Qwen3-4B-Thinking-2507#performance) |         51.5 | △     | O     | X     | X     | X     | All                 |
+| `Qwen3.5-2B-q4f16_1-MLC`            |                           [66.5](https://huggingface.co/Qwen/Qwen3.5-2B) |         59.7 | O     | △     | X     | X     | X     | All*†               |
+| `gemma-4-E2B-it-q4f16_1-MLC`        |                     [60.0](https://huggingface.co/google/gemma-4-E2B-it) |         38.5 | O     | O     | X     | O     | X     | All                 |
+| `Qwen2.5-7B-Instruct-q4f16_1-MLC`   |                       [56.3](https://qwenlm.github.io/blog/qwen2.5-llm/) |         38.0 | O     | X     | X     | X     | X     | All                 |
+| `Qwen2.5-3B-Instruct-q4f16_1-MLC`   |                       [43.7](https://qwenlm.github.io/blog/qwen2.5-llm/) |         59.5 | O     | X     | X     | X     | X     | All                 |
+| `Qwen3.5-0.8B-q4f16_1-MLC`          |                         [42.3](https://huggingface.co/Qwen/Qwen3.5-0.8B) |         71.2 | O     | O     | X     | X     | X     | LangChain*, Strands |
+| `Qwen2.5-1.5B-Instruct-q4f16_1-MLC` |                       [32.4](https://qwenlm.github.io/blog/qwen2.5-llm/) |         87.6 | O     | X     | X     | X     | X     | All                 |
+| `Qwen2.5-0.5B-Instruct-q4f16_1-MLC` |                       [15.0](https://qwenlm.github.io/blog/qwen2.5-llm/) |        136.8 | O     | X     | X     | X     | X     | All                 |
 
-Qwen3 0.6B can miscopy arguments or omit answers with thinking on; Qwen3 4B can call dependent tools together.
+`*` LangChain Agent verified; default Deep Agents did not complete. `†` Pi Agent Core verified; Durable did not pass the tool-and-thinking check.
+
+Qwen3.5 9B/2B can return empty thinking even when enabled. Qwen3 4B can call dependent tools together.
 Gemma needs the bundled [runtime setup](shared/runtime/README.md). Audio works in ordinary chat, without tools or thinking. Video is unsupported.
 
 <details>

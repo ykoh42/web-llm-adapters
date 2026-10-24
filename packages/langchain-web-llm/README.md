@@ -109,7 +109,7 @@ Use literal `~0`/`~1` in `$ref` paths; LangChain's tool validator cannot resolve
 
 ## Models
 
-See the [verified models](https://github.com/ykoh42/web-llm-adapters#models) for exact IDs and features. LangChain tool checks include default Deep Agents → tool result → final answer.
+See the [verified models](https://github.com/ykoh42/web-llm-adapters#models) for exact IDs, features, and LangChain Agent / Deep Agents limits.
 
 Install WebLLM `0.2.79` or later in the `0.2.x` series. Gemma 4 E2B was verified with WebLLM `0.2.86` and needs the bundled [runtime setup and protocol limits](https://github.com/ykoh42/web-llm-adapters/blob/main/shared/runtime/README.md). Audio works in ordinary chat; the default profile keeps it disabled for Deep Agents. Tools and thinking accept text and tool results only. Model-selected tools and arguments still need validation.
 

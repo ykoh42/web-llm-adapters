@@ -200,11 +200,17 @@ test('the example UI loads a Worker and runs the Pi tool loop without test globa
   expect(errors).toEqual([])
 })
 
-for (const modelId of [
+for (const modelId of process.env.MODEL_IDS?.split(',') ?? [
+  'Qwen3.5-9B-q4f16_1-MLC',
   'Qwen3.5-4B-q4f16_1-MLC',
+  'Qwen3.5-2B-q4f16_1-MLC',
+  'Qwen3-4B-q4f16_1-MLC',
   'gemma-4-E2B-it-q4f16_1-MLC',
   'Qwen3-8B-q4f16_1-MLC',
+  'Qwen2.5-7B-Instruct-q4f16_1-MLC',
   'Qwen2.5-3B-Instruct-q4f16_1-MLC',
+  'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
+  'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
 ]) {
   test(`${modelId}: Pi Agent Core tools, usage, cancellation and recovery in a Worker`, async ({
     page,
@@ -213,13 +219,40 @@ for (const modelId of [
     page.on('pageerror', (error) => errors.push(error.message))
     await page.goto('http://127.0.0.1:4173/pi/test/checks.html')
     await page.evaluate((id) => window.piChecks.load(id), modelId)
-    const messages = await page.evaluate(() =>
-      window.piChecks.run('Look up A7 and tell me the answer.'),
-    )
+    const evidence = await page.evaluate(async () => {
+      const agent = await window.piChecks.createAgent(true)
+      const requests: unknown[] = []
+      const native: ChatCompletionChunk[] = []
+      agent.onPayload = (payload) => {
+        requests.push(structuredClone(payload))
+      }
+      agent.onProviderStreamEvent = (event) => {
+        native.push(structuredClone(event) as ChatCompletionChunk)
+      }
+      const error = await agent.prompt('Look up A7 and tell me the answer.').then(
+        () => null,
+        (error: unknown) => String(error),
+      )
+      return { messages: agent.state.messages, requests, native, error }
+    })
+    const path = info.outputPath('model.json')
+    await writeFile(path, JSON.stringify(evidence, null, 2))
     await info.attach('messages', {
-      body: JSON.stringify(messages, null, 2),
+      path,
       contentType: 'application/json',
     })
+    expect(evidence.error).toBeNull()
+    const { messages } = evidence
+    expect(
+      messages.some(
+        (message) =>
+          message.role === 'assistant' &&
+          message.content.some(
+            (part) =>
+              part.type === 'toolCall' && part.name === 'lookup' && part.arguments.code === 'A7',
+          ),
+      ),
+    ).toBe(true)
     expect(
       messages.some(
         (message) =>
@@ -261,6 +294,48 @@ for (const modelId of [
         .join(''),
     ).toContain('6')
     expect(errors).toEqual([])
+  })
+}
+
+for (const modelId of ['Qwen3.5-9B-q4f16_1-MLC', 'Qwen3.5-2B-q4f16_1-MLC']) {
+  test(`${modelId}: thinking and answer match native WebLLM output`, async ({ page }, info) => {
+    await page.goto('http://127.0.0.1:4173/pi/test/checks.html')
+    await page.evaluate((id) => window.piChecks.load(id), modelId)
+    const evidence = await page.evaluate(async () => {
+      const { models, model } = await window.piChecks.provider(true)
+      let raw = ''
+      const message = await models.completeSimple(
+        model,
+        {
+          messages: [{ role: 'user', content: 'What is 17 * 23 + 19 * 29?', timestamp: 0 }],
+        },
+        {
+          reasoning: 'low',
+          onProviderStreamEvent: (event) => {
+            const chunk = event as ChatCompletionChunk
+            raw += chunk.choices[0]?.delta.content ?? ''
+          },
+        },
+      )
+      return { message, raw }
+    })
+    await writeFile(info.outputPath('thinking.json'), JSON.stringify(evidence, null, 2))
+    const { message, raw } = evidence
+    const [, thinking, text] = /^<think>([\s\S]*?)<\/think>([\s\S]*)$/.exec(raw) ?? []
+    expect(thinking).toBeDefined()
+    expect(message.stopReason).toBe('stop')
+    const answer = message.content
+      .filter((part) => part.type === 'text')
+      .map((part) => part.text)
+      .join('')
+    expect(answer).toContain('942')
+    expect(answer).toBe(text)
+    expect(
+      message.content
+        .filter((part) => part.type === 'thinking')
+        .map((part) => part.thinking)
+        .join(''),
+    ).toBe(thinking)
   })
 }
 

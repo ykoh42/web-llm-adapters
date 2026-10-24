@@ -149,9 +149,7 @@ Qwen tools cannot be combined with native JSON output. Install WebLLM `0.2.79` o
 
 ## Verified models
 
-Tool-capable models passed Agent Core and Durable tool loops. Checks also cover usage, cancellation, persistence, and Phi image input with error recovery.
-
-See the [verified models](https://github.com/ykoh42/web-llm-adapters#models) for exact IDs and features.
+See the [verified models](https://github.com/ykoh42/web-llm-adapters#models) for exact IDs, features, and Agent Core / Durable limits.
 
 Tested with Pi AI and Pi Agent Core **1.0.2** and **1.4.0**, and WebLLM **0.2.79** and **0.2.86**. Model availability depends on the installed WebLLM version.
 

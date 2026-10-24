@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test'
+import { writeFile } from 'node:fs/promises'
 import type { ConversationView, LiveState } from '@earendil-works/pi-durable'
 import { test, expect } from './browser.js'
 
@@ -6,6 +7,10 @@ const url = 'http://127.0.0.1:4173/pi/durable/'
 const defaultModel = 'Qwen3.5-4B-q4f16_1-MLC'
 
 async function load(page: Page, modelId = defaultModel) {
+  await page.evaluate((id) => {
+    const select = document.querySelector<HTMLSelectElement>('#model')!
+    if (![...select.options].some((option) => option.value === id)) select.add(new Option(id, id))
+  }, modelId)
   await page.locator('#model').selectOption(modelId)
   await page.getByRole('button', { name: 'Load model and conversation', exact: true }).click()
   await expect(page.locator('#status')).toHaveText('Ready', { timeout: 15 * 60 * 1000 })
@@ -26,11 +31,15 @@ async function fresh(page: Page, modelId = defaultModel) {
   await load(page, modelId)
 }
 
-for (const modelId of [
+for (const modelId of process.env.MODEL_IDS?.split(',') ?? [
   defaultModel,
+  'Qwen3-4B-q4f16_1-MLC',
   'gemma-4-E2B-it-q4f16_1-MLC',
   'Qwen3-8B-q4f16_1-MLC',
   'Qwen2.5-3B-Instruct-q4f16_1-MLC',
+  'Qwen2.5-7B-Instruct-q4f16_1-MLC',
+  'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
+  'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
 ]) {
   test(`${modelId}: Durable tools and conversation survive a page reload`, async ({
     page,
@@ -42,6 +51,19 @@ for (const modelId of [
     await expect(page.locator('#status')).toHaveText('Done', { timeout: 120_000 })
     await expect(page.locator('#answer')).toContainText('ORCHID-42')
     const before: ConversationView = JSON.parse((await page.locator('#details').textContent())!)
+    await writeFile(info.outputPath('conversation.json'), JSON.stringify(before, null, 2))
+    expect(
+      before.entries
+        .flatMap((entry) => entry.model ?? [])
+        .some(
+          (message) =>
+            message.role === 'assistant' &&
+            message.content.some(
+              (part) =>
+                part.type === 'toolCall' && part.name === 'lookup' && part.arguments.code === 'A7',
+            ),
+        ),
+    ).toBe(true)
     expect(before.entries.some((entry) => entry.kind === 'pi.tool-result')).toBe(true)
     if (!modelId.startsWith('Qwen2.5-'))
       expect(
