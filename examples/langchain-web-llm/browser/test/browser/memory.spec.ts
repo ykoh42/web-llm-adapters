@@ -1,3 +1,4 @@
+import { chatOptions } from '../../../chat-options.js'
 import { AIMessage } from '@langchain/core/messages'
 import { tool } from '@langchain/core/tools'
 import { InMemoryStore } from '@langchain/langgraph'
@@ -14,9 +15,9 @@ test('an agent searches real vector memory with chat and embeddings on one engin
   const embeddingId = 'snowflake-arctic-embed-s-q0f32-MLC-b4'
   await page.evaluate((id) => window.checks.load(id), modelId)
   await page.evaluate(
-    async ({ modelId, embeddingId }) => {
+    async ({ modelId, embeddingId, options }) => {
       const engine = window.checks.engine()
-      await engine.reload([modelId, embeddingId], [{ context_window_size: 16384 }, {}])
+      await engine.reload([modelId, embeddingId], [{ ...options, context_window_size: 16384 }, {}])
       window.memoryRequests = []
       for (const [endpoint, api] of [
         ['chat', engine.chat.completions],
@@ -30,7 +31,7 @@ test('an agent searches real vector memory with chat and embeddings on one engin
         })
       }
     },
-    { modelId, embeddingId },
+    { modelId, embeddingId, options: chatOptions(modelId) },
   )
   const embeddings = new BrowserWebLLMEmbeddings(page, { modelId: embeddingId })
   const store = new InMemoryStore({ index: { embeddings, dims: 384 } })
@@ -54,6 +55,7 @@ test('an agent searches real vector memory with chat and embeddings on one engin
   )
   const model = new BrowserChatWebLLM(page, {
     modelId,
+    thinkingPrefilled: true,
     profile: { maxInputTokens: 16384 },
     request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
   })

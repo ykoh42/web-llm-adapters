@@ -349,7 +349,7 @@ for (const modelId of ['Qwen3.5-9B-q4f16_1-MLC', 'Qwen3.5-2B-q4f16_1-MLC']) {
     })
     await writeFile(info.outputPath('thinking.json'), JSON.stringify(evidence, null, 2))
     const { message, raw } = evidence
-    const [, thinking, text] = /^<think>([\s\S]*?)<\/think>([\s\S]*)$/.exec(raw) ?? []
+    const [, thinking, text] = /^([\s\S]*?)<\/think>([\s\S]*)$/.exec(raw) ?? []
     expect(thinking).toBeDefined()
     expect(message.stopReason).toBe('stop')
     const answer = message.content
@@ -438,12 +438,13 @@ for (const modelId of [
         .map((part) => part.text)
         .join('')
       expect(text, mode).toContain('391')
-      expect(text, mode).toBe(direct.replace(/^<think>[\s\S]*?<\/think>/, ''))
+      const output = enable_thinking && modelId.startsWith('Qwen3.5-') ? '<think>' + direct : direct
+      expect(text, mode).toBe(output.replace(/^<think>[\s\S]*?<\/think>/, ''))
       const thinking = message.content
         .filter((part) => part.type === 'thinking')
         .map((part) => part.thinking)
         .join('')
-      const nativeThinking = /<think>([\s\S]*?)<\/think>/.exec(direct)?.[1] ?? ''
+      const nativeThinking = /<think>([\s\S]*?)<\/think>/.exec(output)?.[1] ?? ''
       expect(thinking, mode).toBe(nativeThinking)
       if (enable_thinking && modelId.startsWith('Qwen3-')) expect(thinking, mode).toMatch(/\S/)
       if (!enable_thinking) expect(thinking, mode).toMatch(/^\s*$/)

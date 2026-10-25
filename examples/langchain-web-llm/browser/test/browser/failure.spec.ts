@@ -21,6 +21,7 @@ for (const modelId of [
     let native = ''
     const model = new BrowserChatWebLLM(page, {
       modelId,
+      thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
       request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
       onChunk: (chunk) => {
         const choice = chunk.choices[0]
@@ -54,7 +55,9 @@ for (const modelId of [
         }
       })(),
     ).rejects.toThrow('Injected native stream failure')
-    expect({ text, reasoning }).toEqual(expectedOutput(native, modelId))
+    expect({ text, reasoning }).toEqual(
+      expectedOutput(native, modelId, modelId.startsWith('Qwen3.5-')),
+    )
     expect(reasoning.length).toBeGreaterThan(0)
     const recovered = await bound.invoke('Use lookup to look up code A7.')
     expect(recovered.tool_calls).toMatchObject([{ name: 'lookup', args: { code: 'A7' } }])

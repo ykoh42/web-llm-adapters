@@ -1,3 +1,4 @@
+import { chatOptions } from '../../chat-options.js'
 import { sampling } from '../../sampling.js'
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
 type LangChainAdapter = typeof import('langchain-web-llm')
@@ -61,10 +62,10 @@ async function load(id: string, useWorker = true) {
   try {
     if (useWorker) {
       worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
-      engine = await CreateWebWorkerMLCEngine(worker, id, options)
+      engine = await CreateWebWorkerMLCEngine(worker, id, options, chatOptions(id))
     } else {
       engine = new MLCEngine(options)
-      await engine.reload(id)
+      await engine.reload(id, chatOptions(id))
     }
   } catch (error) {
     await engine?.unload().catch((cleanupError: unknown) => console.error(cleanupError))
@@ -86,6 +87,7 @@ function model(enabled = thinking.checked) {
   return new adapter.ChatWebLLM({
     engine,
     modelId,
+    thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
     ...(contextWindowSize !== undefined && { profile: { maxInputTokens: contextWindowSize } }),
     request: { ...sampling(modelId, enabled), max_tokens: 4096, seed: 7 },
   })

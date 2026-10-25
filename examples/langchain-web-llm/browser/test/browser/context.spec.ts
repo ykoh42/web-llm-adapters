@@ -1,3 +1,4 @@
+import { chatOptions } from '../../../chat-options.js'
 import { ContextOverflowError, getRetryable } from '@langchain/core/errors'
 import { HumanMessage, AIMessage } from '@langchain/core/messages'
 import { createDeepAgent, createSummarizationMiddleware, StateBackend } from 'deepagents'
@@ -35,20 +36,24 @@ for (const worker of [false, true]) {
 test('Deep Agents summarizes and recovers after a real WebLLM overflow', async ({ page }) => {
   const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
   await page.evaluate((id) => window.checks.load(id), modelId)
-  await page.evaluate(async (id) => {
-    await window.checks.engine().reload(id, { context_window_size: 16384 })
-    Object.assign(window, { contextOverflows: 0 })
-    const bridge = window.webllmLangChainBridge!
-    const next = bridge.next.bind(bridge)
-    bridge.next = async (id) => {
-      const result = await next(id)
-      if ('error' in result && result.error.name === 'ContextOverflowError')
-        window.contextOverflows++
-      return result
-    }
-  }, modelId)
+  await page.evaluate(
+    async ({ id, options }) => {
+      await window.checks.engine().reload(id, { ...options, context_window_size: 16384 })
+      Object.assign(window, { contextOverflows: 0 })
+      const bridge = window.webllmLangChainBridge!
+      const next = bridge.next.bind(bridge)
+      bridge.next = async (id) => {
+        const result = await next(id)
+        if ('error' in result && result.error.name === 'ContextOverflowError')
+          window.contextOverflows++
+        return result
+      }
+    },
+    { id: modelId, options: chatOptions(modelId) },
+  )
   const model = new BrowserChatWebLLM(page, {
     modelId,
+    thinkingPrefilled: true,
     profile: { maxInputTokens: 16384 },
     request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
   })

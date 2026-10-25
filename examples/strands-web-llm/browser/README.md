@@ -23,7 +23,7 @@ The first load fetches WebLLM's runtime and model files; later runs use the brow
 | Images and audio            | [media.ts](src/examples/media.ts)                                        | Image bytes, WAV, and PCM input                                |
 
 **Response** shows answer text; **Details** shows reasoning, tools, and metadata.
-Choose models from the package's [verified model table](../../../packages/strands-web-llm/README.md#models).
+Choose models from the package's [verified model table](../../../README.md#models).
 The demo already configures Gemma's [required runtime](../../../shared/runtime/README.md).
 Audio examples check input handling; they do not establish speech transcription accuracy.
 

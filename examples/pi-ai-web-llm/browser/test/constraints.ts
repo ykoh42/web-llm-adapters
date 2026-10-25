@@ -13,6 +13,7 @@ export async function constrainedAgent() {
     const source = createWebLLMProvider({
       engine,
       modelId: loaded.id,
+      thinkingPrefilled: loaded.id.startsWith('Qwen3.5-'),
       contextWindow: loaded.contextWindow,
       request: {
         ...sampling(loaded.id, loaded.reasoning),

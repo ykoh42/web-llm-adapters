@@ -1,3 +1,4 @@
+import { sampling } from '../../../sampling.js'
 import { Agent, AudioBlock, ImageBlock, TextBlock } from '@strands-agents/sdk'
 import { WebLLMModel, pcmAudio } from 'strands-web-llm'
 import { runAgent, type ExampleInput } from './output.js'
@@ -29,9 +30,10 @@ function sendMedia(block: ImageBlock | AudioBlock, input: ExampleInput) {
   const model = new WebLLMModel({
     engine: input.engine,
     modelId: input.modelId,
+    thinkingPrefilled: input.modelId.startsWith('Qwen3.5-'),
     contextWindowLimit: 8192,
     maxTokens: 256,
-    temperature: 0,
+    ...sampling(input.modelId, false),
   })
   return runAgent(new Agent({ model, printer: false }), [new TextBlock(input.prompt), block], input)
 }

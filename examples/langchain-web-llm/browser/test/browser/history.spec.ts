@@ -28,6 +28,7 @@ test('Qwen3.5 rejects ambiguous history before inference and keeps valid JSON ke
   const native: WebLLMChunk[] = []
   const model = new BrowserChatWebLLM(page, {
     modelId,
+    thinkingPrefilled: true,
     request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
     onChunk: (chunk) => native.push(chunk),
   })
@@ -66,7 +67,7 @@ test('Qwen3.5 rejects ambiguous history before inference and keeps valid JSON ke
       ),
     )
     .join('')
-  const thought = /<think>([\s\S]*?)<\/think>/.exec(raw)?.[1]
+  const thought = /^([\s\S]*?)<\/think>/.exec(raw)?.[1]
   expect(thought).toBeDefined()
   expect(
     response.contentBlocks

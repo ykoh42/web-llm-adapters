@@ -164,6 +164,7 @@ for (const { modelId, name, input, tools, minTokens, observeChunks = false } of 
     }
     const model = new BrowserChatWebLLM(browserPage, {
       modelId,
+      thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
       request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
       ...(observeChunks && { onChunk: (chunk: WebLLMChunk) => raw.push(chunk) }),
     })

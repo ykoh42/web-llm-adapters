@@ -1,3 +1,4 @@
+import { qwenTurns } from '../../../../test/support/qwen-output.js'
 import { test, expect } from './browser.js'
 import type {} from './checks.js'
 import { modelCheck } from '../../../../scripts/release/support.js'
@@ -41,12 +42,7 @@ for (const modelId of [
               .map((block) => block.thinking),
           )
           .join('')
-        const raw = result.chunks
-          .map((chunk) => {
-            const choice = chunk.choices[0]
-            return choice && 'delta' in choice ? (choice.delta.content ?? '') : ''
-          })
-          .join('')
+        const raw = qwenTurns(result.chunks, thinking && modelId.startsWith('Qwen3.5-')).join('')
         const text = assistants
           .flatMap((message) =>
             message.content.filter((block) => block.type === 'text').map((block) => block.text),

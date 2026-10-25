@@ -97,17 +97,19 @@ test('Hermes calls a real Strands tool', async ({ page }) => {
   await unload(page)
 })
 
-test('Gemma calls the clock and writes its own final answer', async ({ page }) => {
-  await load(page, 'tools')
-  await run(page)
-  const details = await page.getByLabel('Details', { exact: true }).textContent()
-  expect(details).toContain('"toolResultEvent"')
-  const time = details!.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/)![0]
-  // The answer must use the tool's time, not the fixed text from the legacy hook.
-  await expect(page.getByLabel('Response')).toContainText(time.slice(11))
-  await expect(page.getByLabel('Response')).not.toContainText('<|tool_call>')
-  await unload(page)
-})
+for (const modelId of ['gemma-4-E2B-it-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC']) {
+  test(`${modelId} calls the clock and writes its own final answer`, async ({ page }) => {
+    await load(page, 'tools', 'worker', modelId)
+    await run(page)
+    const details = await page.getByLabel('Details', { exact: true }).textContent()
+    expect(details).toContain('"toolResultEvent"')
+    const time = details!.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/)![0]
+    // The answer must use the tool's time, not the fixed text from the legacy hook.
+    await expect(page.getByLabel('Response')).toContainText(time.slice(11))
+    await expect(page.getByLabel('Response')).not.toContainText('<|tool_call>')
+    await unload(page)
+  })
+}
 
 test('Gemma thinking stays in Details while its clock answer stays in Response', async ({
   page,

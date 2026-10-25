@@ -48,6 +48,13 @@ try {
       modelId,
       contextWindowLimit: contextWindowSize,
       thinkingPrefilled: true,
+      temperature: 1,
+      topP: 0.95,
+      request: {
+        presence_penalty: 1.5,
+        repetition_penalty: 1,
+        extra_body: { enable_thinking: true },
+      },
     })
     const agent = new Agent({ model })
     console.log((await agent.invoke('Say hello.')).lastMessage.content)
@@ -73,7 +80,7 @@ npm install @strands-agents/harness@0.3.1
 ```
 
 On a browser page controlled by your application, load the model with
-`context_window_size: 16384` and expose its engine:
+`context_window_size: 16384` and the Qwen3.5 `conv_config` above, then expose its engine:
 
 ```ts
 import { createBrowserBridge } from 'strands-web-llm'
@@ -90,6 +97,10 @@ const model = new BrowserModel(page, {
   modelId: 'Qwen3.5-4B-q4f16_1-MLC',
   contextWindowLimit: 16384, // Match the loaded engine.
   maxTokens: 4096,
+  thinkingPrefilled: true,
+  temperature: 1,
+  topP: 0.95,
+  request: { presence_penalty: 1.5, repetition_penalty: 1, extra_body: { enable_thinking: true } },
 })
 // Qwen3.5 is text-only, so keep media out of Harness's read tool.
 const agent = await createHarness({ model, builtinTools: { read: { media: false } } })

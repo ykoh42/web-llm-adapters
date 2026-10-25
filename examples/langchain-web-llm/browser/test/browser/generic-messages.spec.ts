@@ -33,6 +33,7 @@ for (const modelId of ['gemma-4-E2B-it-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC']) 
     const chunks: WebLLMChunk[] = []
     const model = new BrowserChatWebLLM(page, {
       modelId,
+      thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
       request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
       onChunk: (chunk) => chunks.push(chunk),
     })

@@ -12,15 +12,18 @@ function nativeSampling(modelId: string, thinking: boolean): Sampling {
   if (modelId.startsWith('Qwen3.5-'))
     return {
       ...request,
-      temperature: 1,
-      top_p: thinking ? 0.95 : 1,
-      presence_penalty: thinking ? 1.5 : 2,
+      temperature: thinking ? 1 : 0.7,
+      top_p: thinking ? 0.95 : 0.8,
+      presence_penalty: 1.5,
     }
   if (modelId.startsWith('Qwen3-'))
     return { ...request, temperature: thinking ? 0.6 : 0.7, top_p: thinking ? 0.95 : 0.8 }
   if (modelId.startsWith('Qwen2.5-'))
     return { temperature: 0.7, top_p: 0.8, repetition_penalty: 1.05 }
   if (modelId.startsWith('gemma-4-')) return { ...request, temperature: 1, top_p: 0.95 }
+  if (modelId.startsWith('Phi-3.5-vision-')) return { temperature: 0 }
+  if (modelId.startsWith('Hermes-3-Llama-3.1-'))
+    return { temperature: 0.8, repetition_penalty: 1.1 }
   return thinking ? { extra_body: { enable_thinking: true } } : {}
 }
 

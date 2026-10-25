@@ -28,6 +28,7 @@ for (const modelId of [
         let atCancel = 0
         const model = new BrowserModel(page, {
           modelId,
+          thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
           maxTokens: 4096,
           temperature: 0,
           ...settings,

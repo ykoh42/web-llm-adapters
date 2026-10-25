@@ -47,6 +47,7 @@ for (const modelId of [
     capture.raiseError = true
     const model = new BrowserChatWebLLM(page, {
       modelId,
+      thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
       request: { ...sampling(modelId, thinking), max_tokens: 4096, seed: 7 },
       onChunk: (chunk) => chunks.push(chunk),
       callbacks: [capture],
@@ -80,7 +81,12 @@ for (const modelId of [
     }
     expect([...actual.values()]).toEqual(originals)
     const final = originals.at(-1)!
-    const thought = thinking ? /^<think>([\s\S]*?)<\/think>/.exec(final) : null
+    const thought = thinking
+      ? (modelId.startsWith('Qwen3.5-')
+          ? /^([\s\S]*?)<\/think>/
+          : /^<think>([\s\S]*?)<\/think>/
+        ).exec(final)
+      : null
     expect(messages.at(-1)?.text).toBe(final.slice(thought?.[0].length ?? 0))
   })
 }

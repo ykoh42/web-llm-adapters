@@ -91,6 +91,7 @@ for (const { name, schema, key = 'code', value = '123' } of schemaCases) {
       const settings = sampling(modelId, true)
       const model = new BrowserModel(page, {
         modelId,
+        thinkingPrefilled: true,
         ...settings,
         maxTokens: 4096,
         request: { ...settings.request, seed: 7 },
@@ -146,6 +147,7 @@ for (const [modelId, fileName] of [
         agent = await createHarness({
           model: new BrowserModel(page, {
             modelId,
+            thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
             temperature: 0,
             request: { extra_body: { enable_thinking: true } },
           }),

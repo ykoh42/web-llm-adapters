@@ -93,3 +93,16 @@ it('times out and removes its listener if the registered worker never takes cont
   expect(removed).toHaveBeenCalledWith('controllerchange', expect.any(Function))
   expect(mocks.reload).not.toHaveBeenCalled()
 })
+
+it('applies Qwen3.5 framing only to the matching model in a multi-model engine', async () => {
+  const ids = ['Qwen3.5-4B-q4f16_1-MLC', 'snowflake-arctic-embed-s-q0f32-MLC-b4']
+  const loaded = await openEngine('main', ids, undefined, { model_list: [] }, () => {})
+  try {
+    expect(mocks.reload).toHaveBeenCalledExactlyOnceWith(ids, [
+      { conv_config: { role_empty_sep: '\n<think>\n', stop_token_ids: [248044, 248046] } },
+      {},
+    ])
+  } finally {
+    await loaded.close()
+  }
+})

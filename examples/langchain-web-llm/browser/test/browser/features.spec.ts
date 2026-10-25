@@ -38,6 +38,7 @@ test('disableStreaming buffers real output without changing the native request',
   for (const disableStreaming of [false, true]) {
     const model = new BrowserChatWebLLM(page, {
       modelId,
+      thinkingPrefilled: true,
       disableStreaming,
       request: { ...sampling(modelId, false), max_tokens: 64, seed: 7 },
     })
@@ -119,6 +120,7 @@ for (const { name, schema, key = 'code' } of schemaCases) {
     const raw: WebLLMChunk[] = []
     const model = new BrowserChatWebLLM(page, {
       modelId,
+      thinkingPrefilled: true,
       request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
       onChunk: (chunk) => raw.push(chunk),
     })
@@ -182,6 +184,7 @@ test('Qwen3.5 preserves encoded references before LangChain tool validation', as
   })
   const model = new BrowserChatWebLLM(page, {
     modelId,
+    thinkingPrefilled: true,
     request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
   })
   const response = await model
@@ -246,6 +249,7 @@ for (const modelId of ['Qwen3.5-4B-q4f16_1-MLC', 'gemma-4-E2B-it-q4f16_1-MLC']) 
     const failures: unknown[] = []
     const model = new BrowserChatWebLLM(page, {
       modelId,
+      thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
       profile: await page.evaluate(() => window.checks.model(true).profile),
       request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
       onFailedAttempt: (error: unknown) => failures.push(error),
@@ -358,6 +362,7 @@ test(
     await page.evaluate((id) => window.checks.load(id), modelId)
     const model = new BrowserChatWebLLM(page, {
       modelId,
+      thinkingPrefilled: true,
       request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
     })
     const responses = await Promise.all([
@@ -383,6 +388,7 @@ test('default Deep Agents subagents share the WebLLM engine and file state', asy
   await page.evaluate((id) => window.checks.load(id), modelId)
   const model = new BrowserChatWebLLM(page, {
     modelId,
+    thinkingPrefilled: true,
     profile: await page.evaluate(() => window.checks.model().profile),
     request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
   })
@@ -427,6 +433,7 @@ test('the Deep Agents example writes and reads a file with native generation def
   await page.evaluate((id) => window.checks.load(id), modelId)
   const model = new BrowserChatWebLLM(page, {
     modelId,
+    thinkingPrefilled: true,
     profile: await page.evaluate(() => window.checks.model(true).profile),
     request: { extra_body: { enable_thinking: true } },
   })
@@ -521,6 +528,7 @@ for (const modelId of ['Qwen3.5-4B-q4f16_1-MLC', 'gemma-4-E2B-it-q4f16_1-MLC']) 
     await page.evaluate((id) => window.checks.load(id, true), modelId)
     const model = new BrowserChatWebLLM(page, {
       modelId,
+      thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
       profile: await page.evaluate(() => window.checks.model(true).profile),
       request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
     })
@@ -555,6 +563,7 @@ test('Qwen3.5 keeps literal closing tags through a LangChain tool loop', async (
   let raw = ''
   const model = new BrowserChatWebLLM(page, {
     modelId,
+    thinkingPrefilled: true,
     request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
     onChunk: (chunk) => {
       const choice = chunk.choices[0]
@@ -595,6 +604,7 @@ test('Qwen3.5 preserves strings when a tool schema excludes numbers', async ({ p
   let raw = ''
   const model = new BrowserChatWebLLM(page, {
     modelId,
+    thinkingPrefilled: true,
     request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
     onChunk: (chunk) => {
       const choice = chunk.choices[0]

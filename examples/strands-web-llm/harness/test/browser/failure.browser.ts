@@ -32,6 +32,7 @@ for (const modelId of [
       const settings = sampling(modelId, true)
       const model = new BrowserModel(page, {
         modelId,
+        thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
         maxTokens: 4096,
         ...settings,
         request: { ...settings.request, seed: 7 },
@@ -69,7 +70,9 @@ for (const modelId of [
           }
         })(),
       ).rejects.toThrow('Injected native stream failure')
-      expect({ text, reasoning }).toEqual(expectedOutput(native, modelId))
+      expect({ text, reasoning }).toEqual(
+        expectedOutput(native, modelId, modelId.startsWith('Qwen3.5-')),
+      )
       expect(reasoning.length).toBeGreaterThan(0)
       const recovered = []
       for await (const block of model.streamAggregated(messages, options))

@@ -30,6 +30,7 @@ export const examples: Example[] = [
   {
     id: 'thinking',
     name: 'Qwen thinking on and off',
+    contextWindow: 8192,
     model: 'Qwen3-0.6B-q4f16_1-MLC',
     prompt: 'What is 2 + 2? Answer briefly.',
     run: async (input) => (await import('./advanced.js')).thinking(input),
@@ -67,7 +68,7 @@ export const examples: Example[] = [
     name: 'Gemma thinking on and off',
     model: gemma,
     prompt: 'What is 2 + 2? Answer briefly.',
-    contextWindow: 4096,
+    contextWindow: 8192,
     run: async (input) => (await import('./advanced.js')).thinking(input),
   },
   {
@@ -75,7 +76,7 @@ export const examples: Example[] = [
     name: 'Gemma thinking + tools',
     model: gemma,
     prompt: 'Use the clock tool to get the current UTC time, then tell me the time.',
-    contextWindow: 4096,
+    contextWindow: 8192,
     run: async (input) => (await import('./tools.js')).tools(input, true),
   },
   {

@@ -6,6 +6,7 @@ import { BrowserModel } from 'strands-web-llm'
 import { useTool } from './tool-choice.ts'
 import { createEmbeddingMemory, createMemory, embeddingModelId } from './memory.ts'
 import { createRead } from './tools/read.ts'
+import { chatOptions } from '../../chat-options.ts'
 import { sampling } from '../../sampling.ts'
 
 const { values, positionals } = parseArgs({
@@ -38,14 +39,22 @@ try {
   })
   if (semanticMemory) {
     await page.evaluate(
-      ({ modelId, embeddingModelId, contextWindow }) =>
+      ({ modelId, embeddingModelId, options }) =>
         window.webllmBridge.withEngine((engine) =>
-          engine.reload([modelId, embeddingModelId], [{ context_window_size: contextWindow }, {}]),
+          engine.reload([modelId, embeddingModelId], [options, {}]),
         ),
-      { modelId, embeddingModelId, contextWindow },
+      {
+        modelId,
+        embeddingModelId,
+        options: { ...chatOptions(modelId), context_window_size: contextWindow },
+      },
     )
   }
-  const config = { modelId, contextWindowLimit: contextWindow }
+  const config = {
+    modelId,
+    contextWindowLimit: contextWindow,
+    thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
+  }
   const auxModel = new BrowserModel(page, {
     ...config,
     maxTokens: 512,

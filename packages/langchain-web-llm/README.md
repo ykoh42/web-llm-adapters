@@ -37,7 +37,18 @@ try {
     },
   })
   try {
-    const model = new ChatWebLLM({ engine, modelId, thinkingPrefilled: true })
+    const model = new ChatWebLLM({
+      engine,
+      modelId,
+      thinkingPrefilled: true,
+      request: {
+        temperature: 1,
+        top_p: 0.95,
+        presence_penalty: 1.5,
+        repetition_penalty: 1,
+        extra_body: { enable_thinking: true },
+      },
+    })
     console.log((await model.invoke('Hello')).text)
   } finally {
     await engine.unload()
@@ -74,7 +85,14 @@ import { BrowserChatWebLLM } from 'langchain-web-llm'
 const model = new BrowserChatWebLLM(page, {
   modelId: 'Qwen3.5-4B-q4f16_1-MLC',
   profile: { maxInputTokens: 32768 }, // Match the loaded engine's context window.
-  request: { extra_body: { enable_thinking: true } },
+  thinkingPrefilled: true,
+  request: {
+    temperature: 1,
+    top_p: 0.95,
+    presence_penalty: 1.5,
+    repetition_penalty: 1,
+    extra_body: { enable_thinking: true },
+  },
 })
 const agent = createDeepAgent({ model })
 const result = await agent.invoke({
@@ -84,7 +102,7 @@ const result = await agent.invoke({
 
 Deep Agents writes the text to its virtual filesystem in `result.files`, not to your computer.
 
-Load the browser engine with `context_window_size: 32768` for this example. The page must already contain the loaded model and bridge. [Runnable examples](https://github.com/ykoh42/web-llm-adapters/tree/main/examples/langchain-web-llm) show the full setup.
+Load the browser engine with `context_window_size: 32768` and the Qwen3.5 `conv_config` above. The page must already contain the loaded model and bridge. [Runnable examples](https://github.com/ykoh42/web-llm-adapters/tree/main/examples/langchain-web-llm) show the full setup.
 
 ## Support
 

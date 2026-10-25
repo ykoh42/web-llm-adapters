@@ -59,6 +59,8 @@ Tool formats follow [Hermes](https://github.com/QwenLM/Qwen3/blob/main/docs/sour
 
 Embedding inputs are limited to 512 tokens. No listed model is verified for both tools and vision.
 
+Runnable examples use model-card sampling settings supported by WebLLM, except where they demonstrate custom sampling. `top_k` and `min_p` are not exposed by its API.
+
 ## Tool-call constraints
 
 With WebLLM **0.2.86**, all three adapters accept `request: { constrainedToolCalls: true }`

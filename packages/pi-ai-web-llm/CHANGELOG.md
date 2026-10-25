@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Align example sampling and Qwen3.5 engine setup with the model cards.
+
 - Remove WebLLM’s fixed thinking-off prefix from Qwen JSON and grammar output; preserve the body and raw chunks.
 
 - Preserve empty Qwen3.5 thinking boundaries in current tool history.

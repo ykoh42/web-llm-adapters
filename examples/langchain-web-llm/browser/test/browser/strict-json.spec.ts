@@ -68,6 +68,7 @@ test('strict JSON uses native schema constraints in local and browser models', a
     results.push({ client: 'local', strict, ...local })
     const model = new BrowserChatWebLLM(page, {
       modelId,
+      thinkingPrefilled: true,
       request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
     })
     const browser = await model.withStructuredOutput<Answer>(schema, config).invoke(prompt)
@@ -119,6 +120,7 @@ test(
     const text = '<think>literal</think>'
     const model = new BrowserChatWebLLM(page, {
       modelId,
+      thinkingPrefilled: true,
       request: { max_tokens: 4096, extra_body: { enable_thinking: false } },
     })
     const result = await model

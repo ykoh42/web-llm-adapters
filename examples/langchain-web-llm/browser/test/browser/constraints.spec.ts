@@ -1,3 +1,4 @@
+import { qwenTurns } from '../../../../../test/support/qwen-output.js'
 import { createAgent, tool } from 'langchain'
 import { BrowserChatWebLLM, type WebLLMChunk } from 'langchain-web-llm'
 import { z } from 'zod'
@@ -22,6 +23,7 @@ for (const modelId of [
         const chunks: WebLLMChunk[] = []
         const model = new BrowserChatWebLLM(page, {
           modelId,
+          thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
           request: {
             ...sampling(modelId, thinking),
             constrainedToolCalls,
@@ -74,12 +76,7 @@ for (const modelId of [
               : [],
           )
           .join('')
-        const raw = chunks
-          .map((chunk) => {
-            const choice = chunk.choices[0]
-            return choice && 'delta' in choice ? (choice.delta.content ?? '') : ''
-          })
-          .join('')
+        const raw = qwenTurns(chunks, thinking && modelId.startsWith('Qwen3.5-')).join('')
         const text = result.messages
           .filter((message) => message.type === 'ai')
           .map((message) => message.text)

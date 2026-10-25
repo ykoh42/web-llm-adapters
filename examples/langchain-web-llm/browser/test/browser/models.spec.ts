@@ -70,6 +70,7 @@ for (const { modelId, prompt } of selected) {
       const native: WebLLMChunk[] = []
       const model = new BrowserChatWebLLM(page, {
         modelId,
+        thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
         profile,
         onChunk: (chunk) => native.push(chunk),
         request: { ...sampling(modelId, thinking), max_tokens: 4096, seed: 7 },
@@ -150,6 +151,7 @@ for (const modelId of ['Qwen3.5-2B-q4f16_1-MLC', 'Qwen3.5-0.8B-q4f16_1-MLC']) {
     const inputs: { code: string }[] = []
     const model = new BrowserChatWebLLM(page, {
       modelId,
+      thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
       request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
       onChunk: (chunk) => native.push(chunk),
     })
@@ -215,6 +217,7 @@ test('Qwen3.5-2B: thinking and answer match native WebLLM output', async ({ page
   const native: WebLLMChunk[] = []
   const model = new BrowserChatWebLLM(page, {
     modelId,
+    thinkingPrefilled: true,
     request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
     onChunk: (chunk) => native.push(chunk),
   })
@@ -227,7 +230,7 @@ test('Qwen3.5-2B: thinking and answer match native WebLLM output', async ({ page
     )
     .join('')
   await writeFile(info.outputPath('thinking.json'), JSON.stringify({ result, raw }, null, 2))
-  const [, thinking, text] = /^<think>([\s\S]*?)<\/think>([\s\S]*)$/.exec(raw) ?? []
+  const [, thinking, text] = /^([\s\S]*?)<\/think>([\s\S]*)$/.exec(raw) ?? []
   expect(thinking).toBeDefined()
   expect(result.text).toContain('942')
   expect(result.text).toBe(text)

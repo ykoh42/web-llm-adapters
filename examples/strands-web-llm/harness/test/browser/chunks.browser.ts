@@ -16,6 +16,7 @@ test('native tool chunks arrive before WebLLM finishes generating arguments', as
     const settings = sampling(modelId, true)
     const model = new BrowserModel(page, {
       modelId,
+      thinkingPrefilled: true,
       ...settings,
       maxTokens: 4096,
       request: { ...settings.request, seed: 7 },

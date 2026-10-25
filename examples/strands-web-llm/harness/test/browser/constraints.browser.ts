@@ -1,3 +1,4 @@
+import { qwenTurns } from '../../../../../test/support/qwen-output.js'
 import { writeFile } from 'node:fs/promises'
 import {
   Agent,
@@ -39,6 +40,7 @@ for (const modelId of ['Qwen3-1.7B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC']) {
       const chunks: WebLLMChunk[][] = []
       const model = new BrowserModel(page, {
         modelId,
+        thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
         ...settings,
         contextWindowLimit: 8192,
         maxTokens: 4096,
@@ -66,13 +68,7 @@ for (const modelId of ['Qwen3-1.7B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC']) {
           const call = calls[0]!
           expect(call.name).toBe('lookup')
           expect(call.input).toEqual({ city: 'Seoul', unit: 'celsius' })
-          const raw = chunks
-            .at(-1)!
-            .map((chunk) => {
-              const choice = chunk.choices[0]
-              return choice && 'delta' in choice ? (choice.delta.content ?? '') : ''
-            })
-            .join('')
+          const raw = qwenTurns(chunks.at(-1)!, modelId.startsWith('Qwen3.5-')).join('')
           const reasoning = first
             .filter((block) => block.type === 'reasoningBlock')
             .map((block) => block.text ?? '')
@@ -136,6 +132,7 @@ for (const modelId of [
           const settings = sampling(modelId, thinking)
           const model = new BrowserModel(page, {
             modelId,
+            thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
             ...settings,
             contextWindowLimit: 16384,
             maxTokens: 4096,
@@ -179,12 +176,8 @@ for (const modelId of [
                 .map((block) => block.text ?? ''),
             )
             .join('')
-          const raw = chunks
-            .map((chunk) => {
-              const choice = chunk.choices[0]
-              return choice && 'delta' in choice ? (choice.delta.content ?? '') : ''
-            })
-            .join('')
+          const turns = qwenTurns(chunks, thinking && modelId.startsWith('Qwen3.5-'))
+          const raw = turns.join('')
           const text = agent.messages
             .flatMap((message) =>
               message.role === 'assistant'
@@ -194,13 +187,6 @@ for (const modelId of [
                 : [],
             )
             .join('')
-          const turns = ['']
-          for (const chunk of chunks) {
-            const choice = chunk.choices[0]
-            if (!choice || !('delta' in choice)) continue
-            turns[turns.length - 1] += choice.delta.content ?? ''
-            if (choice.finish_reason) turns.push('')
-          }
           // Strands removes whitespace-only TextBlocks when it aggregates a message.
           const nativeText = turns
             .map((turn) =>

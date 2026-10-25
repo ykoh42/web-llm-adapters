@@ -1,4 +1,5 @@
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
+import { chatOptions } from '../../chat-options.js'
 import { sampling } from '../../sampling.js'
 import runtimeUrl from 'pi-ai-web-llm/runtime/gemma-4-e2b.wasm?url'
 import runtime from 'pi-ai-web-llm/runtime/manifest.json'
@@ -33,11 +34,12 @@ export async function load(id: string, useWorker = true, onProgress?: (text: str
     if (useWorker) {
       worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
       engine = await CreateWebWorkerMLCEngine(worker, id, options, {
+        ...chatOptions(id),
         context_window_size: contextWindow,
       })
     } else {
       engine = new MLCEngine(options)
-      await engine.reload(id, { context_window_size: contextWindow })
+      await engine.reload(id, { ...chatOptions(id), context_window_size: contextWindow })
     }
   } catch (error) {
     await unload().catch((cleanupError: unknown) => console.error(cleanupError))
@@ -45,7 +47,10 @@ export async function load(id: string, useWorker = true, onProgress?: (text: str
   }
 }
 
-export async function provider(enabled: boolean, thinkingPrefilled = false) {
+export async function provider(
+  enabled: boolean,
+  thinkingPrefilled = modelId.startsWith('Qwen3.5-'),
+) {
   if (!engine) throw new Error('Load a model first.')
   const [{ createModels }, { createWebLLMProvider }] = await Promise.all([
     import('@earendil-works/pi-ai/models'),

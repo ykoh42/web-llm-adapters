@@ -77,6 +77,7 @@ test('Qwen thinking executes a tool before returning an agent response schema', 
   )
   const model = new BrowserChatWebLLM(page, {
     modelId,
+    thinkingPrefilled: true,
     request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
   })
   const agent = createAgent({
@@ -108,6 +109,7 @@ for (const modelId of ['gemma-4-E2B-it-q4f16_1-MLC', 'Hermes-3-Llama-3.1-8B-q4f1
     await page.evaluate((id) => window.checks.load(id), modelId)
     const model = new BrowserChatWebLLM(page, {
       modelId,
+      thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
       request: {
         ...(modelId.startsWith('gemma-') ? sampling(modelId, true) : { temperature: 0 }),
         max_tokens: 4096,

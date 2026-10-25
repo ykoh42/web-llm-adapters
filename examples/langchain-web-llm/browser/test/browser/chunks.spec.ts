@@ -11,6 +11,7 @@ test('native tool chunks arrive before WebLLM finishes generating arguments', as
   let finished: Promise<boolean> | undefined
   const model = new BrowserChatWebLLM(page, {
     modelId,
+    thinkingPrefilled: true,
     request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
     onChunk: (chunk) => {
       const choice = chunk.choices[0]

@@ -27,6 +27,7 @@ test('Qwen preserves a caller stop inside thinking', async ({ page }) => {
     const settings = sampling(modelId, true)
     const model = new BrowserModel(page, {
       modelId,
+      thinkingPrefilled: true,
       ...settings,
       maxTokens: 4096,
       request: { ...settings.request, seed: 7, stop: ['</think>'] },
@@ -48,10 +49,10 @@ test('Qwen preserves a caller stop inside thinking', async ({ page }) => {
       .join('')
 
     expect(response.stopReason).toBe('endTurn')
-    expect(native).toMatch(/^<think>/)
+    expect(native).not.toMatch(/^<think>/)
     expect(native).not.toContain('</think>')
     expect(reasoning).not.toBe('')
-    expect(reasoning).toBe(native.slice('<think>'.length))
+    expect(reasoning).toBe(native)
     expect(response.message.content.every((block) => block.type === 'reasoningBlock')).toBe(true)
   } finally {
     await page.evaluate(() => window.harness.close())
@@ -81,6 +82,7 @@ for (const modelId of ['Hermes-3-Llama-3.1-8B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-
       const chunks: WebLLMChunk[] = []
       const model = new BrowserModel(page, {
         modelId,
+        thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
         ...(modelId.startsWith('Qwen') ? sampling(modelId, true) : { temperature: 0 }),
         maxTokens: 4096,
         onChunk: (chunk) => chunks.push(chunk),
@@ -109,11 +111,10 @@ for (const modelId of ['Hermes-3-Llama-3.1-8B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-
       expect(request.messages[0]).toEqual({ role: 'system', content: '' })
       if (modelId.startsWith('Qwen')) {
         expect(request.extra_body?.enable_thinking).toBe(true)
+        const output = modelId.startsWith('Qwen3.5-') ? '<think>' + nativeMessage : nativeMessage
         const thoughts = /<think>([\s\S]*?)<\/think>/g
-        expect(reasoning).toBe(
-          [...nativeMessage.matchAll(thoughts)].map((part) => part[1]).join(''),
-        )
-        expect(text).toBe(nativeMessage.replace(thoughts, ''))
+        expect(reasoning).toBe([...output.matchAll(thoughts)].map((part) => part[1]).join(''))
+        expect(text).toBe(output.replace(thoughts, ''))
       }
       expect(text.trim()).not.toBe('')
       const calls: ToolUseBlock[] = []
@@ -177,6 +178,7 @@ for (const modelId of ['gemma-4-E2B-it-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC']) 
       const settings = sampling(modelId, true)
       const model = new BrowserModel(page, {
         modelId,
+        thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
         ...settings,
         maxTokens: 4096,
         request: { ...settings.request, seed: 7 },
@@ -384,7 +386,11 @@ test('Hermes can read a previous native tool call through Strands', async ({ pag
         note: 'Keep this note.',
       },
     ])
-    const model = new BrowserModel(page, { modelId, temperature: 0, maxTokens: 256 })
+    const model = new BrowserModel(page, {
+      modelId,
+      temperature: 0,
+      maxTokens: 256,
+    })
     const history = [
       new Message({ role: 'user', content: [new TextBlock('Look up the code.')] }),
       new Message({
@@ -462,6 +468,7 @@ test(
       const native: WebLLMChunk[] = []
       const model = new BrowserModel(page, {
         modelId,
+        thinkingPrefilled: true,
         maxTokens: 4096,
         request: {
           extra_body: { enable_thinking: false },

@@ -1,4 +1,5 @@
 import { type AppConfig, type InitProgressCallback, type MLCEngineInterface } from '@mlc-ai/web-llm'
+import { chatOptions } from '../../../chat-options.js'
 import serviceWorkerUrl from './service-worker.ts?worker&url'
 import { runtimeConfig } from './runtime.js'
 
@@ -47,9 +48,11 @@ export async function openEngine(
     }
   }
   try {
-    const chatOptions = contextWindow ? { context_window_size: contextWindow } : undefined
-    const options =
-      Array.isArray(modelId) && chatOptions ? modelId.map(() => chatOptions) : chatOptions
+    const optionsFor = (id: string) => ({
+      ...chatOptions(id),
+      ...(contextWindow !== undefined && { context_window_size: contextWindow }),
+    })
+    const options = Array.isArray(modelId) ? modelId.map(optionsFor) : optionsFor(modelId)
     await engine.reload(modelId, options)
     return { engine, close }
   } catch (error) {

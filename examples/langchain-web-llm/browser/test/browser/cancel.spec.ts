@@ -23,6 +23,7 @@ for (const modelId of [
       let atCancel = 0
       const model = new BrowserChatWebLLM(page, {
         modelId,
+        thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
         request: { temperature: 0, ...sampling(modelId, thinking), max_tokens: 4096, seed: 7 },
         onChunk: (chunk) => {
           callbacks++
@@ -145,6 +146,7 @@ for (const modelId of ['Qwen3.5-4B-q4f16_1-MLC', 'gemma-4-E2B-it-q4f16_1-MLC']) 
     const raw: WebLLMChunk[] = []
     const model = new BrowserChatWebLLM(page, {
       modelId,
+      thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
       request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
       onChunk: (chunk) => {
         raw.push(chunk)

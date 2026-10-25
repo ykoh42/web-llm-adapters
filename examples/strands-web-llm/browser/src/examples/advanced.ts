@@ -4,13 +4,16 @@ import { runAgent, type ExampleInput } from './output.js'
 import { sampling as modelSampling } from '../../../sampling.js'
 
 export async function tags(input: ExampleInput) {
+  const settings = modelSampling(input.modelId, false)
   const model = new WebLLMModel({
     engine: input.engine,
     modelId: input.modelId,
+    thinkingPrefilled: input.modelId.startsWith('Qwen3.5-'),
     contextWindowLimit: 2048,
     maxTokens: 96,
-    temperature: 0,
+    ...settings,
     request: {
+      ...settings.request,
       response_format: {
         type: 'structural_tag',
         structural_tag: {
@@ -49,8 +52,9 @@ export async function thinking(input: ExampleInput) {
     const model = new WebLLMModel({
       engine: input.engine,
       modelId: input.modelId,
-      contextWindowLimit: 2048,
-      maxTokens: 512,
+      thinkingPrefilled: input.modelId.startsWith('Qwen3.5-'),
+      contextWindowLimit: 8192,
+      maxTokens: 4096,
       ...modelSampling(input.modelId, enabled),
     })
     const agent = new Agent({ model, printer: false })
@@ -70,6 +74,7 @@ export async function sampling(input: ExampleInput) {
   const model = new WebLLMModel({
     engine: input.engine,
     modelId: input.modelId,
+    thinkingPrefilled: input.modelId.startsWith('Qwen3.5-'),
     contextWindowLimit: 2048,
     maxTokens: 128,
     temperature: 0.8,
@@ -83,7 +88,7 @@ export async function sampling(input: ExampleInput) {
       logit_bias: { '0': -100 },
       logprobs: true,
       top_logprobs: 2,
-      extra_body: { enable_latency_breakdown: true },
+      extra_body: { enable_thinking: false, enable_latency_breakdown: true },
     },
   })
   const first = await runAgent(new Agent({ model, printer: false }), input.prompt, input)
@@ -93,9 +98,11 @@ export async function sampling(input: ExampleInput) {
   const stoppedModel = new WebLLMModel({
     engine: input.engine,
     modelId: input.modelId,
+    thinkingPrefilled: input.modelId.startsWith('Qwen3.5-'),
     maxTokens: 32,
     request: {
       stop: ['\n'],
+      extra_body: { enable_thinking: false },
       response_format: { type: 'grammar', grammar: 'root ::= "alpha\\nbeta"' },
     },
   })

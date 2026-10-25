@@ -10,24 +10,26 @@ test('structural tags constrain the JSON inside an answer', async ({ page }) => 
   await unload(page)
 })
 
-test('Qwen enables and disables thinking through Strands', async ({ page }) => {
-  await load(page, 'thinking')
-  await run(page)
-  const reports: { thinking?: { enabled: boolean; text: string; reasoning: string }[] }[] =
-    JSON.parse((await page.getByLabel('Details', { exact: true }).textContent())!)
-  const modes = reports.find((report) => report.thinking)?.thinking
-  expect(modes).toHaveLength(2)
-  const disabled = modes!.find((mode) => !mode.enabled)!
-  const enabled = modes!.find((mode) => mode.enabled)!
-  expect(disabled.reasoning.trim()).toBe('')
-  expect(enabled.reasoning.trim()).not.toBe('')
-  for (const mode of modes!) {
-    expect(mode.text).toContain('4')
-    expect(mode.text).not.toContain('<think>')
-    expect(mode.text).not.toContain('</think>')
-  }
-  await unload(page)
-})
+for (const modelId of ['Qwen3-0.6B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC']) {
+  test(`${modelId} enables and disables thinking through Strands`, async ({ page }) => {
+    await load(page, 'thinking', 'worker', modelId)
+    await run(page)
+    const reports: { thinking?: { enabled: boolean; text: string; reasoning: string }[] }[] =
+      JSON.parse((await page.getByLabel('Details', { exact: true }).textContent())!)
+    const modes = reports.find((report) => report.thinking)?.thinking
+    expect(modes).toHaveLength(2)
+    const disabled = modes!.find((mode) => !mode.enabled)!
+    const enabled = modes!.find((mode) => mode.enabled)!
+    expect(disabled.reasoning.trim()).toBe('')
+    expect(enabled.reasoning.trim()).not.toBe('')
+    for (const mode of modes!) {
+      expect(mode.text).toContain('4')
+      expect(mode.text).not.toContain('<think>')
+      expect(mode.text).not.toContain('</think>')
+    }
+    await unload(page)
+  })
+}
 
 test('sampling is repeatable and reports real latency stages', async ({ page }) => {
   await load(page, 'sampling', 'main')

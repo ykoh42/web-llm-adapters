@@ -76,17 +76,23 @@ for (const modelId of [
     })
     expect(native).toBe(direct)
     const calls = message.content.filter((part) => part.type === 'toolCall')
-    if (modelId === 'Qwen3.5-0.8B-q4f16_1-MLC') {
-      const argument = /<parameter=code>\n([\s\S]*?)\n<\/parameter>/.exec(native)?.[1]
-      expect(argument).toBe('"A7"')
-      expect(calls).toMatchObject([{ name: 'lookup', arguments: { code: argument } }])
-      expect(message.stopReason).toBe('toolUse')
-    } else {
-      expect(native).not.toContain('<tool_call>')
-      expect(calls).toEqual([])
-      expect(message.stopReason).toBe('stop')
-    }
-    const match = /^<think>([\s\S]*?)<\/think>([\s\S]*)$/.exec(native)
+    const expectedCalls = [...native.matchAll(/<tool_call>\n([\s\S]*?)\n<\/tool_call>/g)].map(
+      (match) => {
+        if (!modelId.startsWith('Qwen3.5-')) return JSON.parse(match[1]!)
+        const call =
+          /^<function=([^>]+)>\n<parameter=code>\n([\s\S]*?)\n<\/parameter>\n<\/function>$/.exec(
+            match[1]!,
+          )
+        expect(call).not.toBeNull()
+        return { name: call![1], arguments: { code: call![2] } }
+      },
+    )
+    expect(calls.map(({ name, arguments: args }) => ({ name, arguments: args }))).toEqual(
+      expectedCalls,
+    )
+    expect(message.stopReason).toBe(expectedCalls.length ? 'toolUse' : 'stop')
+    const output = modelId.startsWith('Qwen3.5-') ? '<think>' + native : native
+    const match = /^<think>([\s\S]*?)<\/think>([\s\S]*)$/.exec(output)
     const thinking = match?.[1] ?? ''
     const text = (match?.[2] ?? native).replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
     expect(

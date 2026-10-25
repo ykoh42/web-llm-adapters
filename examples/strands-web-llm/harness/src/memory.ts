@@ -1,3 +1,4 @@
+import { sampling } from '../../sampling.ts'
 import type { Page } from '@playwright/test'
 import { LocalFileStorage } from '@strands-agents/sdk/storage'
 import { FileMemoryStore } from '@strands-agents/sdk/vended-memory-stores/file-memory-store'
@@ -54,13 +55,15 @@ export function createEmbeddingMemory(
 }
 
 function createMemoryModel(page: Page, modelId: string, contextWindow: number) {
+  const settings = sampling(modelId, false)
   return new BrowserModel(page, {
     modelId,
+    thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
     contextWindowLimit: contextWindow,
     maxTokens: 4096,
-    temperature: 0,
-    // Leave thinking unset so Gemma uses WebLLM's native JSON path.
+    ...settings,
     request: {
+      ...settings.request,
       response_format: {
         type: 'json_object',
         schema: JSON.stringify({

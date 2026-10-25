@@ -31,7 +31,13 @@ it.each([false, true])(
     await checks.load(id, false)
     expect(checks.model().modelId).toBe(id)
     await checks.engine().unload()
-    expect(reload.mock.calls).toEqual([[id], [id]])
+    const options = {
+      conv_config: { role_empty_sep: '\n<think>\n', stop_token_ids: [248044, 248046] },
+    }
+    expect(reload.mock.calls).toEqual([
+      [id, options],
+      [id, options],
+    ])
     expect(release).toHaveBeenCalledTimes(2)
     expect(logged.mock.calls).toEqual(cleanupFails ? [[cleanup]] : [])
   },

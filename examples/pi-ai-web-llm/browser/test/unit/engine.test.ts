@@ -28,9 +28,13 @@ it.each([false, true])(
     await load(id, false)
     expect((await provider(false)).model.id).toBe(id)
     await unload()
+    const options = {
+      context_window_size: 32768,
+      conv_config: { role_empty_sep: '\n<think>\n', stop_token_ids: [248044, 248046] },
+    }
     expect(reload.mock.calls).toEqual([
-      [id, { context_window_size: 32768 }],
-      [id, { context_window_size: 32768 }],
+      [id, options],
+      [id, options],
     ])
     expect(release).toHaveBeenCalledTimes(2)
     expect(logged.mock.calls).toEqual(cleanupFails ? [[cleanup]] : [])

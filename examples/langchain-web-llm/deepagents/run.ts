@@ -1,3 +1,4 @@
+import { sampling } from '../sampling.ts'
 import { chromium } from 'playwright'
 import { fileURLToPath } from 'node:url'
 import { createDeepAgent } from 'deepagents'
@@ -18,7 +19,8 @@ try {
   const model = new BrowserChatWebLLM(page, {
     modelId,
     profile: await page.evaluate(() => window.checks.model().profile),
-    request: { extra_body: { enable_thinking: true } },
+    thinkingPrefilled: true,
+    request: sampling(modelId, true),
   })
   const agent = createDeepAgent({ model })
   const result = await agent.invoke({

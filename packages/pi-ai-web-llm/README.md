@@ -49,7 +49,19 @@ try {
   try {
     const models = createModels()
     models.setProvider(
-      createWebLLMProvider({ engine, modelId, contextWindow, thinkingPrefilled: true }),
+      createWebLLMProvider({
+        engine,
+        modelId,
+        contextWindow,
+        thinkingPrefilled: true,
+        request: {
+          temperature: 1,
+          top_p: 0.95,
+          presence_penalty: 1.5,
+          repetition_penalty: 1,
+          extra_body: { enable_thinking: true },
+        },
+      }),
     )
     const model = models.getModel('webllm', modelId)!
     const stream = models.streamSimple(

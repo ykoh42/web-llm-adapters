@@ -34,10 +34,10 @@ test('Qwen preserves a caller stop inside thinking selected by onPayload', async
 
   expect(result.response.stopReason).toBe('stop')
   expect(result.finishes).toEqual(['stop'])
-  expect(result.native).toMatch(/^<think>/)
+  expect(result.native).not.toMatch(/^<think>/)
   expect(result.native).not.toContain('</think>')
   expect(reasoning).not.toBe('')
-  expect(reasoning).toBe(result.native.slice('<think>'.length))
+  expect(reasoning).toBe(result.native)
   expect(result.response.content.every((block) => block.type === 'thinking')).toBe(true)
 })
 

@@ -43,12 +43,15 @@ export async function breakToolStream({
   else await page.webllmBridge.withEngine(patch)
 }
 
-export function expectedOutput(native: string, modelId: string) {
+export function expectedOutput(native: string, modelId: string, prefilled = false) {
+  if (prefilled) native = '<think>' + native
   const thought = modelId.startsWith('gemma-')
     ? /<\|channel>thought\n([\s\S]*?)<channel\|>/g
     : /<think>([\s\S]*?)<\/think>/g
+  const text = native.replace(thought, '')
   return {
-    text: native.replace(thought, ''),
+    // Interrupted Qwen tool syntax is retained in raw chunks, not answer text.
+    text: modelId.startsWith('Qwen') ? text.split('<tool_call>')[0]! : text,
     reasoning: [...native.matchAll(thought)].map((part) => part[1]).join(''),
   }
 }

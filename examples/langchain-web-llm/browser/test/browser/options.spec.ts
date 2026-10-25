@@ -21,6 +21,7 @@ test('Qwen preserves a caller stop inside thinking', async ({ page }) => {
   }
   const model = new BrowserChatWebLLM(page, {
     modelId,
+    thinkingPrefilled: true,
     request,
     onChunk: (chunk) => chunks.push(chunk),
   })
@@ -32,10 +33,10 @@ test('Qwen preserves a caller stop inside thinking', async ({ page }) => {
     .join('')
 
   expect(native.finishes).toEqual(['stop'])
-  expect(native.text).toMatch(/^<think>/)
+  expect(native.text).not.toMatch(/^<think>/)
   expect(native.text).not.toContain('</think>')
   expect(reasoning).not.toBe('')
-  expect(reasoning).toBe(native.text.slice('<think>'.length))
+  expect(reasoning).toBe(native.text)
   expect(response.text).toBe('')
   expect(response.response_metadata.finish_reason).toBe('stop')
 })
@@ -71,6 +72,7 @@ for (const modelId of ['Qwen3.5-4B-q4f16_1-MLC', 'gemma-4-E2B-it-q4f16_1-MLC']) 
     }
     const model = new BrowserChatWebLLM(page, {
       modelId,
+      thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
       request,
       onChunk: (chunk) => chunks.push(chunk),
     })

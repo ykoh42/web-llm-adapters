@@ -19,7 +19,7 @@ pnpm --filter @web-llm-adapters/strands-harness start 'Say hello.'
 ```
 
 The CLI opens Chrome and caches model downloads. Gemma 4 E2B is the example default;
-use `--model <exact model_id>` to choose another [verified model](../../../packages/strands-web-llm/README.md#models).
+use `--model <exact model_id>` to choose another [verified model](../../../README.md#models).
 The demo includes Gemma's required runtime setup.
 
 | Option              | Purpose                                                                   |

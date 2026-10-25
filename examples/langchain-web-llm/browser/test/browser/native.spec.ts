@@ -14,6 +14,7 @@ for (const modelId of ['Hermes-3-Llama-3.1-8B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-
     await page.evaluate((id) => window.checks.load(id), modelId)
     const model = new BrowserChatWebLLM(page, {
       modelId,
+      thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
       request: {
         ...(modelId.startsWith('Qwen') ? sampling(modelId, true) : { temperature: 0 }),
         max_tokens: 4096,
@@ -126,6 +127,7 @@ test('Qwen empty argument names match direct WebLLM before tool validation', asy
   let adapted = ''
   const model = new BrowserChatWebLLM(page, {
     modelId,
+    thinkingPrefilled: true,
     request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
     onChunk: (chunk) => {
       const choice = chunk.choices[0]
@@ -366,6 +368,7 @@ for (const outcome of ['throw', 'cancel'] as const) {
     const hold = new Promise<void>((resolve) => (finish = resolve))
     const model = new BrowserChatWebLLM(page, {
       modelId,
+      thinkingPrefilled: true,
       maxRetries: 1,
       request: { ...sampling(modelId, false), max_tokens: 128, seed: 7 },
       onFailedAttempt: async () => {
@@ -452,6 +455,7 @@ test('Qwen3.5 0.8B: incomplete default-agent tool output also occurs without the
   const chunks: WebLLMChunk[] = []
   const model = new BrowserChatWebLLM(page, {
     modelId,
+    thinkingPrefilled: true,
     profile: await page.evaluate(() => window.checks.model().profile),
     request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
     onChunk: (chunk) => chunks.push(chunk),

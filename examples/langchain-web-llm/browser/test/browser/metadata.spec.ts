@@ -20,6 +20,7 @@ for (const { modelId, logprobs } of cases) {
     const native = new Map<string, { model: string; content: ChatCompletionTokenLogprob[] }>()
     const model = new BrowserChatWebLLM(page, {
       modelId,
+      thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
       request: {
         ...sampling(modelId, true),
         max_tokens: 4096,

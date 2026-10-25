@@ -32,6 +32,7 @@ test.beforeEach(async ({ page }) => {
 test('Qwen keeps a literal function closer inside a string argument', async ({ page }, info) => {
   const model = new BrowserChatWebLLM(page, {
     modelId,
+    thinkingPrefilled: true,
     request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
   })
   let response: AIMessageChunk<StandardMessageStructure> | undefined
@@ -94,6 +95,7 @@ test('an agent replays literal function tags after executing its tool', async ({
   )
   const model = new BrowserChatWebLLM(page, {
     modelId,
+    thinkingPrefilled: true,
     request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
   })
   const agent = createAgent({ model, tools: [save] })
@@ -162,6 +164,7 @@ test('an agent preserves every native JSON tool call containing XML parameter ta
   capture.raiseError = true
   const model = new BrowserChatWebLLM(page, {
     modelId,
+    thinkingPrefilled: true,
     request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
     onChunk: (chunk) => chunks.push(chunk),
     callbacks: [capture],
@@ -239,7 +242,7 @@ test('an agent preserves every native JSON tool call containing XML parameter ta
     expect(request.seed).toBe(7)
   }
   const last = response?.messages.at(-1)
-  const final = nativeMessages.at(-1)!
+  const final = '<think>' + nativeMessages.at(-1)!
   const thoughts = /<think>([\s\S]*?)<\/think>/g
   expect(last?.text).toBe(final.replace(thoughts, ''))
   expect(
