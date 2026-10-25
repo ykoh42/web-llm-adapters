@@ -24,7 +24,8 @@ export function formatContext(context: TranscriptContext, model: Model<Api>) {
   const tools = formatTools(getInitialSystemMessage(transcript.messages)?.toolsAdded ?? [])
   let toolImages: ChatCompletionContentPart[] = []
   const flushImages = () => {
-    if (toolImages.length) history.push({ role: 'user', content: toolImages })
+    if (!toolImages.length) return
+    history.push({ role: 'user', content: toolImages })
     toolImages = []
   }
   for (const message of transcript.messages) {

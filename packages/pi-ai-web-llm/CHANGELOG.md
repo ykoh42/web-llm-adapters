@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Avoid empty image-buffer allocations while converting text-only turns.
+
 ## 0.3.0 — 2026-10-25
 
 - Align example sampling and Qwen3.5 engine setup with the model cards.
