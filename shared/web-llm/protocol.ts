@@ -28,6 +28,10 @@ export type WebLLMChunk = ChatCompletionChunk | Completion
 
 type NativeRequest = ChatCompletionRequestStreaming | CompletionCreateParamsStreaming
 
+async function keepRequest<T extends NativeRequest>(request: T): Promise<T> {
+  return request
+}
+
 export interface ProtocolInput {
   prepare?: <T extends NativeRequest>(request: T) => Promise<T>
   open?: <T>(run: () => Promise<AsyncIterable<T>>) => Promise<AsyncIterable<T>>
@@ -45,7 +49,7 @@ export interface ProtocolInput {
 export function protocolStream({
   engine,
   open = (run) => run(),
-  prepare = async (request) => request,
+  prepare = keepRequest,
   modelId,
   thinkingPrefilled = false,
   history,
@@ -129,7 +133,8 @@ export function protocolStream({
         parseProtocol =
           isTextFormat(prepared.response_format) ||
           (toolResponseFormat !== undefined &&
-            JSON.stringify(prepared.response_format) === JSON.stringify(toolResponseFormat))
+            (prepare === keepRequest ||
+              JSON.stringify(prepared.response_format) === JSON.stringify(toolResponseFormat)))
         thinkingDisabled = prepared.extra_body?.enable_thinking === false
         prefilled = thinkingPrefilled && !thinkingDisabled
         stopRequested = Boolean(prepared.stop?.length)
