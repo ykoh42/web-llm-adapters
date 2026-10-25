@@ -89,7 +89,7 @@ const chatOpts: ChatOptions = {
 
 Set `thinkingPrefilled: true` on your adapter. This restores Qwen3.5's [official thinking prefix and stop tokens](https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/tokenizer_config.json); the shipped stop IDs can cut off ordinary Korean or Thai words. Per-call `request.extra_body.enable_thinking: false` still works.
 
-Native JSON/grammar with thinking off still includes WebLLM's empty thinking prefix. These options do not change that output.
+For Qwen JSON/grammar with thinking off, the adapters remove WebLLM's fixed empty thinking prefix. The generated body and raw `onChunk` data stay unchanged.
 
 ## Development
 

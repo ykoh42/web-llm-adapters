@@ -12,6 +12,7 @@ import { QwenOutput } from './output.js'
 
 const thinkStart = '<think>'
 const thinkEnd = '</think>'
+const emptyThinking = '<think>\n\n</think>\n\n'
 const callStart = '<tool_call>'
 const callEnd = '</tool_call>'
 
@@ -34,12 +35,14 @@ export async function* qwenFrames(
     parseProtocol = true,
     parseThinking = true,
     thinkingPrefilled = false,
+    thinkingDisabled = false,
     parseTools,
     stopRequested = false,
   }: ChunkOptions<ChatCompletionChunk> & {
     parseProtocol?: boolean
     parseThinking?: boolean
     thinkingPrefilled?: boolean
+    thinkingDisabled?: boolean
     parseTools: boolean
     stopRequested?: boolean
   },
@@ -49,6 +52,7 @@ export async function* qwenFrames(
   if (parseTools) textMarkers.push(callStart)
   let mode: 'text' | 'thinking' | 'tool' =
     parseProtocol && parseThinking && thinkingPrefilled ? 'thinking' : 'text'
+  let readingPrefix = !parseProtocol && thinkingDisabled
   let pending = ''
   let toolText = ''
   const output = new QwenOutput()
@@ -63,7 +67,15 @@ export async function* qwenFrames(
       pending += choice?.delta.content ?? ''
       const calls: ToolDelta[] = []
 
-      while (pending) {
+      // WebLLM echoes this fixed block even when the decoder constrains the answer.
+      if (readingPrefix) {
+        if (pending.startsWith(emptyThinking)) {
+          pending = pending.slice(emptyThinking.length)
+          readingPrefix = false
+        } else if (!emptyThinking.startsWith(pending)) readingPrefix = false
+      }
+
+      while (pending && !readingPrefix) {
         if (mode === 'tool') {
           const end = textEnd(pending, reader.markers ?? [callEnd])
           const at = reader.end(pending, end)
@@ -123,6 +135,7 @@ export async function* qwenFrames(
       if (failure) throw failure.error
       const stop = stopReason(choice?.finish_reason)
       if (stop) {
+        readingPrefix = false
         if (mode === 'tool') {
           if (stop !== 'maxTokens' && stop !== 'cancelled') {
             if (reader.unclosedError) throw new ModelError(reader.unclosedError)

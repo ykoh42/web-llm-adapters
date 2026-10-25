@@ -29,6 +29,7 @@ export function qwenStream(
         parseChunks(chunks, options.toolSpecs ?? [], {
           onChunk,
           parseProtocol: !hasStructuredResponse(config),
+          thinkingDisabled: request.extra_body?.enable_thinking === false,
           thinkingPrefilled:
             config.thinkingPrefilled === true && request.extra_body?.enable_thinking !== false,
           ...(!xml && { parseThinking: config.modelId.startsWith('Qwen3-') }),

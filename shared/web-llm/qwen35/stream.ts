@@ -13,6 +13,7 @@ export function qwen35Chunks(
   options: ChunkOptions<ChatCompletionChunk> & {
     parseProtocol?: boolean
     thinkingPrefilled?: boolean
+    thinkingDisabled?: boolean
     stopRequested?: boolean
   } = {},
 ) {

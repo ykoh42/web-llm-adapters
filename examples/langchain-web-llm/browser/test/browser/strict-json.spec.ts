@@ -1,3 +1,4 @@
+import { modelCheck } from '../../../../../scripts/release/support.js'
 import { writeFile } from 'node:fs/promises'
 import type { ChatCompletionRequestStreaming } from '@mlc-ai/web-llm'
 import { BrowserChatWebLLM } from 'langchain-web-llm'
@@ -108,3 +109,30 @@ test('strict JSON uses native schema constraints in local and browser models', a
     expect(result.finish).toBe('stop')
   }
 })
+
+test(
+  'structured JSON parses with thinking off and preserves literal tags',
+  modelCheck('Qwen3.5-4B-q4f16_1-MLC'),
+  async ({ page }) => {
+    const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
+    await page.evaluate((id) => window.checks.load(id), modelId)
+    const text = '<think>literal</think>'
+    const model = new BrowserChatWebLLM(page, {
+      modelId,
+      request: { max_tokens: 4096, extra_body: { enable_thinking: false } },
+    })
+    const result = await model
+      .withStructuredOutput<{ text: string }>(
+        {
+          type: 'object',
+          properties: { text: { const: text } },
+          required: ['text'],
+          additionalProperties: false,
+        },
+        { method: 'jsonSchema', strict: true, includeRaw: true },
+      )
+      .invoke('Return the requested JSON.')
+    expect(result.parsed).toEqual({ text })
+    expect(JSON.parse(result.raw.text)).toEqual(result.parsed)
+  },
+)

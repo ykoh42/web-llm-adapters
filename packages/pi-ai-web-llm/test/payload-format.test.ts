@@ -72,6 +72,28 @@ describe('Pi payload format changes', () => {
   })
 
   it.each([
+    { initial: true, selected: false, expected: '{"answer":42}' },
+    { initial: false, selected: true, expected: '<think>\n\n</think>\n\n{"answer":42}' },
+  ])('uses onPayload thinking $selected when separating a structured prefix', async (test) => {
+    const output = '<think>\n\n</think>\n\n{"answer":42}'
+    const { models, model, create } = setup([chunk({ content: output }, 'stop')], {
+      modelId: 'Qwen3.5-4B-q4f16_1-MLC',
+      request: { response_format: json, extra_body: { enable_thinking: test.initial } },
+    })
+    const response = await models.complete(model, context, {
+      onPayload: (payload) => {
+        if (!payload || typeof payload !== 'object') throw new Error('Expected a native request.')
+        return { ...payload, extra_body: { enable_thinking: test.selected } }
+      },
+    })
+    expect(create.mock.calls[0]?.[0].extra_body?.enable_thinking).toBe(test.selected)
+    expect(response).toMatchObject({
+      stopReason: 'stop',
+      content: [{ type: 'text', text: test.expected }],
+    })
+  })
+
+  it.each([
     { initial: [], selected: ['END'], stopReason: 'stop' },
     { initial: ['END'], selected: [], stopReason: 'error' },
   ])('uses Gemma stop strings selected by onPayload: $initial to $selected', async (test) => {

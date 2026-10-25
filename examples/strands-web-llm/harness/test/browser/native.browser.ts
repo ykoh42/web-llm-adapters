@@ -449,3 +449,47 @@ test('Strands bare JSON mode preserves nested objects and root arrays', async ({
     await page.evaluate(() => window.harness.close())
   }
 })
+
+test(
+  'Qwen structured output excludes the native thinking-off prefix',
+  modelCheck('Qwen3.5-4B-q4f16_1-MLC'),
+  async ({ page }) => {
+    const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
+    await page.goto('http://127.0.0.1:4173/harness.html')
+    await page.evaluate((id) => window.harness.open(id), modelId)
+    try {
+      const expected = { text: '<think>literal</think>' }
+      const native: WebLLMChunk[] = []
+      const model = new BrowserModel(page, {
+        modelId,
+        maxTokens: 4096,
+        request: {
+          extra_body: { enable_thinking: false },
+          response_format: {
+            type: 'json_object',
+            schema: JSON.stringify({
+              type: 'object',
+              properties: { text: { const: expected.text } },
+              required: ['text'],
+              additionalProperties: false,
+            }),
+          },
+        },
+        onChunk: (chunk) => native.push(chunk),
+      })
+      const result = await new Agent({ model, printer: false }).invoke('Return the requested JSON.')
+      const text = String(result)
+      const raw = native
+        .map((chunk) => {
+          const choice = chunk.choices[0]
+          return choice && 'delta' in choice ? (choice.delta.content ?? '') : ''
+        })
+        .join('')
+      const prefix = '<think>\n\n</think>\n\n'
+      expect(text).toBe(raw.startsWith(prefix) ? raw.slice(prefix.length) : raw)
+      expect(JSON.parse(text)).toEqual(expected)
+    } finally {
+      await page.evaluate(() => window.harness.close())
+    }
+  },
+)

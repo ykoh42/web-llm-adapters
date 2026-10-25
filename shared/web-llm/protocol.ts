@@ -115,7 +115,8 @@ export function protocolStream({
       xml,
     )
     let parseProtocol = !structured || Boolean(toolResponseFormat)
-    let prefilled = thinkingPrefilled && request.extra_body?.enable_thinking !== false
+    let thinkingDisabled = request.extra_body?.enable_thinking === false
+    let prefilled = thinkingPrefilled && !thinkingDisabled
     let stopRequested = Boolean(request.stop?.length)
     return stream(
       async () => {
@@ -129,7 +130,8 @@ export function protocolStream({
           isTextFormat(prepared.response_format) ||
           (toolResponseFormat !== undefined &&
             JSON.stringify(prepared.response_format) === JSON.stringify(toolResponseFormat))
-        prefilled = thinkingPrefilled && prepared.extra_body?.enable_thinking !== false
+        thinkingDisabled = prepared.extra_body?.enable_thinking === false
+        prefilled = thinkingPrefilled && !thinkingDisabled
         stopRequested = Boolean(prepared.stop?.length)
         if (tools.length && !parseProtocol)
           throw new Error('Qwen tool calls cannot use a structured response format.')
@@ -141,6 +143,7 @@ export function protocolStream({
               onChunk,
               parseProtocol,
               thinkingPrefilled: prefilled,
+              thinkingDisabled,
               stopRequested,
               signal,
             })
@@ -149,6 +152,7 @@ export function protocolStream({
               parseProtocol,
               parseThinking: modelId.startsWith('Qwen3-'),
               thinkingPrefilled: prefilled,
+              thinkingDisabled,
               stopRequested,
               signal,
             }),
