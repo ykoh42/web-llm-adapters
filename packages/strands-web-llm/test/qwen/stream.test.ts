@@ -93,18 +93,21 @@ it('parses a complete tool call when the model omits the closing tag', async () 
 it.each([
   ['length', 'maxTokens'],
   ['abort', 'cancelled'],
-] as const)('returns an incomplete tool call as text on %s', async (finishReason, stop) => {
-  const raw = '<tool_call>{"name":"lookup","arguments":{"city":"Se'
-  const output = await collect(
-    qwenChunks(chunks(chunk({ content: raw }, finishReason)), [
-      { name: 'lookup', description: 'Look up a city.' },
-    ]),
-  )
+] as const)(
+  'returns an incomplete tool call without exposing it as text on %s',
+  async (finishReason, stop) => {
+    const raw = '<tool_call>{"name":"lookup","arguments":{"city":"Se'
+    const output = await collect(
+      qwenChunks(chunks(chunk({ content: raw }, finishReason)), [
+        { name: 'lookup', description: 'Look up a city.' },
+      ]),
+    )
 
-  expect(output.map((part) => part.text).join('')).toBe(raw)
-  expect(output.flatMap((part) => part.calls)).toEqual([])
-  expect(output.at(-1)?.stop).toBe(stop)
-})
+    expect(output.map((part) => part.text).join('')).toBe('')
+    expect(output.flatMap((part) => part.calls)).toEqual([])
+    expect(output.at(-1)?.stop).toBe(stop)
+  },
+)
 
 it.each([1, 7, 128])('returns earlier complete calls across %i-character chunks', async (size) => {
   const complete = '<tool_call>{"name":"lookup","arguments":{"city":"Seoul"}}</tool_call>'
@@ -122,7 +125,7 @@ it.each([1, 7, 128])('returns earlier complete calls across %i-character chunks'
     ),
   )
 
-  expect(output.map((part) => part.text).join('')).toBe(raw)
+  expect(output.map((part) => part.text).join('')).toBe('')
   expect(output.flatMap((part) => part.calls)).toHaveLength(1)
   expect(output.at(-1)?.stop).toBe('maxTokens')
 })

@@ -117,7 +117,7 @@ for (const client of ['strands', 'langchain']) {
           expect(received).toEqual([
             { type: 'text', value: 'Before<' },
             { type: 'reasoning', value: 'Plan.' },
-            { type: 'text', value: toolText },
+            ...(modelId.startsWith('gemma-') ? [{ type: 'text', value: toolText }] : []),
           ])
           if (client === 'strands') {
             expect(await collect(strands.stream(messages))).toContainEqual({
@@ -166,7 +166,11 @@ for (const client of ['strands', 'langchain']) {
             .mockImplementation(async () => source([raw('Recovered', 'stop')]))
             .mockResolvedValueOnce(delayed(first, raw(call, 'stop')))
         } else {
-          const first = chunk({ content: phase === 'buffered' ? call : thought })
+          const closedCall = modelId.startsWith('Qwen3.5-')
+            ? `${call}</parameter></function></tool_call>`
+            : `${call}"}}</tool_call>`
+          const buffered = modelId.startsWith('Qwen') ? `${closedCall}Visible${call}` : call
+          const first = chunk({ content: phase === 'buffered' ? buffered : thought })
           if (phase === 'callback') first.choices[0]!.index = 1
           create.mockResolvedValueOnce(delayed(first, chunk({ content: call }, 'stop')))
         }

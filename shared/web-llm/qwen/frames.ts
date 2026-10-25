@@ -76,11 +76,18 @@ export async function* qwenFrames(
           toolText += pending.slice(0, at)
           output.add('tool', pending.slice(0, at) + callEnd)
           pending = pending.slice(at + callEnd.length)
-          const parsed = reader.parse(toolText, callIndex)
-          calls.push(...parsed)
-          callIndex += parsed.length
-          toolText = ''
           mode = 'text'
+          if (!failure) {
+            try {
+              const parsed = reader.parse(toolText, callIndex)
+              calls.push(...parsed)
+              callIndex += parsed.length
+            } catch (error) {
+              // Keep framing the received tail without publishing any failed call.
+              failure = { error }
+            }
+          }
+          toolText = ''
           continue
         }
 
@@ -113,6 +120,7 @@ export async function* qwenFrames(
         break
       }
 
+      if (failure) throw failure.error
       const stop = stopReason(choice?.finish_reason)
       if (stop) {
         if (mode === 'tool') {
@@ -146,10 +154,10 @@ export async function* qwenFrames(
         yield { text: '', reasoning: '', calls, stop, usage: chunk.usage }
     }
   } catch (error) {
-    failure = { error }
+    failure ??= { error }
   }
   if (signal?.aborted) return
-  output.add(mode === 'thinking' ? 'reasoning' : 'text', pending)
+  output.add(mode === 'thinking' ? 'reasoning' : mode, pending)
   yield* output.read('incomplete')
   if (failure && !signal?.aborted) throw failure.error
 }

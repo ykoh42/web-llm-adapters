@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Preserve empty Qwen3.5 thinking boundaries in current tool history.
+- Keep malformed or interrupted Qwen tool syntax out of answer text; retain raw output through `onChunk`.
 - Accept Qwen3.5 boolean spellings handled by its recommended parser.
 - Add opt-in Qwen tool-call constraints with thinking and Qwen3.5 XML support through WebLLM 0.2.86.
 

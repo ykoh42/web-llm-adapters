@@ -659,15 +659,18 @@ it('rejects an unclosed Qwen3.5 parameter instead of dropping it', async () => {
 it.each([
   ['length', 'maxTokens'],
   ['abort', 'cancelled'],
-] as const)('returns a truncated tool call as text on %s', async (finishReason, stop) => {
-  const raw = '<tool_call><function=lookup><parameter=city>Seoul'
-  const tools: ToolSpec[] = [{ name: 'lookup', description: 'Look up a city.' }]
-  const output = await collect(qwen35Chunks(chunks(chunk({ content: raw }, finishReason)), tools))
+] as const)(
+  'returns a truncated tool call without exposing it as text on %s',
+  async (finishReason, stop) => {
+    const raw = '<tool_call><function=lookup><parameter=city>Seoul'
+    const tools: ToolSpec[] = [{ name: 'lookup', description: 'Look up a city.' }]
+    const output = await collect(qwen35Chunks(chunks(chunk({ content: raw }, finishReason)), tools))
 
-  expect(output.map((part) => part.text).join('')).toBe(raw)
-  expect(output.at(-1)?.stop).toBe(stop)
-  expect(output.flatMap((item) => item.calls)).toEqual([])
-})
+    expect(output.map((part) => part.text).join('')).toBe('')
+    expect(output.at(-1)?.stop).toBe(stop)
+    expect(output.flatMap((item) => item.calls)).toEqual([])
+  },
+)
 
 it.each([1, 7, 128])('returns earlier complete calls across %i-character chunks', async (size) => {
   const complete =
@@ -686,7 +689,7 @@ it.each([1, 7, 128])('returns earlier complete calls across %i-character chunks'
     ),
   )
 
-  expect(output.map((part) => part.text).join('')).toBe(raw)
+  expect(output.map((part) => part.text).join('')).toBe('')
   expect(output.flatMap((part) => part.calls)).toHaveLength(1)
   expect(output.at(-1)?.stop).toBe('maxTokens')
 })

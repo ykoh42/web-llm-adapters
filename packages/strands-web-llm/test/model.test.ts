@@ -522,7 +522,7 @@ describe('WebLLMModel', () => {
       '<tool_call><function=lookup><parameter=city>Tokyo',
     ],
   ])(
-    'preserves all tool output if %s reaches the token limit',
+    'does not expose tool syntax if %s reaches the token limit',
     async (modelId, complete, partial) => {
       const raw = complete + partial
       const { model } = setup(chunk({ content: raw }, 'length'))
@@ -539,7 +539,7 @@ describe('WebLLMModel', () => {
         )
         .join('')
 
-      expect(text).toBe(raw)
+      expect(text).toBe('')
       expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'maxTokens' })
       expect(
         events.some(

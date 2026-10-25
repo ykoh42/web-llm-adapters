@@ -303,7 +303,7 @@ it('preserves the token limit when a tool call is truncated', async () => {
   )
 
   expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'maxTokens' })
-  expect(events).toContainEqual({
+  expect(events).not.toContainEqual({
     type: 'modelContentBlockDeltaEvent',
     delta: { type: 'textDelta', text: '<tool_call>{"name":"lookup","arguments":{"city":"Se' },
   })
@@ -329,7 +329,7 @@ it('preserves cancellation when a tool call is interrupted', async () => {
   )
 
   expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'cancelled' })
-  expect(events).toContainEqual({
+  expect(events).not.toContainEqual({
     type: 'modelContentBlockDeltaEvent',
     delta: { type: 'textDelta', text: '<tool_call>{"name":"lookup","arguments":{"city":"Se' },
   })

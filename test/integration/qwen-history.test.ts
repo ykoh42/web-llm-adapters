@@ -24,3 +24,11 @@ it('keeps the separate whitespace and tool separators used by Qwen XML', () => {
     '<think>\nPlan\n</think>\n\nAnswer\n\nFirst\nSecond',
   )
 })
+
+it.each(['', '\n\n'])('keeps the current-turn Qwen XML thinking boundary for %j', (thought) => {
+  expect(formatQwenAssistant('', thought, ['Call'], true)).toBe('<think>\n\n</think>\n\nCall')
+})
+
+it('omits the thinking boundary for earlier Qwen XML turns', () => {
+  expect(formatQwenAssistant('Old answer', undefined, ['Call'], true)).toBe('Old answer\n\nCall')
+})

@@ -136,7 +136,7 @@ it('drops thoughts from an older Qwen3.5 turn', () => {
   expect(request.messages[1]?.content).toBe('Old answer.')
 })
 
-it('does not add an empty thinking block to a Qwen3.5 answer', () => {
+it('keeps the required empty thinking block in the current Qwen3.5 turn', () => {
   const request = qwen35Request(
     { modelId: 'Qwen3.5-4B-q4f16_1-MLC' },
     [
@@ -146,7 +146,7 @@ it('does not add an empty thinking block to a Qwen3.5 answer', () => {
     {},
   )
 
-  expect(request.messages.at(-1)?.content).toBe('Plain answer.')
+  expect(request.messages.at(-1)?.content).toBe('<think>\n\n</think>\n\nPlain answer.')
 })
 
 it('rejects tool signatures that Qwen3.5 cannot preserve', () => {

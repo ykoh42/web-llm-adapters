@@ -166,7 +166,7 @@ it('preserves cancellation when a tool call is interrupted', async () => {
   )
 
   expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'cancelled' })
-  expect(events).toContainEqual({
+  expect(events).not.toContainEqual({
     type: 'modelContentBlockDeltaEvent',
     delta: { type: 'textDelta', text: '<tool_call><function=lookup><parameter=city>Seoul' },
   })
@@ -178,7 +178,7 @@ it('preserves cancellation when a tool call is interrupted', async () => {
   ).toBe(false)
 })
 
-it('returns a truncated tool call as text without running it', async () => {
+it('does not expose or run a truncated tool call', async () => {
   const { model, create } = setup()
   const raw = '<tool_call><function=lookup><parameter=city>Seoul'
   model.updateConfig({ modelId: 'Qwen3.5-4B-q4f16_1-MLC' })
@@ -191,7 +191,7 @@ it('returns a truncated tool call as text without running it', async () => {
   )
 
   expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'maxTokens' })
-  expect(events).toContainEqual({
+  expect(events).not.toContainEqual({
     type: 'modelContentBlockDeltaEvent',
     delta: { type: 'textDelta', text: raw },
   })

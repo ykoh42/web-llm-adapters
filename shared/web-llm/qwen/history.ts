@@ -33,7 +33,8 @@ export function qwenHistory(
       previousWasTool = appendQwenTurns(output, [message], previousWasTool)
       continue
     }
-    const thought = !modelId.startsWith('Qwen2.5-') && index > last ? (message.reasoning ?? '') : ''
+    const thought =
+      !modelId.startsWith('Qwen2.5-') && index > last ? (message.reasoning ?? '') : undefined
     const calls = (message.tool_calls ?? []).map((call) => {
       const input: unknown = JSON.parse(call.function.arguments)
       return (xml ? qwen35 : qwen).formatCall(call.function.name, input)
@@ -51,14 +52,15 @@ export function qwenHistory(
 /** Replay thinking with the separators used by Qwen's chat templates. */
 export function formatQwenAssistant(
   text: string,
-  thought: string,
+  thought: string | undefined,
   calls: readonly string[],
   xml = false,
 ) {
-  const reasoning = xml ? thought.trim() : trimNewlines(thought)
+  const reasoning = xml ? (thought ?? '').trim() : trimNewlines(thought ?? '')
   let answer = text
   if (reasoning) answer = xml ? text.trim() : text.replace(/^\n+/, '')
-  const prefix = reasoning ? `<think>\n${reasoning}\n</think>\n\n` : ''
+  const prefix =
+    reasoning || (xml && thought !== undefined) ? `<think>\n${reasoning}\n</think>\n\n` : ''
   const separator = xml ? '\n\n' : '\n'
   const gap = answer && calls.length ? separator : ''
   return prefix + answer + gap + calls.join('\n')

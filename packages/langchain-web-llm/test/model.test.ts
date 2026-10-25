@@ -843,17 +843,17 @@ describe('LangChain model', () => {
   it.each([
     ['Qwen2.5-3B-Instruct-q4f16_1-MLC', '<tool_call>{"name":"lookup","arguments":{"code":"A'],
     ['Qwen3.5-0.8B-q4f16_1-MLC', '<tool_call><function=lookup><parameter=code>A'],
-  ])('returns a truncated %s tool call as text without running it', async (modelId, raw) => {
+  ])('does not expose or run a truncated %s tool call', async (modelId, raw) => {
     const { engine } = setup(chunk({ content: raw }, 'length'))
     const model = new ChatWebLLM({ engine, modelId })
     const result = await model.bindTools([lookup]).invoke('Look up code A7.')
 
-    expect(result.text).toBe(raw)
+    expect(result.text).toBe('')
     expect(result.tool_calls).toEqual([])
     expect(result.response_metadata.finish_reason).toBe('length')
   })
 
-  it('preserves an earlier complete Qwen tool call if a later call is truncated', async () => {
+  it('does not expose earlier Qwen calls if a later call is truncated', async () => {
     const complete =
       '<tool_call><function=lookup><parameter=code>A7</parameter></function></tool_call>'
     const partial = '<tool_call><function=lookup><parameter=code>A8'
@@ -861,7 +861,7 @@ describe('LangChain model', () => {
     const model = new ChatWebLLM({ engine, modelId: qwen })
     const result = await model.bindTools([lookup]).invoke('Look up codes A7 and A8.')
 
-    expect(result.text).toBe(complete + partial)
+    expect(result.text).toBe('')
     expect(result.tool_calls).toEqual([])
     expect(result.response_metadata.finish_reason).toBe('length')
   })
@@ -869,18 +869,21 @@ describe('LangChain model', () => {
   it.each([
     ['Qwen2.5-3B-Instruct-q4f16_1-MLC', '<tool_call>{"name":"lookup","arguments":{"code":"A'],
     ['Qwen3.5-0.8B-q4f16_1-MLC', '<tool_call><function=lookup><parameter=code>A'],
-  ])('streams partial %s output before reporting cancellation', async (modelId, raw) => {
-    const { engine } = setup(chunk({ content: raw }, 'abort'))
-    const model = new ChatWebLLM({ engine, modelId })
-    const output: string[] = []
+  ])(
+    'does not expose partial %s tool syntax before reporting cancellation',
+    async (modelId, raw) => {
+      const { engine } = setup(chunk({ content: raw }, 'abort'))
+      const model = new ChatWebLLM({ engine, modelId })
+      const output: string[] = []
 
-    await expect(async () => {
-      const stream = await model.bindTools([lookup]).stream('Look up code A7.')
-      for await (const message of stream) output.push(message.text)
-    }).rejects.toThrow('cancelled generation')
+      await expect(async () => {
+        const stream = await model.bindTools([lookup]).stream('Look up code A7.')
+        for await (const message of stream) output.push(message.text)
+      }).rejects.toThrow('cancelled generation')
 
-    expect(output.join('')).toBe(raw)
-  })
+      expect(output.join('')).toBe('')
+    },
+  )
 
   it('keeps tool_choice none and rejects unsupported required choices', async () => {
     const { model, create, engine } = setup(chunk({ content: 'Answer' }, 'stop'))

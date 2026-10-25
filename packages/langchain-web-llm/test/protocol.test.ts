@@ -166,7 +166,7 @@ describe('model protocols', () => {
           expect(result.contentBlocks.filter((block) => block.type !== 'tool_call')).toEqual([
             expect.objectContaining({
               type: 'text',
-              text: (finish === 'length' ? call : '') + 'After',
+              text: 'After',
             }),
             expect.objectContaining({ type: 'reasoning', reasoning: 'Later' }),
             expect.objectContaining({ type: 'text', text: 'End' }),

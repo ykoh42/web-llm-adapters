@@ -54,7 +54,7 @@ export function qwenHistory(
     const thought =
       format.keepThoughts && index > lastQuery
         ? thoughts.map((block) => block.text ?? '').join('')
-        : ''
+        : undefined
     output.push({
       role: 'assistant',
       content: formatQwenAssistant(text, thought, calls, format.xml),

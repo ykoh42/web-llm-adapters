@@ -204,7 +204,7 @@ describe.each([
     invalid: xmlCall.replace('<function=lookup>', '<function=missing>'),
     parse: (parts: string[]) => qwen35Chunks(chat(parts, 'stop'), tools),
   },
-])('$name invalid second tool call', ({ thought, call, invalid, parse }) => {
+])('$name invalid second tool call', ({ name, thought, call, invalid, parse }) => {
   it.each(['Strands', 'LangChain', 'Pi'] as const)(
     'keeps received output without publishing tools through %s',
     async (framework) => {
@@ -212,13 +212,43 @@ describe.each([
       for (const parts of partitions(source)) {
         const result = await read(framework, parse(parts))
         expect(result, `chunk lengths: ${parts.map((part) => part.length).join(',')}`).toEqual({
-          text: `BeforeAnswer${call}${invalid}`,
+          text: name === 'Gemma' ? `BeforeAnswer${call}${invalid}` : 'BeforeAnswer',
           reasoning: 'Plan 서울 😀',
           calls: [],
           stop: framework === 'Pi' ? 'error' : undefined,
           error: expect.objectContaining({ message: expect.stringMatching(/unknown.*tool/i) }),
         })
       }
+    },
+  )
+})
+
+describe.each([
+  {
+    name: 'Qwen JSON',
+    call: jsonCall,
+    invalid: jsonCall.replace('"name":"lookup"', '"name":"missing"'),
+    parse: qwenChunks,
+  },
+  {
+    name: 'Qwen XML',
+    call: xmlCall,
+    invalid: xmlCall.replace('<function=lookup>', '<function=missing>'),
+    parse: qwen35Chunks,
+  },
+])('$name failed tool frame', ({ call, invalid, parse }) => {
+  it.each(['Strands', 'LangChain', 'Pi'] as const)(
+    'keeps the already-received text and thinking through %s',
+    async (framework) => {
+      const source = `Before${invalid}After<think>Later</think>End${call}Final`
+      const result = await read(framework, parse(chat([source], 'stop'), tools))
+      expect(result).toEqual({
+        text: 'BeforeAfterEndFinal',
+        reasoning: 'Later',
+        calls: [],
+        stop: framework === 'Pi' ? 'error' : undefined,
+        error: expect.objectContaining({ message: expect.stringMatching(/unknown.*tool/i) }),
+      })
     },
   )
 })
