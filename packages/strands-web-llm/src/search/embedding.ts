@@ -173,12 +173,15 @@ export class WebLLMEmbeddingSearchStrategy implements SearchStrategy {
         if (!activeKeys.has(key)) this.#remove(index, key)
       }
 
+      const scores =
+        index.byContent.size < documents.length ? new Map<IndexedText, number>() : undefined
       return documents
-        .map(({ key, data }) => ({
-          key,
-          ...(data && { data }),
-          score: cosine(queryVector, querySumSquares, cached.get(key)!),
-        }))
+        .map(({ key, data }) => {
+          const document = cached.get(key)!
+          const score = scores?.get(document) ?? cosine(queryVector, querySumSquares, document)
+          scores?.set(document, score)
+          return { key, ...(data && { data }), score }
+        })
         .filter(({ score }) => (this.#minScore === undefined ? score > 0 : score >= this.#minScore))
         .sort((left, right) => right.score - left.score)
     })

@@ -5,6 +5,46 @@ import { WebLLMEmbeddingSearchStrategy, type EmbedTexts } from '../../src/index.
 const encoder = new TextEncoder()
 
 describe('WebLLMEmbeddingSearchStrategy', () => {
+  it.each([false, true])(
+    'keeps duplicate scores and tie order across different queries (data=%s)',
+    async (includeData) => {
+      const vectors = new Map([
+        ['cloud', [1, 0]],
+        ['bread', [0, 1]],
+        ['zero', [0, 0]],
+        ['opposite', [-1, 0]],
+      ])
+      const strategy = new WebLLMEmbeddingSearchStrategy({
+        embed: async (texts) => texts.map((text) => vectors.get(text)!),
+        includeData,
+        minScore: -1,
+      })
+      const storage = new InMemoryStorage({ searchStrategy: strategy })
+      const documents = new Map([
+        ['a', 'cloud'],
+        ['b', 'bread'],
+        ['c', 'cloud'],
+        ['d', 'cloud'],
+      ])
+      for (const [key, text] of documents) await storage.write(key, encoder.encode(text))
+
+      for (const [query, order, scores] of [
+        ['cloud', ['a', 'c', 'd', 'b'], [1, 1, 1, 0]],
+        ['bread', ['b', 'a', 'c', 'd'], [1, 0, 0, 0]],
+        ['zero', ['a', 'b', 'c', 'd'], [0, 0, 0, 0]],
+        ['opposite', ['b', 'a', 'c', 'd'], [0, -1, -1, -1]],
+      ] as const) {
+        expect(await storage.search(query)).toEqual(
+          order.map((key, index) => ({
+            key,
+            score: scores[index],
+            ...(includeData && { data: encoder.encode(documents.get(key)!) }),
+          })),
+        )
+      }
+    },
+  )
+
   it('reuses vectors for duplicate text until its last key is removed', async () => {
     const embed = vi.fn<EmbedTexts>(async (texts, type) =>
       texts.map((text) => (type === 'query' || text === 'shared' ? [1, 0] : [0, 1])),
