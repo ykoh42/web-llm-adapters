@@ -61,6 +61,7 @@ it('runs a Qwen3.5 XML tool through Strands and continues from its result', asyn
   expect(create).toHaveBeenCalledTimes(2)
   const firstRequest = create.mock.calls[0]![0]
   expect(firstRequest).not.toHaveProperty('tools')
+  expect(firstRequest).not.toHaveProperty('response_format')
   expect(firstRequest.messages[0]).toMatchObject({ role: 'system' })
   expect(firstRequest.messages[0]?.content).toContain('"name": "lookup"')
   const nextMessages = create.mock.calls[1]![0].messages

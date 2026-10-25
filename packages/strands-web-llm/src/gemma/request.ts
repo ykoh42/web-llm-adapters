@@ -12,6 +12,7 @@ import { generationOptions } from '../request.js'
 import { toolPrompt } from './prompt.js'
 import { preserveThinking } from '../../../../shared/web-llm/request.js'
 import { singleToolChoice } from '../../../../shared/web-llm/stream/choice.js'
+import { qwenToolResponseFormat } from '../../../../shared/web-llm/qwen/constraints.js'
 
 export function isGemma(modelId: string) {
   return /^gemma-4-/i.test(modelId)
@@ -50,6 +51,7 @@ export function gemmaRequest(
   const thinking = extra_body?.enable_thinking === true
   const preserve = preserveThinking(config.modelId, config.request ?? {})
   const tools = options.toolSpecs ?? []
+  qwenToolResponseFormat(config.modelId, config.request ?? {}, tools, options.toolChoice)
   let prefix = toolPrefix(tools, options.toolChoice)
   const prompt = toolPrompt(messages, tools, options, thinking, preserve)
   if (thinking && !prefix && prompt.endsWith('<tool_response|>')) prefix = '<|channel>thought\n'

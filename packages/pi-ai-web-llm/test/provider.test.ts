@@ -496,6 +496,24 @@ describe('Pi AI WebLLM provider', () => {
     },
   )
 
+  it('constrains verified Qwen tool arguments on request and allows disabling it per call', async () => {
+    const output = '<tool_call>{"name":"lookup","arguments":{"code":"A7"}}</tool_call>'
+    const { models, model, create } = setup([chunk({ content: output }, 'stop')], {
+      modelId: 'Qwen3-4B-q4f16_1-MLC',
+    })
+
+    const result = await models.complete(model, tools, { request: { constrainedToolCalls: true } })
+    await models.complete(model, tools, { request: { constrainedToolCalls: false } })
+
+    expect(result.stopReason).toBe('toolUse')
+    expect(result.content).toContainEqual(
+      expect.objectContaining({ type: 'toolCall', name: 'lookup', arguments: { code: 'A7' } }),
+    )
+    expect(create.mock.calls[0]?.[0].response_format?.type).toBe('structural_tag')
+    expect(create.mock.calls[1]?.[0]).not.toHaveProperty('response_format')
+    expect(create.mock.calls[1]?.[0]).not.toHaveProperty('constrainedToolCalls')
+  })
+
   it.each(['{', '[]', '{"code":1e999}', 'null'])(
     'does not publish executable tool calls for invalid arguments %s',
     async (args) => {

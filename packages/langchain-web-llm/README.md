@@ -102,6 +102,7 @@ Keep text blocks together in media messages. Browser transport carries PCM as fl
 Tested with LangChain Core **1.2.8** and **1.3.0**, and WebLLM **0.2.79** and **0.2.86**.
 
 For Qwen agents with tools and a response schema, use `responseFormat: toolStrategy(schema)` ([`toolStrategy`](https://reference.langchain.com/javascript/langchain/index/toolStrategy) from `langchain`); native JSON cannot be combined with Qwen tools.
+For optional [Qwen tool-call constraints](https://github.com/ykoh42/web-llm-adapters#tool-call-constraints), set `request.constrainedToolCalls: true` with WebLLM 0.2.86.
 
 Use Gemma agent response schemas without other tools.
 

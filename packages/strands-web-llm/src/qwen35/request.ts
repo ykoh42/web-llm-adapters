@@ -6,6 +6,7 @@ import type { WebLLMModelConfig } from '../types.js'
 import { formatSystemPrompt } from '../chat/messages.js'
 import { generationOptions, hasStructuredResponse } from '../request.js'
 import { qwenHistory } from '../qwen/history.js'
+import { qwenToolResponseFormat } from '../../../../shared/web-llm/qwen/constraints.js'
 
 export function usesQwen35Protocol(config: WebLLMModelConfig) {
   return isQwen35(config.modelId)
@@ -16,9 +17,18 @@ export function qwen35Request(
   messages: Message[],
   options: StreamOptions,
 ): ChatCompletionRequestStreaming {
-  if ((options.toolSpecs?.length ?? 0) && hasStructuredResponse(config))
+  const tools = options.toolSpecs ?? []
+  const responseFormat = qwenToolResponseFormat(
+    config.modelId,
+    config.request ?? {},
+    tools,
+    options.toolChoice,
+    config.thinkingPrefilled,
+  )
+  if (tools.length && hasStructuredResponse(config))
     throw new ModelError('Qwen3.5 tool calls cannot use a structured response format.')
   const request = generationOptions(config)
+  if (responseFormat) request.response_format = responseFormat
   delete request.tool_choice
   return {
     ...request,

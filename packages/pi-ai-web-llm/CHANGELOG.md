@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Accept Qwen3.5 boolean spellings handled by its recommended parser.
+- Add opt-in Qwen tool-call constraints with thinking and Qwen3.5 XML support through WebLLM 0.2.86.
+
 ## 0.2.1 — 2026-10-24
 
 - Allow Qwen3 1.7B tool calls instead of blocking requests based on model output quality.

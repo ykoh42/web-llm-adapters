@@ -120,21 +120,22 @@ For Gemma 4, `request.extra_body.preserve_thinking: true` also keeps earlier too
 
 Set `thinkingPrefilled: true` at construction if your loaded Qwen template already opens `<think>`. This only controls output parsing; it does not change the engine or prompt.
 
-| Feature                               | Use                                                                                      | Limit                                                          |
-| ------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| Chat, system prompts, history         | Strands messages and `systemPrompt`                                                      | Unsupported blocks raise errors                                |
-| Streaming and cancellation            | `agent.stream()`, `agent.cancel()`                                                       | One assistant response per call                                |
-| Tools and results                     | Strands tools and `toolChoice`                                                           | Qwen supports `any`; Gemma/native tool models require one tool |
-| Disable tools                         | `request.tool_choice: 'none'`                                                            | Keeps the Agent tool registry                                  |
-| Thinking                              | `request.extra_body.enable_thinking`                                                     | Render `textBlock` values to show only the answer              |
-| Sampling and token limits             | `request`; `maxTokens`, `temperature`, `topP`                                            | SDK aliases take precedence                                    |
-| JSON schema, grammar, structural tags | `request.response_format`                                                                | Cannot combine with Qwen tools or Gemma protocol mode          |
-| Images and WAV audio                  | `ImageBlock`, `AudioBlock`, `pcmAudio()`                                                 | Model-dependent; PCM is converted to WAV                       |
-| Usage and timing                      | Strands metadata                                                                         | Token counts and latency                                       |
-| Log probabilities                     | `request.logprobs: true`; stop-event `additionalModelResponseFields.logprobs`; `onChunk` | Native per-token values retained                               |
-| Embeddings                            | `WebLLMEmbeddingSearchStrategy` or `withEngine()`                                        | Separate embedding model required                              |
-| Context recovery                      | `countTokens()` and Strands overflow error                                               | Counts are estimates; set the loaded context window size       |
-| Other native APIs                     | `withEngine()`                                                                           | Caller owns setup and lifecycle                                |
+| Feature                       | Use                                                                                                                           | Limit                                                             |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Chat, system prompts, history | Strands messages and `systemPrompt`                                                                                           | Unsupported blocks raise errors                                   |
+| Provider citation blocks      | Unsupported                                                                                                                   | This adapter does not produce them; cited history raises an error |
+| Streaming and cancellation    | `agent.stream()`, `agent.cancel()`                                                                                            | One assistant response per call                                   |
+| Tools and results             | Strands tools and `toolChoice`                                                                                                | Qwen supports `any`; Gemma/native tool models require one tool    |
+| Disable tools                 | `request.tool_choice: 'none'`                                                                                                 | Keeps the Agent tool registry                                     |
+| Thinking                      | `request.extra_body.enable_thinking`                                                                                          | Render `textBlock` values to show only the answer                 |
+| Sampling and token limits     | `request`; `maxTokens`, `temperature`, `topP`                                                                                 | SDK aliases take precedence                                       |
+| Output constraints            | `request.response_format`; optional [Qwen tool constraints](https://github.com/ykoh42/web-llm-adapters#tool-call-constraints) | Custom formats cannot combine with Qwen tools or Gemma            |
+| Images and WAV audio          | `ImageBlock`, `AudioBlock`, `pcmAudio()`                                                                                      | Model-dependent; PCM is converted to WAV                          |
+| Usage and timing              | Strands metadata                                                                                                              | Token counts and latency                                          |
+| Log probabilities             | `request.logprobs: true`; stop-event `additionalModelResponseFields.logprobs`; `onChunk`                                      | Native per-token values retained                                  |
+| Embeddings                    | `WebLLMEmbeddingSearchStrategy` or `withEngine()`                                                                             | Separate embedding model required                                 |
+| Context recovery              | `countTokens()` and Strands overflow error                                                                                    | Counts are estimates; set the loaded context window size          |
+| Other native APIs             | `withEngine()`                                                                                                                | Caller owns setup and lifecycle                                   |
 
 Signed/redacted reasoning, S3 media, video, documents, guardrails, and non-image tool-result media
 are unsupported. Tool-result images follow the adjacent tool replies; no listed model is verified

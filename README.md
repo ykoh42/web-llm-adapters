@@ -59,6 +59,19 @@ Tool formats follow [Hermes](https://github.com/QwenLM/Qwen3/blob/main/docs/sour
 
 Embedding inputs are limited to 512 tokens. No listed model is verified for both tools and vision.
 
+## Tool-call constraints
+
+With WebLLM **0.2.86**, all three adapters accept `request: { constrainedToolCalls: true }`
+for the Qwen models above. It constrains tool output using the existing tool definitions;
+framework tool selection, thinking, and argument validation still apply. It can be slower or less accurate.
+It does not guarantee the intended tool call or argument values.
+Do not combine it with `request.response_format` or WebLLM resumable generation.
+
+Qwen3.5 accepts closed object schemas (`additionalProperties: false`) with fixed, typed properties.
+Raw string fields support `type`, `enum`, and `const`; JSON-valued fields must not use `$ref`.
+Unsupported XML shapes raise an error. JSON-valued fields retain native XGrammar limits;
+not every JSON Schema keyword is enforced. Omit the option for ordinary tool generation.
+
 ## Development
 
 For repository development, use [pnpm](https://pnpm.io/installation) and the Node.js version in `.node-version`:

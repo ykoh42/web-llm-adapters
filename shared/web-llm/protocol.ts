@@ -21,6 +21,7 @@ import { nativeChunks, nativeHistory, nativeTools } from './native.js'
 import type { ProtocolMessage, ToolSpec, ToolChoice } from './types.js'
 import { nativeRequest, preserveThinking, type WebLLMRequest } from './request.js'
 import { singleToolChoice } from './stream/choice.js'
+import { qwenToolResponseFormat } from './qwen/constraints.js'
 
 export type { WebLLMRequest }
 export type WebLLMChunk = ChatCompletionChunk | Completion
@@ -58,6 +59,13 @@ export function protocolStream({
   const preserve = preserveThinking(modelId, request)
   const structured = !isTextFormat(request.response_format)
   if (choice === 'none') tools = []
+  const toolResponseFormat = qwenToolResponseFormat(
+    modelId,
+    request,
+    tools,
+    choice,
+    thinkingPrefilled,
+  )
   const thinking = request.extra_body?.enable_thinking === true
   if (gemma) history = trimThoughts(history, preserve)
   const gemmaProtocol =
@@ -106,14 +114,21 @@ export function protocolStream({
       choice === 'none' ? undefined : choice,
       xml,
     )
-    let parseProtocol = !structured
+    let parseProtocol = !structured || Boolean(toolResponseFormat)
     let prefilled = thinkingPrefilled && request.extra_body?.enable_thinking !== false
     let stopRequested = Boolean(request.stop?.length)
     return stream(
       async () => {
-        const prepared = await prepare({ ...sampling, messages })
+        const prepared = await prepare({
+          ...sampling,
+          ...(toolResponseFormat && { response_format: toolResponseFormat }),
+          messages,
+        })
         // The payload hook may change how native output is framed.
-        parseProtocol = isTextFormat(prepared.response_format)
+        parseProtocol =
+          isTextFormat(prepared.response_format) ||
+          (toolResponseFormat !== undefined &&
+            JSON.stringify(prepared.response_format) === JSON.stringify(toolResponseFormat))
         prefilled = thinkingPrefilled && prepared.extra_body?.enable_thinking !== false
         stopRequested = Boolean(prepared.stop?.length)
         if (tools.length && !parseProtocol)

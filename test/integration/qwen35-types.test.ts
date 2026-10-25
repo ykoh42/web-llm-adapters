@@ -4,6 +4,14 @@ import { readValue } from '../../shared/web-llm/qwen35/value.js'
 import type { JSONSchema } from '../../shared/web-llm/types.js'
 
 const cases = [
+  { schema: { type: 'boolean' }, text: 'False', value: false },
+  { schema: { type: 'boolean' }, text: 'TRUE', value: true },
+  { schema: { type: 'boolean' }, text: '0', value: false },
+  { schema: { type: 'boolean' }, text: '1', value: true },
+  { schema: { type: ['integer', 'boolean'] }, text: '0', value: 0 },
+  { schema: { type: ['integer', 'boolean'] }, text: 'False', value: false },
+  { schema: { type: 'string' }, text: 'False', value: 'False' },
+  { schema: { type: ['string', 'boolean'] }, text: 'False', value: 'False' },
   {
     schema: {
       type: ['string', 'null'],
@@ -83,6 +91,23 @@ it.each(cases)('preserves a valid value with $schema: $text', ({ schema, text, v
   expect(code).toEqual(value)
   expect(validateToolArguments(tool, { ...expected, arguments: { code } })).toEqual({ code: value })
 })
+
+it.each(['yes', 'no', 'on', 'off', '1.0', '0.0', '"False"', 'null'])(
+  'rejects an unsupported boolean spelling: %s',
+  (text) => {
+    expect(() =>
+      readValue(
+        text,
+        {
+          name: 'lookup',
+          description: '',
+          inputSchema: { properties: { code: { type: 'boolean' } } },
+        },
+        'code',
+      ),
+    ).toThrow()
+  },
+)
 
 it.each([true, {}])('rejects a schema that excludes every value: %j', (not) => {
   expect(() =>

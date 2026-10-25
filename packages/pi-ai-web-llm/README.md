@@ -145,7 +145,7 @@ Full `stream` and `complete` calls preserve the native `request.extra_body.enabl
 
 `onPayload` can inspect or replace the prepared native payload while preserving the loaded model and one streaming response. `onProviderStreamEvent` observes unchanged native chunks and is awaited in order. The provider-level `onChunk` is a synchronous native chunk observer. Callback failures fail the request and release the engine. HTTP-only options such as `fetch`, headers, retries, and `onResponse` do not apply to local inference. `timeoutMs` cancels a queued or active request.
 
-Qwen tools cannot be combined with native JSON output. Install WebLLM `0.2.79` or later in the `0.2.x` series. Gemma 4 E2B was verified with WebLLM `0.2.86` and needs the bundled [runtime and protocol](https://github.com/ykoh42/web-llm-adapters/blob/main/shared/runtime/README.md). Gemma tools and thinking accept text and tool results only. Exact model artifacts determine support.
+Qwen tools cannot be combined with native JSON output. For optional [Qwen tool-call constraints](https://github.com/ykoh42/web-llm-adapters#tool-call-constraints), set `request.constrainedToolCalls: true` with WebLLM 0.2.86. Install WebLLM `0.2.79` or later in the `0.2.x` series. Gemma 4 E2B was verified with WebLLM `0.2.86` and needs the bundled [runtime and protocol](https://github.com/ykoh42/web-llm-adapters/blob/main/shared/runtime/README.md). Gemma tools and thinking accept text and tool results only. Exact model artifacts determine support.
 
 ## Verified models
 

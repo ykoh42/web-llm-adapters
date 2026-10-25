@@ -7,6 +7,7 @@ import { streamCall } from '../../../../shared/web-llm/engine/call.js'
 import { readStream } from '../stream/read.js'
 import { nativeChunks, nativeHistory, nativeTools } from '../../../../shared/web-llm/native.js'
 import { singleToolChoice } from '../../../../shared/web-llm/stream/choice.js'
+import { qwenToolResponseFormat } from '../../../../shared/web-llm/qwen/constraints.js'
 
 /** Native WebLLM chat, including its Hermes tool format. */
 export function chatStream(
@@ -17,6 +18,8 @@ export function chatStream(
   onChunk?: WebLLMModelOptions['onChunk'],
 ) {
   const choice = options.toolChoice && singleToolChoice(options.toolChoice, options.toolSpecs ?? [])
+  if (qwenToolResponseFormat(config.modelId, config.request ?? {}, options.toolSpecs ?? [], choice))
+    throw new ModelError('Constrained tool calls require the Qwen protocol.')
   if (choice && 'tool' in choice) {
     const name = choice.tool.name
     if (!options.toolSpecs?.some((tool) => tool.name === name))

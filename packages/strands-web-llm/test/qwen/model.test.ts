@@ -36,6 +36,27 @@ it.each(['Qwen2.5-3B-Instruct-q4f16_1-MLC', 'Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-
   },
 )
 
+it.each([
+  'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
+  'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
+  'Qwen2.5-3B-Instruct-q4f16_1-MLC',
+  'Qwen2.5-7B-Instruct-q4f16_1-MLC',
+  'Qwen3-1.7B-q4f16_1-MLC',
+  'Qwen3-4B-q4f16_1-MLC',
+  'Qwen3-8B-q4f16_1-MLC',
+])('enables constrained tool arguments for verified model %s when requested', async (modelId) => {
+  const { model, create } = setup(chunk({ content: 'Ready' }, 'stop'))
+  model.updateConfig({ modelId, request: { constrainedToolCalls: true } })
+
+  await collect(
+    model.stream([new Message({ role: 'user', content: [new TextBlock('Use lookup.')] })], {
+      toolSpecs: [{ name: 'lookup', description: 'Look up a value.' }],
+    }),
+  )
+
+  expect(create.mock.calls[0]?.[0].response_format?.type).toBe('structural_tag')
+})
+
 it.each(['Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC'])(
   '%s preserves text and thinking order regardless of chunk size',
   async (modelId) => {
@@ -82,7 +103,12 @@ it('rejects a required tool choice before generating without registered tools', 
 it('runs a Qwen3 tool through a Strands Agent and continues from its result', async () => {
   const { model, create } = setup()
   const modelId = 'Qwen3-4B-q4f16_1-MLC'
-  model.updateConfig({ modelId, temperature: 0, maxTokens: 128 })
+  model.updateConfig({
+    modelId,
+    temperature: 0,
+    maxTokens: 128,
+    request: { constrainedToolCalls: true },
+  })
   const input = vi.fn((value: unknown) => {
     expect(value).toEqual({ city: 'Seoul' })
     return { code: 'pineapple-42' }
@@ -134,6 +160,8 @@ it('runs a Qwen3 tool through a Strands Agent and continues from its result', as
   )
   expect(firstRequest.messages[0]?.content).not.toContain('Wait for the tool result')
   expect(firstRequest.messages[0]?.content).not.toContain('Do not repeat')
+  expect(firstRequest.response_format?.type).toBe('structural_tag')
+  expect(JSON.stringify(firstRequest.response_format)).toContain('lookup')
   expect(create.mock.calls[1]![0].messages[0]?.content).not.toContain('Do not repeat')
   const nextMessages = create.mock.calls[1]![0].messages
   expect(nextMessages).toContainEqual(
@@ -147,6 +175,47 @@ it('runs a Qwen3 tool through a Strands Agent and continues from its result', as
   expect(nextMessages).toContainEqual(
     expect.objectContaining({ role: 'user', content: expect.stringContaining('pineapple-42') }),
   )
+})
+
+it('can disable constrained tool arguments for a Qwen request', async () => {
+  const { model, create } = setup(
+    chunk(
+      {
+        content: '<tool_call>{"name":"lookup","arguments":{"city":"Seoul"}}</tool_call>',
+      },
+      'stop',
+    ),
+  )
+  model.updateConfig({
+    modelId: 'Qwen3-4B-q4f16_1-MLC',
+    request: { constrainedToolCalls: false },
+  })
+
+  await collect(
+    model.stream([new Message({ role: 'user', content: [new TextBlock('Look up Seoul.')] })], {
+      toolSpecs: [{ name: 'lookup', description: 'Look up a city.' }],
+    }),
+  )
+
+  expect(create.mock.calls[0]?.[0]).not.toHaveProperty('constrainedToolCalls')
+  expect(create.mock.calls[0]?.[0]).not.toHaveProperty('response_format')
+})
+
+it('rejects constrained tool arguments for an unverified Qwen protocol', async () => {
+  const { model, create } = setup()
+  model.updateConfig({
+    modelId: 'Qwen3.5-4B-q4f32_1-MLC',
+    request: { constrainedToolCalls: true },
+  })
+
+  await expect(
+    collect(
+      model.stream([new Message({ role: 'user', content: [new TextBlock('Look up Seoul.')] })], {
+        toolSpecs: [{ name: 'lookup', description: 'Look up a city.' }],
+      }),
+    ),
+  ).rejects.toThrow('Constrained tool calls are not verified')
+  expect(create).not.toHaveBeenCalled()
 })
 
 it('keeps Qwen3 thinking separate during ordinary chat', async () => {

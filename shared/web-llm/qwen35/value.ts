@@ -30,10 +30,15 @@ export function readValue(
     }
     return text
   }
+  // Qwen's schema-aware parser accepts case-insensitive booleans and 0/1.
+  const booleanText = types?.includes('boolean') ? text.trim().toLowerCase() : undefined
+  if (booleanText === 'true' || booleanText === 'false') return booleanText === 'true'
   try {
     const value = parseJSON(text)
-    if (types?.length && !types.some((type) => matchesType(value, type)))
+    if (types?.length && !types.some((type) => matchesType(value, type))) {
+      if (booleanText === '0' || booleanText === '1') return booleanText === '1'
       throw new ModelError('Qwen3.5 returned a tool argument with the wrong type.')
+    }
     return value
   } catch (cause) {
     if (cause instanceof ModelError) throw cause

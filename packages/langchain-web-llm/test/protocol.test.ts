@@ -25,6 +25,22 @@ function raw(text: string, finish: 'stop' | 'length' = 'stop') {
 }
 
 describe('model protocols', () => {
+  it('constrains verified Qwen tool arguments on request and allows disabling it per call', async () => {
+    const output = '<tool_call>{"name":"lookup","arguments":{"code":"A7"}}</tool_call>'
+    const { engine, create } = setup(chunk({ content: output }, 'stop'))
+    const model = new ChatWebLLM({ engine, modelId: qwen, request: { constrainedToolCalls: true } })
+
+    const result = await model.bindTools([definition]).invoke('Find A7')
+    await model
+      .bindTools([definition])
+      .invoke('Find A7', { request: { constrainedToolCalls: false } })
+
+    expect(result.tool_calls).toMatchObject([{ name: 'lookup', args: { code: 'A7' } }])
+    expect(create.mock.calls[0]?.[0].response_format?.type).toBe('structural_tag')
+    expect(create.mock.calls[1]?.[0]).not.toHaveProperty('response_format')
+    expect(create.mock.calls[1]?.[0]).not.toHaveProperty('constrainedToolCalls')
+  })
+
   it('keeps encoded references unchanged before LangChain tool validation', async () => {
     const $ref = '#/properties/code/definitions/value%7E1text'
     const callback = vi.fn()

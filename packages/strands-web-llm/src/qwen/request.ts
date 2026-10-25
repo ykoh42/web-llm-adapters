@@ -6,6 +6,7 @@ import type { WebLLMModelConfig } from '../types.js'
 import { formatSystemPrompt } from '../chat/messages.js'
 import { generationOptions, hasStructuredResponse } from '../request.js'
 import { qwenHistory } from './history.js'
+import { qwenToolResponseFormat } from '../../../../shared/web-llm/qwen/constraints.js'
 
 const qwen25SystemPrompt = 'You are Qwen, created by Alibaba Cloud. You are a helpful assistant.'
 
@@ -19,9 +20,17 @@ export function qwenRequest(
   options: StreamOptions,
 ): ChatCompletionRequestStreaming {
   const tools = options.toolSpecs ?? []
+  const responseFormat = qwenToolResponseFormat(
+    config.modelId,
+    config.request ?? {},
+    tools,
+    options.toolChoice,
+    config.thinkingPrefilled,
+  )
   if (tools.length && hasStructuredResponse(config))
     throw new ModelError('Qwen tool calls cannot use a structured response format.')
   const request = generationOptions(config)
+  if (responseFormat) request.response_format = responseFormat
   delete request.tool_choice
   const history = qwenMessages(config.modelId.startsWith('Qwen3-'), messages, options)
   return { ...request, messages: history }

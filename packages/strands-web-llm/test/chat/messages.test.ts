@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   AudioBlock,
   CachePointBlock,
+  CitationsBlock,
   ImageBlock,
   JsonBlock,
   Message,
@@ -532,6 +533,29 @@ describe('messages', () => {
         }),
       ]),
     ).toThrow('audioBlock')
+  })
+
+  it('rejects citation blocks instead of dropping cited content', () => {
+    expect(() =>
+      formatMessages([
+        new Message({
+          role: 'assistant',
+          content: [
+            new CitationsBlock({
+              citations: [
+                {
+                  location: { type: 'documentChar', documentIndex: 0, start: 0, end: 6 },
+                  source: 'doc-0',
+                  sourceContent: [{ text: 'source' }],
+                  title: 'Document',
+                },
+              ],
+              content: [{ text: 'Cited answer' }],
+            }),
+          ],
+        }),
+      ]),
+    ).toThrow('citationsBlock')
   })
 
   it('keeps Gemma tool support limited to what WebLLM actually accepts', () => {
