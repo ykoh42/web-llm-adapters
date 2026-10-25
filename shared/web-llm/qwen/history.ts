@@ -1,8 +1,8 @@
 import type { ChatCompletionMessageParam } from '@mlc-ai/web-llm'
 import type { ProtocolMessage, ToolSpec, ToolChoice } from '../types.js'
 import { lastUserIndex } from '../history.js'
-import * as qwen from './tools.js'
-import * as qwen35 from '../qwen35/tools.js'
+import { formatCall as jsonCall, toolPrompt as jsonTools } from './tools.js'
+import { formatCall as xmlCall, toolPrompt as xmlTools } from '../qwen35/tools.js'
 
 export function qwenHistory(
   modelId: string,
@@ -13,7 +13,7 @@ export function qwenHistory(
 ): ChatCompletionMessageParam[] {
   const output: ChatCompletionMessageParam[] = []
   const system = history[0]?.role === 'system' ? history[0].content : undefined
-  const declarations = (xml ? qwen35 : qwen).toolPrompt(tools, choice)
+  const declarations = (xml ? xmlTools : jsonTools)(tools, choice)
   const parts = xml
     ? [declarations, system]
     : [
@@ -37,7 +37,7 @@ export function qwenHistory(
       !modelId.startsWith('Qwen2.5-') && index > last ? (message.reasoning ?? '') : undefined
     const calls = (message.tool_calls ?? []).map((call) => {
       const input: unknown = JSON.parse(call.function.arguments)
-      return (xml ? qwen35 : qwen).formatCall(call.function.name, input)
+      return (xml ? xmlCall : jsonCall)(call.function.name, input)
     })
     output.push({
       role: 'assistant',
