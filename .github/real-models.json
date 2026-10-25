@@ -1,12 +1,12 @@
 {
-  "commit": "8b1d55450902f280e0bbf19334f580b5aa682080",
-  "source": "fd6e8d8429df3dbdec1054f05b1d10264be73ac4e9a6c719608d9d63ac7bfad6",
+  "commit": "3706f5f34cfc867030d4f06cd687e68f9403106e",
+  "source": "450b4fa55ea52ac190ab3c431ce5c63f64d78a03b146c9f2ec5988cea127d8e8",
   "webllm": "0.2.86",
-  "checkedAt": "2026-10-24T04:30:13.419Z",
+  "checkedAt": "2026-10-25T10:39:47.977Z",
   "environment": {
     "platform": "darwin",
     "arch": "arm64",
-    "node": "v26.10.0",
+    "node": "v24.19.0",
     "browser": "156.0.8078.47",
     "gpu": { "vendor": "apple", "architecture": "metal-3", "device": "", "description": "" }
   },
@@ -22,6 +22,36 @@
       "name": "examples/strands-web-llm/harness/test/browser/concurrent.browser.ts > cancelling a queued browser request leaves the active and later calls usable",
       "status": "passed",
       "checks": ["engine/cancel"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/constraints.browser.ts > Qwen3-1.7B-q4f16_1-MLC constrains required tools and preserves thinking through the final answer",
+      "status": "passed",
+      "checks": ["Qwen3-1.7B-q4f16_1-MLC/tools", "Qwen3-1.7B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/constraints.browser.ts > Qwen3.5-4B-q4f16_1-MLC constrains required tools and preserves thinking through the final answer",
+      "status": "passed",
+      "checks": ["Qwen3.5-4B-q4f16_1-MLC/tools", "Qwen3.5-4B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/constraints.browser.ts > Qwen2.5-1.5B-Instruct-q4f16_1-MLC constrains an Agent tool loop and preserves native output",
+      "status": "passed",
+      "checks": ["Qwen2.5-1.5B-Instruct-q4f16_1-MLC/tools"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/constraints.browser.ts > Qwen3-1.7B-q4f16_1-MLC constrains an Agent tool loop and preserves native output",
+      "status": "passed",
+      "checks": ["Qwen3-1.7B-q4f16_1-MLC/tools", "Qwen3-1.7B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/constraints.browser.ts > Qwen3.5-4B-q4f16_1-MLC constrains an Agent tool loop and preserves native output",
+      "status": "passed",
+      "checks": ["Qwen3.5-4B-q4f16_1-MLC/tools", "Qwen3.5-4B-q4f16_1-MLC/thinking"]
     },
     {
       "adapter": "strands",
@@ -55,7 +85,13 @@
     },
     {
       "adapter": "strands",
-      "name": "examples/strands-web-llm/harness/test/browser/qwen25.browser.ts > Qwen2.5-0.5B-Instruct-q4f16_1-MLC calls Harness read and answers from its result",
+      "name": "examples/strands-web-llm/harness/test/browser/native.browser.ts > Qwen structured output excludes the native thinking-off prefix",
+      "status": "passed",
+      "checks": []
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/qwen25.browser.ts > Qwen2.5-0.5B-Instruct-q4f16_1-MLC calls Harness read and answers from its result with recorded tool history",
       "status": "passed",
       "checks": ["Qwen2.5-0.5B-Instruct-q4f16_1-MLC/tools"]
     },
@@ -136,6 +172,24 @@
       "name": "examples/langchain-web-llm/browser/test/browser/audio.spec.ts > Float32 PCM matches native WebLLM through local and browser LangChain models",
       "status": "passed",
       "checks": ["gemma-4-E2B-it-q4f16_1-MLC/audio"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/constraints.spec.ts > Qwen2.5-1.5B-Instruct-q4f16_1-MLC constrains an Agent tool loop and preserves native output",
+      "status": "passed",
+      "checks": ["Qwen2.5-1.5B-Instruct-q4f16_1-MLC/tools"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/constraints.spec.ts > Qwen3-1.7B-q4f16_1-MLC constrains an Agent tool loop and preserves native output",
+      "status": "passed",
+      "checks": ["Qwen3-1.7B-q4f16_1-MLC/tools", "Qwen3-1.7B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/constraints.spec.ts > Qwen3.5-4B-q4f16_1-MLC constrains an Agent tool loop and preserves native output",
+      "status": "passed",
+      "checks": ["Qwen3.5-4B-q4f16_1-MLC/tools", "Qwen3.5-4B-q4f16_1-MLC/thinking"]
     },
     {
       "adapter": "langchain",
@@ -244,6 +298,42 @@
       "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen3-1.7B-q4f16_1-MLC: default Deep Agents tools and final answer",
       "status": "passed",
       "checks": ["Qwen3-1.7B-q4f16_1-MLC/tools", "Qwen3-1.7B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/strict-json.spec.ts > structured JSON parses with thinking off and preserves literal tags",
+      "status": "passed",
+      "checks": []
+    },
+    {
+      "adapter": "pi",
+      "name": "examples/pi-ai-web-llm/browser/test/constraints.spec.ts > Qwen2.5-1.5B-Instruct-q4f16_1-MLC constrains an Agent tool loop and preserves native output",
+      "status": "passed",
+      "checks": ["Qwen2.5-1.5B-Instruct-q4f16_1-MLC/tools"]
+    },
+    {
+      "adapter": "pi",
+      "name": "examples/pi-ai-web-llm/browser/test/constraints.spec.ts > Qwen3-1.7B-q4f16_1-MLC constrains an Agent tool loop and preserves native output",
+      "status": "passed",
+      "checks": ["Qwen3-1.7B-q4f16_1-MLC/tools", "Qwen3-1.7B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "pi",
+      "name": "examples/pi-ai-web-llm/browser/test/constraints.spec.ts > Qwen3.5-4B-q4f16_1-MLC constrains an Agent tool loop and preserves native output",
+      "status": "passed",
+      "checks": ["Qwen3.5-4B-q4f16_1-MLC/tools", "Qwen3.5-4B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "pi",
+      "name": "examples/pi-ai-web-llm/browser/test/provider.spec.ts > Qwen3.5-4B-q4f16_1-MLC: bare JSON mode returns JSON with thinking off",
+      "status": "passed",
+      "checks": []
+    },
+    {
+      "adapter": "pi",
+      "name": "examples/pi-ai-web-llm/browser/test/provider.spec.ts > Qwen2.5-3B-Instruct-q4f16_1-MLC: bare JSON mode returns JSON with thinking off",
+      "status": "passed",
+      "checks": []
     },
     {
       "adapter": "pi",
