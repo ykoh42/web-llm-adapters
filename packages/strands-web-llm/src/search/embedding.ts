@@ -179,7 +179,7 @@ export class WebLLMEmbeddingSearchStrategy implements SearchStrategy {
         .map(({ key, data }) => {
           const document = cached.get(key)!
           const score = scores?.get(document) ?? cosine(queryVector, querySumSquares, document)
-          scores?.set(document, score)
+          if (document.references > 1) scores?.set(document, score)
           return { key, ...(data && { data }), score }
         })
         .filter(({ score }) => (this.#minScore === undefined ? score > 0 : score >= this.#minScore))
