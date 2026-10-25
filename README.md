@@ -72,6 +72,25 @@ Raw string fields support `type`, `enum`, and `const`; JSON-valued fields must n
 Unsupported XML shapes raise an error. JSON-valued fields retain native XGrammar limits;
 not every JSON Schema keyword is enforced. Omit the option for ordinary tool generation.
 
+## Qwen3.5 engine setup
+
+For the Qwen3.5 models listed above with WebLLM **0.2.86**, pass these [`chatOpts`](https://webllm.mlc.ai/docs/user/api_reference.html#chatconfig) when creating or reloading the engine:
+
+```ts
+import type { ChatOptions } from '@mlc-ai/web-llm'
+
+const chatOpts: ChatOptions = {
+  conv_config: {
+    role_empty_sep: '\n<think>\n',
+    stop_token_ids: [248044, 248046],
+  },
+}
+```
+
+Set `thinkingPrefilled: true` on your adapter. This restores Qwen3.5's [official thinking prefix and stop tokens](https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/tokenizer_config.json); the shipped stop IDs can cut off ordinary Korean or Thai words. Per-call `request.extra_body.enable_thinking: false` still works.
+
+Native JSON/grammar with thinking off still includes WebLLM's empty thinking prefix. These options do not change that output.
+
 ## Development
 
 For repository development, use [pnpm](https://pnpm.io/installation) and the Node.js version in `.node-version`:

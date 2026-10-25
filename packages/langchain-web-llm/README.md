@@ -21,7 +21,7 @@ const handler = new WebWorkerMLCEngineHandler()
 self.onmessage = (message: MessageEvent) => handler.onmessage(message)
 ```
 
-Load a model in the browser, then pass its engine to the provider:
+Load Qwen3.5 with WebLLM 0.2.86, then pass its engine to the provider:
 
 ```ts
 import { CreateWebWorkerMLCEngine } from '@mlc-ai/web-llm'
@@ -30,9 +30,14 @@ import { ChatWebLLM } from 'langchain-web-llm'
 const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
 const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
 try {
-  const engine = await CreateWebWorkerMLCEngine(worker, modelId)
+  const engine = await CreateWebWorkerMLCEngine(worker, modelId, undefined, {
+    conv_config: {
+      role_empty_sep: '\n<think>\n',
+      stop_token_ids: [248044, 248046],
+    },
+  })
   try {
-    const model = new ChatWebLLM({ engine, modelId })
+    const model = new ChatWebLLM({ engine, modelId, thinkingPrefilled: true })
     console.log((await model.invoke('Hello')).text)
   } finally {
     await engine.unload()
@@ -140,7 +145,7 @@ Set generation options with `request` at construction or per call. For probabili
 
 For Gemma 4, `request.extra_body.preserve_thinking: true` also keeps earlier tool-call reasoning; the default keeps only the current user turn.
 
-Set `thinkingPrefilled: true` at construction if your loaded Qwen template already opens `<think>`. This only controls output parsing; it does not change the engine or prompt.
+Set `thinkingPrefilled: true` at construction if your loaded Qwen template already opens `<think>`. This only controls output parsing; it does not change the engine or prompt. See [Qwen3.5 engine setup](https://github.com/ykoh42/web-llm-adapters#qwen35-engine-setup) for WebLLM 0.2.86.
 
 Chat retries default to 0 and apply only while opening a stream. Context-limit errors use LangChain's `ContextOverflowError`, with the native cause preserved.
 

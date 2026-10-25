@@ -24,7 +24,7 @@ const handler = new WebWorkerMLCEngineHandler()
 self.onmessage = (message: MessageEvent) => handler.onmessage(message)
 ```
 
-Load a model in the browser, then pass its engine to Strands:
+Load Qwen3.5 with WebLLM 0.2.86, then pass its engine to Strands:
 
 ```ts
 import { CreateWebWorkerMLCEngine } from '@mlc-ai/web-llm'
@@ -37,9 +37,18 @@ const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'modu
 try {
   const engine = await CreateWebWorkerMLCEngine(worker, modelId, undefined, {
     context_window_size: contextWindowSize,
+    conv_config: {
+      role_empty_sep: '\n<think>\n',
+      stop_token_ids: [248044, 248046],
+    },
   })
   try {
-    const model = new WebLLMModel({ engine, modelId, contextWindowLimit: contextWindowSize })
+    const model = new WebLLMModel({
+      engine,
+      modelId,
+      contextWindowLimit: contextWindowSize,
+      thinkingPrefilled: true,
+    })
     const agent = new Agent({ model })
     console.log((await agent.invoke('Say hello.')).lastMessage.content)
   } finally {
@@ -118,7 +127,7 @@ Features depend on the exact model.
 
 For Gemma 4, `request.extra_body.preserve_thinking: true` also keeps earlier tool-call reasoning; the default keeps only the current user turn.
 
-Set `thinkingPrefilled: true` at construction if your loaded Qwen template already opens `<think>`. This only controls output parsing; it does not change the engine or prompt.
+Set `thinkingPrefilled: true` at construction if your loaded Qwen template already opens `<think>`. This only controls output parsing; it does not change the engine or prompt. See [Qwen3.5 engine setup](https://github.com/ykoh42/web-llm-adapters#qwen35-engine-setup) for WebLLM 0.2.86.
 
 | Feature                       | Use                                                                                                                           | Limit                                                             |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |

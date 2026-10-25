@@ -23,7 +23,7 @@ const handler = new WebWorkerMLCEngineHandler()
 self.onmessage = (event: MessageEvent) => handler.onmessage(event)
 ```
 
-Load the engine, then register the provider using Pi AI's public API:
+Load Qwen3.5 with WebLLM 0.2.86, then register the provider using Pi AI's public API:
 
 ```ts
 import { CreateWebWorkerMLCEngine } from '@mlc-ai/web-llm'
@@ -40,11 +40,17 @@ try {
     {},
     {
       context_window_size: contextWindow,
+      conv_config: {
+        role_empty_sep: '\n<think>\n',
+        stop_token_ids: [248044, 248046],
+      },
     },
   )
   try {
     const models = createModels()
-    models.setProvider(createWebLLMProvider({ engine, modelId, contextWindow }))
+    models.setProvider(
+      createWebLLMProvider({ engine, modelId, contextWindow, thinkingPrefilled: true }),
+    )
     const model = models.getModel('webllm', modelId)!
     const stream = models.streamSimple(
       model,
@@ -137,7 +143,7 @@ Images from tool results are sent as a user turn after the tool results, matchin
 
 For Gemma 4, `request.extra_body.preserve_thinking: true` also keeps earlier tool-call reasoning; the default keeps only the current user turn.
 
-Set `thinkingPrefilled: true` at construction if your loaded Qwen template already opens `<think>`. This only controls output parsing; it does not change the engine or prompt.
+Set `thinkingPrefilled: true` at construction if your loaded Qwen template already opens `<think>`. This only controls output parsing; it does not change the engine or prompt. See [Qwen3.5 engine setup](https://github.com/ykoh42/web-llm-adapters#qwen35-engine-setup) for WebLLM 0.2.86.
 
 `streamSimple` and `completeSimple` follow Pi's thinking controls: omitted `reasoning` selects `off`; Pi chooses a supported level when needed. Levels do not select different native token budgets. `Agent` respects `thinkingLevel: 'off'` when the model supports it. Models that cannot reason reject an explicit reasoning request. Set `reasoning` on the provider options to override the model-family capability default.
 
