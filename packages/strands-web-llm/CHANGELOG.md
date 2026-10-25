@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Exclude runtime build tools from the npm package.
 - Reuse similarity scores for duplicate document contents within each search.
 
 ## 0.3.0 — 2026-10-25

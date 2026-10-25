@@ -60,7 +60,8 @@ accumulate in float32 before returning to float16 activations. Local M4 Pro chec
 measured about 0.8% more input processing time and unchanged generation speed;
 results on other devices may differ.
 
-Rebuilding is for maintainers. Use Python 3.12, LLVM **22.1.8** (with `llvm-config`
+Rebuilding requires a [repository checkout](https://github.com/ykoh42/web-llm-adapters/tree/main/shared/runtime).
+Use Python 3.12, LLVM **22.1.8** (with `llvm-config`
 on `PATH`), Emscripten **6.0.12** (`emsdk_env.sh` sourced), and a C++ toolchain.
 From the repository root:
 

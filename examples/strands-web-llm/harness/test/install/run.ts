@@ -55,8 +55,11 @@ try {
      for (const prefix of ['/Users/', '/home/', '\\\\Users\\\\']) {
        assert.ok(!bytes.includes(Buffer.from(prefix)))
      }
-     for (const name of ['cache.patch', 'projection.patch', 'model.json', 'build.py', 'check-cache.cc', 'NOTICE.txt', 'licenses/Apache-2.0.txt']) {
+     for (const name of ['cache.patch', 'projection.patch', 'model.json', 'NOTICE.txt', 'licenses/Apache-2.0.txt']) {
        assert.ok((await readFile(new URL(name, url))).length)
+     }
+     for (const name of ['build.py', 'check-cache.cc', 'requirements.txt']) {
+       await assert.rejects(readFile(new URL(name, url)), { code: 'ENOENT' })
      }`,
   ])
   console.log('Check browser and Node.js public types.')

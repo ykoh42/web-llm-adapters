@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Exclude runtime build tools from the npm package.
 - Avoid empty image-buffer allocations while converting text-only turns.
 
 ## 0.3.0 — 2026-10-25
