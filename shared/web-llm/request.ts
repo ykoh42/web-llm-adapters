@@ -4,6 +4,8 @@ export type WebLLMRequest = Omit<
   ChatCompletionRequestBase,
   'messages' | 'model' | 'stream' | 'stream_options' | 'tools' | 'tool_choice' | 'n' | 'extra_body'
 > & {
+  /** Keep WebLLM's optional usage chunk enabled by default; callers may disable it. */
+  stream_options?: ChatCompletionRequestBase['stream_options']
   /** Constrain verified Qwen tool formats with WebLLM 0.2.86 or later. */
   constrainedToolCalls?: boolean
   extra_body?: NonNullable<ChatCompletionRequestBase['extra_body']> & {
@@ -12,16 +14,30 @@ export type WebLLMRequest = Omit<
   }
 }
 
-const requestFields = [
-  'model',
-  'messages',
-  'prompt',
-  'tools',
-  'tool_choice',
-  'n',
-  'stream',
-  'stream_options',
-]
+const requestFields = ['model', 'messages', 'prompt', 'tools', 'tool_choice', 'n', 'stream']
+
+export function streamOptions(request: WebLLMRequest) {
+  return request.stream_options === undefined ? { include_usage: true } : request.stream_options
+}
+
+/** Keep preserve_thinking when a higher-priority request replaces extra_body. */
+export function preserveThinkingRequest(request: WebLLMRequest, ...bodies: unknown[]) {
+  for (const body of bodies) {
+    const preserve = preserveThinkingOption(body)
+    if (preserve === undefined) continue
+    request.extra_body = { ...request.extra_body, preserve_thinking: preserve }
+    return
+  }
+}
+
+function preserveThinkingOption(body: unknown) {
+  if (typeof body !== 'object' || body === null || !Object.hasOwn(body, 'preserve_thinking'))
+    return undefined
+  const value: unknown = Reflect.get(body, 'preserve_thinking')
+  if (value !== undefined && value !== null && typeof value !== 'boolean')
+    throw new Error('preserve_thinking must be a boolean or null.')
+  return value
+}
 
 /** Frameworks own the conversation, tools, and response shape. */
 export function checkRequest(request: WebLLMRequest, toolChoice?: 'none') {

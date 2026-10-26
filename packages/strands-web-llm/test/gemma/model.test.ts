@@ -6,8 +6,8 @@ import {
   Message,
   TextBlock,
   ReasoningBlock,
+  type ToolSpec,
 } from '@strands-agents/sdk'
-import type { ToolSpec } from '@strands-agents/sdk'
 import { MLCEngine, type Completion } from '@mlc-ai/web-llm'
 import { WebLLMModel } from '../../src/index.js'
 import { collect, pause, setup as chatSetup, chunk } from '../../fixtures/engine.js'
@@ -469,7 +469,7 @@ describe('Gemma tool model', () => {
       )
         controller.abort()
     }
-    expect(events.at(-1)).toEqual({ type: 'modelMessageStopEvent', stopReason: 'cancelled' })
+    expect(events.at(-1)).toMatchObject({ type: 'modelMessageStopEvent', stopReason: 'cancelled' })
     create.mockResolvedValueOnce(parts(part('Recovered', 'stop')))
     expect((await aggregate(model)).message.content).toEqual([new TextBlock('Recovered')])
   })
@@ -864,7 +864,8 @@ describe('Gemma tool model', () => {
     const broken = new WebLLMModel({
       engine,
       modelId,
-      onChunk: () => {
+      onChunk: async () => {
+        await Promise.resolve()
         throw new Error('Callback failed')
       },
     })

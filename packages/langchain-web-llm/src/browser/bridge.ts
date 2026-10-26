@@ -10,6 +10,7 @@ import { WebLLMEmbeddings } from '../embeddings/model.js'
 import { ChatWebLLM } from '../model.js'
 import type { BrowserBridge, BrowserChunk } from './types.js'
 import { browserStream, type BrowserPacket } from '../../../../shared/browser/stream.js'
+import { markChunkCallbackNonMutating } from '../../../../shared/web-llm/callback.js'
 import { failedAttempts, type FailedAttempt } from './failed-attempts.js'
 import { serializeBrowserError, type BrowserError } from './errors.js'
 
@@ -17,7 +18,7 @@ import { serializeBrowserError, type BrowserError } from './errors.js'
 export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
   type Read = BrowserPacket<BrowserChunk, WebLLMChunk> | FailedAttempt
   interface Call {
-    chunks: WebLLMChunk[]
+    takeChunks?: () => WebLLMChunk[]
     stream: AsyncGenerator<BrowserChunk>
     next: () => Promise<Read>
     pending?: Promise<Read>
@@ -78,15 +79,14 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
       checkOpen()
       const id = crypto.randomUUID()
       const controller = new AbortController()
-      const chunks: WebLLMChunk[] = []
-      const output = includeChunks ? browserStream<BrowserChunk, WebLLMChunk>(chunks) : undefined
+      const output = includeChunks ? browserStream<BrowserChunk, WebLLMChunk>() : undefined
       const failures = includeFailedAttempts
         ? failedAttempts<BrowserPacket<BrowserChunk, WebLLMChunk>>(controller.signal)
         : undefined
       const model = new ChatWebLLM({
         ...config,
         engine,
-        ...(output && { onChunk: output.push }),
+        ...(output && { onChunk: markChunkCallbackNonMutating(output.push) }),
         ...(failures && { onFailedAttempt: failures.handle }),
       })
       async function* stream(): AsyncGenerator<BrowserChunk> {
@@ -103,6 +103,7 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
               content: message.content,
               ...(message.id && { id: message.id }),
               ...(message.tool_call_chunks && { tool_call_chunks: message.tool_call_chunks }),
+              ...(message.tool_calls?.length && { tool_calls: message.tool_calls }),
               ...(message.usage_metadata && { usage_metadata: message.usage_metadata }),
               response_metadata: message.response_metadata,
             },
@@ -115,7 +116,7 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
       calls.set(id, {
         stream: source,
         controller,
-        chunks,
+        ...(output && { takeChunks: output.takeChunks }),
         next: failures ? () => failures.next(read) : read,
         ...(failures && { retry: failures.retry }),
       })
@@ -134,12 +135,13 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
         return result
       } catch (error) {
         calls.delete(id)
+        const chunks = call?.takeChunks?.()
         const packet = {
           error: serializeBrowserError(error),
           get errorJSON(): string {
             return JSON.stringify(this.error)
           },
-          ...(call?.chunks.length && { chunks: call.chunks.splice(0) }),
+          ...(chunks?.length && { chunks }),
         }
         return packet
       }

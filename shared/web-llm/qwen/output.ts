@@ -1,5 +1,5 @@
 import type { StopReason } from '../types.js'
-import type { StreamChunk } from '../stream/chunks.js'
+import { noToolCalls, type StreamChunk } from '../stream/chunks.js'
 
 type Part = { type: 'text' | 'reasoning' | 'tool'; value: string }
 
@@ -24,7 +24,7 @@ export class QwenOutput {
       yield {
         text: part.type === 'reasoning' ? '' : part.value,
         reasoning: part.type === 'reasoning' ? part.value : '',
-        calls: [],
+        calls: noToolCalls,
         stop: undefined,
         usage: undefined,
       }

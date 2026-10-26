@@ -6,7 +6,7 @@ import {
   ToolUseBlock,
 } from '@strands-agents/sdk'
 import { expect, it } from 'vitest'
-import { qwen35Request } from '../../src/qwen35/request.js'
+import { qwenRequest } from '../../src/qwen/request.js'
 import { formatCall } from '../../../../shared/web-llm/qwen35/tools.js'
 
 const tool = {
@@ -20,7 +20,7 @@ const tool = {
 }
 
 it('matches the Qwen3.5 system, thinking, tool-call, and tool-result formats', () => {
-  const request = qwen35Request(
+  const request = qwenRequest(
     { modelId: 'Qwen3.5-4B-q4f16_1-MLC' },
     [
       new Message({ role: 'user', content: [new TextBlock('Find the code for Seoul.')] }),
@@ -73,7 +73,7 @@ it('matches the Qwen3.5 system, thinking, tool-call, and tool-result formats', (
 })
 
 it('keeps punctuation, escapes, and Unicode inside tool schema strings', () => {
-  const request = qwen35Request(
+  const request = qwenRequest(
     { modelId: 'Qwen3.5-0.8B-q4f16_1-MLC' },
     [new Message({ role: 'user', content: [new TextBlock('Find the code.')] })],
     {
@@ -98,7 +98,7 @@ it('keeps punctuation, escapes, and Unicode inside tool schema strings', () => {
 })
 
 it('matches the template JSON for nested tool arguments in history', () => {
-  const request = qwen35Request(
+  const request = qwenRequest(
     { modelId: 'Qwen3.5-4B-q4f16_1-MLC' },
     [
       new Message({
@@ -120,7 +120,7 @@ it('matches the template JSON for nested tool arguments in history', () => {
 })
 
 it('drops thoughts from an older Qwen3.5 turn', () => {
-  const request = qwen35Request(
+  const request = qwenRequest(
     { modelId: 'Qwen3.5-4B-q4f16_1-MLC' },
     [
       new Message({ role: 'user', content: [new TextBlock('Old question.')] }),
@@ -137,7 +137,7 @@ it('drops thoughts from an older Qwen3.5 turn', () => {
 })
 
 it('keeps the required empty thinking block in the current Qwen3.5 turn', () => {
-  const request = qwen35Request(
+  const request = qwenRequest(
     { modelId: 'Qwen3.5-4B-q4f16_1-MLC' },
     [
       new Message({ role: 'user', content: [new TextBlock('Answer plainly.')] }),
@@ -164,7 +164,7 @@ it('rejects tool signatures that Qwen3.5 cannot preserve', () => {
     }),
   ]
 
-  expect(() => qwen35Request({ modelId: 'Qwen3.5-4B-q4f16_1-MLC' }, messages, {})).toThrow(
+  expect(() => qwenRequest({ modelId: 'Qwen3.5-4B-q4f16_1-MLC' }, messages, {})).toThrow(
     'tool calls with reasoning signatures',
   )
 })

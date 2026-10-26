@@ -1,6 +1,5 @@
-import { MLCEngine, prebuiltAppConfig } from '@mlc-ai/web-llm'
+import { MLCEngine, prebuiltAppConfig, type ChatCompletionChunk } from '@mlc-ai/web-llm'
 import { runtimeConfig } from '../../../src/engine/runtime.js'
-import type { ChatCompletionChunk } from '@mlc-ai/web-llm'
 import type { ExampleInput } from '../../../src/examples/output.js'
 
 async function embeddings(input: ExampleInput) {

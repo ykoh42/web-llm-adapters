@@ -52,6 +52,16 @@ const failures = [
       cause: { name: 'RangeError', message: 'Original cause' },
     },
   },
+  {
+    name: 'unreadable provider fields',
+    error: () =>
+      new Proxy(new TypeError('Native failure'), {
+        ownKeys() {
+          throw new Error('Cannot inspect provider fields')
+        },
+      }),
+    expected: { name: 'TypeError', message: 'Native failure' },
+  },
 ]
 
 for (const client of ['strands', 'langchain']) {

@@ -6,6 +6,7 @@ import {
 } from '@langchain/core/messages'
 import { standardMessage } from '../chat/messages.js'
 import { formatPart } from '../chat/content.js'
+import { isUint8Array } from '../../../../shared/web-llm/typed-array.js'
 
 /** Send model inputs without storage escapes or private tool artifacts. */
 export function browserMessages(messages: BaseMessage[]): MessageFieldWithRole[] {
@@ -24,6 +25,9 @@ export function browserMessages(messages: BaseMessage[]): MessageFieldWithRole[]
       ...(AIMessage.isInstance(message) && {
         tool_calls: message.tool_calls,
         invalid_tool_calls: message.invalid_tool_calls,
+        ...(message.response_metadata.finish_reason === 'length' && {
+          response_metadata: { finish_reason: 'length' },
+        }),
       }),
       ...(ToolMessage.isInstance(message) && {
         tool_call_id: message.tool_call_id,
@@ -42,7 +46,7 @@ function browserContent(content: BaseMessage['content']) {
       if (input && typeof input === 'object' && 'format' in input && input.format === 'pcm_f32')
         return { ...audio }
     }
-    if ((part.type === 'image' || part.type === 'audio') && part.data instanceof Uint8Array)
+    if ((part.type === 'image' || part.type === 'audio') && isUint8Array(part.data))
       return { ...formatPart(part) }
     return part
   })

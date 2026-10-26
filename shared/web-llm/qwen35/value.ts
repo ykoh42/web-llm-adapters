@@ -9,7 +9,14 @@ export function readValue(
   cache?: ArgumentSchemaCache,
 ) {
   const { types, unknownNegation } = argumentSchema(tool, name, cache)
-  const text = source.replace(/^\r?\n/, '').replace(/\r?\n$/, '')
+  const lineEnding = source.startsWith('\r\n') ? '\r\n' : source.startsWith('\n') ? '\n' : ''
+  let text = source
+  if (lineEnding) {
+    // Match the closing delimiter to the opener so a value's final `\r` survives.
+    text = text.slice(lineEnding.length)
+    const closing = lineEnding === '\r\n' && text.endsWith('\r\n') ? '\r\n' : '\n'
+    if (text.endsWith(closing)) text = text.slice(0, -closing.length)
+  } else text = text.replace(/\r?\n$/, '')
   if (types?.includes('string')) {
     if (types.includes('null') && text.trim() === 'null') {
       if (unknownNegation)

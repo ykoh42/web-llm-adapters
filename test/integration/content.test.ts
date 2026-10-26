@@ -1,5 +1,9 @@
 import { expect, it } from 'vitest'
-import type { ChatCompletionContentPart } from '@mlc-ai/web-llm'
+import {
+  ModelType,
+  postInitAndCheckFieldsChatCompletion,
+  type ChatCompletionContentPart,
+} from '@mlc-ai/web-llm'
 import { formatUserContent } from '../../shared/web-llm/content.js'
 
 const image = { type: 'image_url' as const, image_url: { url: 'https://example.org/image.png' } }
@@ -16,9 +20,12 @@ it('merges one contiguous text span and preserves its surrounding media', () => 
   expect(parts).toEqual(before)
 })
 
-it.each([[], [text('A'), text('B')]])('keeps text-only messages as strings %#', (...parts) => {
-  expect(formatUserContent(parts)).toBe(parts.map((part) => part.text).join(''))
-})
+it.each([[], [text('A')], [text('A'), text('B')]])(
+  'keeps text-only messages as strings %#',
+  (...parts) => {
+    expect(formatUserContent(parts)).toBe(parts.map((part) => part.text).join(''))
+  },
+)
 
 it.each([[image], [image, text('A'), image]])(
   'returns unmerged content unchanged %#',
@@ -27,8 +34,21 @@ it.each([[image], [image, text('A'), image]])(
   },
 )
 
-it('rejects text separated by media even when a text block is empty', () => {
-  expect(() => formatUserContent([text(''), image, text('B')])).toThrow(
+it('drops empty text around media while preserving the remaining content order', () => {
+  const output = formatUserContent([text(''), image, text('B'), text('')])
+
+  expect(output).toEqual([image, text('B')])
+  expect(() =>
+    postInitAndCheckFieldsChatCompletion(
+      { messages: [{ role: 'user', content: output }] },
+      'test-model',
+      ModelType.VLM,
+    ),
+  ).not.toThrow()
+})
+
+it('still rejects nonempty text separated by media', () => {
+  expect(() => formatUserContent([text('A'), image, text('B')])).toThrow(
     'cannot preserve text around media blocks',
   )
 })

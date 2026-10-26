@@ -1,5 +1,6 @@
 import type { BaseModelConfig } from '@strands-agents/sdk'
 import type { ChatCompletionChunk, Completion, MLCEngineInterface } from '@mlc-ai/web-llm'
+import type { ChunkCallback } from '../../../shared/web-llm/callback.js'
 import type { WebLLMRequest as NativeRequest } from '../../../shared/web-llm/request.js'
 
 /** Actual native chunks: chat requests or Gemma raw completions. */
@@ -20,6 +21,6 @@ export interface WebLLMModelConfig extends BaseModelConfig {
 
 export interface WebLLMModelOptions extends WebLLMModelConfig {
   engine: MLCEngineInterface
-  /** Receives native chunks, including log probabilities and WebLLM metadata. */
-  onChunk?: (chunk: WebLLMChunk) => void
+  /** Receives native chunks during inference; don't await work on the same engine. */
+  onChunk?: ChunkCallback<WebLLMChunk>
 }

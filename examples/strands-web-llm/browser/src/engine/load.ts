@@ -17,37 +17,40 @@ export async function openEngine(
     await import('@mlc-ai/web-llm')
   const config = { appConfig, initProgressCallback }
   let worker: Worker | undefined
-  let engine: MLCEngineInterface
-  switch (kind) {
-    case 'worker':
-      worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
-      engine = new WebWorkerMLCEngine(worker, config)
-      break
-    case 'service-worker':
-      await navigator.serviceWorker.register(serviceWorkerUrl, { type: 'module', scope: '/' })
-      await waitForController(new URL(serviceWorkerUrl, location.href).href)
-      engine = new ServiceWorkerMLCEngine(config)
-      break
-    case 'extension':
-      if (!globalThis.chrome?.runtime?.id)
-        throw new Error('Open the example inside its Chrome extension.')
-      engine = new ExtensionServiceWorkerMLCEngine(config)
-      break
-    case 'main':
-      engine = new MLCEngine(config)
-      break
-    default:
-      throw new Error('Choose Main thread, Web Worker, or Service Worker.')
-  }
-  const close = async () => {
-    try {
-      await engine.unload()
-    } finally {
-      worker?.terminate()
-      if (engine instanceof ExtensionServiceWorkerMLCEngine) engine.port.disconnect()
-    }
-  }
+  let engine: MLCEngineInterface | undefined
+  let closing: Promise<void> | undefined
+  const close = () =>
+    (closing ??= (async () => {
+      try {
+        await engine?.unload()
+      } finally {
+        worker?.terminate()
+        if (engine instanceof ExtensionServiceWorkerMLCEngine) engine.port.disconnect()
+      }
+    })())
   try {
+    switch (kind) {
+      case 'worker':
+        worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
+        engine = new WebWorkerMLCEngine(worker, config)
+        break
+      case 'service-worker':
+        await navigator.serviceWorker.register(serviceWorkerUrl, { type: 'module', scope: '/' })
+        await waitForController(new URL(serviceWorkerUrl, location.href).href)
+        engine = new ServiceWorkerMLCEngine(config)
+        break
+      case 'extension':
+        if (!globalThis.chrome?.runtime?.id)
+          throw new Error('Open the example inside its Chrome extension.')
+        engine = new ExtensionServiceWorkerMLCEngine(config)
+        break
+      case 'main':
+        engine = new MLCEngine(config)
+        break
+      default:
+        throw new Error('Choose Main thread, Web Worker, or Service Worker.')
+    }
+    if (!engine) throw new Error('Could not create the WebLLM engine.')
     const optionsFor = (id: string) => ({
       ...chatOptions(id),
       ...(contextWindow !== undefined && { context_window_size: contextWindow }),

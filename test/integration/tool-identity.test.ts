@@ -1,10 +1,81 @@
-import { expect, it } from 'vitest'
-import { Message, TextBlock, ToolUseBlock } from '@strands-agents/sdk'
+import { expect, it, vi } from 'vitest'
+import { Agent, FunctionTool, Message, TextBlock, ToolUseBlock } from '@strands-agents/sdk'
+import { createAgent } from 'langchain'
+import { tool } from '@langchain/core/tools'
+import { z } from 'zod'
 import { WebLLMModel } from '../../packages/strands-web-llm/src/index.js'
 import { ChatWebLLM } from '../../packages/langchain-web-llm/src/index.js'
 import { chunk, chunks, collect, setupEngine } from '../../fixtures/web-llm.js'
 
 for (const client of ['strands', 'langchain']) {
+  it(`${client} lets the framework handle an unknown native tool call`, async () => {
+    const { engine, create } = setupEngine(chunk({ content: 'Done' }, 'stop'))
+    create.mockResolvedValueOnce(
+      chunks(
+        chunk(
+          {
+            tool_calls: [
+              {
+                index: 0,
+                id: 'call-1',
+                function: { name: 'unregistered', arguments: '{}' },
+              },
+            ],
+          },
+          'tool_calls',
+        ),
+      ),
+    )
+    create.mockResolvedValueOnce(
+      chunks(
+        chunk(
+          {
+            tool_calls: [
+              { index: 0, id: 'call-2', function: { name: 'weather', arguments: '{}' } },
+            ],
+          },
+          'tool_calls',
+        ),
+      ),
+    )
+    const modelId = 'test-model'
+    const weather = vi.fn(() => 'Sunny')
+
+    if (client === 'strands') {
+      const model = new WebLLMModel({ engine, modelId })
+      const agent = new Agent({
+        model,
+        printer: false,
+        tools: [
+          new FunctionTool({ name: 'weather', description: 'Get the weather.', callback: weather }),
+        ],
+      })
+      const result = await agent.invoke('Run a tool.')
+      expect(result.lastMessage.content).toEqual([expect.objectContaining({ text: 'Done' })])
+      expect(weather).toHaveBeenCalledOnce()
+      expect(create).toHaveBeenCalledTimes(3)
+      expect(create.mock.calls[1]?.[0].messages).toContainEqual(
+        expect.objectContaining({ role: 'tool', tool_call_id: 'call-1' }),
+      )
+    } else {
+      const model = new ChatWebLLM({ engine, modelId })
+      const agent = createAgent({
+        model,
+        tools: [
+          tool(weather, { name: 'weather', description: 'Get the weather.', schema: z.object({}) }),
+        ],
+      })
+      const result = await agent.invoke({ messages: [{ role: 'user', content: 'Run a tool.' }] })
+      expect(result.messages.at(-1)).toMatchObject({
+        type: 'tool',
+        tool_call_id: 'call-1',
+        status: 'error',
+        content: expect.stringContaining('unregistered'),
+      })
+      expect(weather).not.toHaveBeenCalled()
+    }
+  })
+
   it.each(['together', 'separate'])(
     `${client} rejects duplicate tool IDs in %s chunks`,
     async (mode) => {

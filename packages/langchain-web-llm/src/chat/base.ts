@@ -1,6 +1,9 @@
 import { modelProfile } from './profile.js'
 import type { ModelProfile } from '@langchain/core/language_models/profile'
-import type { StructuredOutputMethodOptions } from '@langchain/core/language_models/base'
+import type {
+  BaseLanguageModelInput,
+  StructuredOutputMethodOptions,
+} from '@langchain/core/language_models/base'
 import {
   assembleStructuredOutputPipeline,
   createContentParser,
@@ -13,11 +16,10 @@ import {
   type SerializableSchema,
 } from '@langchain/core/utils/standard_schema'
 import type { Runnable, RunnableConfig } from '@langchain/core/runnables'
-import type { BaseLanguageModelInput } from '@langchain/core/language_models/base'
-import type {
+import {
   AIMessageChunk,
-  BaseMessage,
-  StandardMessageStructure,
+  type BaseMessage,
+  type StandardMessageStructure,
 } from '@langchain/core/messages'
 import {
   BaseChatModel,
@@ -34,7 +36,7 @@ import { stringifyJSON } from '../../../../shared/web-llm/json.js'
 import type { WebLLMModelOptions, WebLLMCallOptions, WebLLMRequest } from '../types.js'
 import { readEvents } from './events.js'
 import { waitForCallback } from '../../../../shared/web-llm/callback.js'
-import { checkRequest } from '../../../../shared/web-llm/request.js'
+import { checkRequest, preserveThinkingRequest } from '../../../../shared/web-llm/request.js'
 import { checkThinkingPrefill } from '../../../../shared/web-llm/qwen/prefill.js'
 
 export abstract class WebLLMChatModel extends BaseChatModel<
@@ -134,6 +136,7 @@ export abstract class WebLLMChatModel extends BaseChatModel<
     })
   }
 
+  // Keep inferred fields available with older WebLLM peer types.
   override invocationParams(options?: this['ParsedCallOptions']) {
     return { model: this.modelId, ...this.formatRequest(options) }
   }
@@ -152,6 +155,7 @@ export abstract class WebLLMChatModel extends BaseChatModel<
             : format,
       }),
     })
+    preserveThinkingRequest(request, options?.request?.extra_body, this.request.extra_body)
     if (request.response_format)
       request.response_format = normalizeResponseFormat(request.response_format)
     return request
@@ -249,6 +253,18 @@ export abstract class WebLLMChatModel extends BaseChatModel<
     for await (const chunk of this._streamResponseChunks(messages, options, runManager))
       result = result ? result.concat(chunk) : chunk
     if (!result) throw new Error('WebLLM returned no response.')
+    return this.finishResult(result)
+  }
+
+  protected finishResult(result: ChatGenerationChunk): ChatResult {
+    if (
+      result.generationInfo?.finish_reason === 'length' &&
+      AIMessageChunk.isInstance(result.message)
+    ) {
+      result.message.tool_calls = []
+      result.message.invalid_tool_calls = []
+      result.message.tool_call_chunks = []
+    }
     return { generations: [result] }
   }
 

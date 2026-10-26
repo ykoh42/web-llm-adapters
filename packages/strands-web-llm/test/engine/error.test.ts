@@ -11,15 +11,52 @@ it('preserves a wrapped worker overflow as the original cause', async () => {
   const failed = collect(model.stream([]))
   await expect(failed).rejects.toBeInstanceOf(ContextWindowOverflowError)
   await expect(failed).rejects.toHaveProperty('cause', error)
-  await expect(collect(model.stream([]))).resolves.toContainEqual({
-    type: 'modelMessageStopEvent',
-    stopReason: 'endTurn',
-  })
+  await expect(collect(model.stream([]))).resolves.toContainEqual(
+    expect.objectContaining({ type: 'modelMessageStopEvent', stopReason: 'endTurn' }),
+  )
 })
 
 it('keeps an existing Strands overflow error unchanged', () => {
   const error = new ContextWindowOverflowError('ContextWindowSizeExceededError: input is too long.')
   expect(modelError(error)).toBe(error)
+})
+
+it('preserves an error proxy when its prototype cannot be inspected', async () => {
+  const { model, create } = setup()
+  const error = new Proxy(new Error('Native failed'), {
+    getPrototypeOf() {
+      throw new Error('Cannot inspect provider prototype')
+    },
+  })
+  create.mockRejectedValueOnce(error)
+
+  const failure = await collect(model.stream([])).then(
+    () => undefined,
+    (error: unknown) => error,
+  )
+  expect(failure).toBe(error)
+})
+
+it('recognizes a proxied native context overflow', async () => {
+  const { model, create } = setup()
+  const native = Object.assign(new Error('ContextWindowSizeExceededError: input is too long.'), {
+    name: 'ContextWindowSizeExceededError',
+  })
+  const error = new Proxy(native, {
+    getPrototypeOf() {
+      throw new Error('Cannot inspect provider prototype')
+    },
+  })
+  create.mockRejectedValueOnce(error)
+
+  const failed = collect(model.stream([]))
+  await expect(failed).rejects.toBeInstanceOf(ContextWindowOverflowError)
+  await expect(failed).rejects.toHaveProperty(
+    'message',
+    'ContextWindowSizeExceededError: input is too long.',
+  )
+  const failure = await failed.catch((error: unknown) => error)
+  expect((failure as Error).cause).toBe(error)
 })
 
 describe.each([

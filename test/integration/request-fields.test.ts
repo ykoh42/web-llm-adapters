@@ -23,7 +23,6 @@ const fields = [
   { key: 'tool_choice', value: 'auto' },
   { key: 'n', value: 2 },
   { key: 'stream', value: false },
-  { key: 'stream_options', value: { include_usage: false } },
   { key: 'tools', value: undefined },
   { key: 'n', value: undefined },
 ]

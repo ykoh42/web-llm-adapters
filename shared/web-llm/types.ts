@@ -21,5 +21,14 @@ export class ModelError extends Error {
   override name = 'WebLLMError'
 }
 
+export function validateToolNames(tools: readonly ToolSpec[]) {
+  const names = new Set<string>()
+  for (const tool of tools) {
+    if (typeof tool.name !== 'string' || !tool.name || names.has(tool.name))
+      throw new ModelError('WebLLM tool names must be unique and non-empty.')
+    names.add(tool.name)
+  }
+}
+
 export type JSONValue =
   string | number | boolean | null | { [key: string]: JSONValue } | JSONValue[]

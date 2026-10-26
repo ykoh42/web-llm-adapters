@@ -207,3 +207,14 @@ for (const array of [false, true]) {
     })
   }
 }
+
+it('preserves leading whitespace split across native chunks', async () => {
+  const count = 4096
+  async function* source() {
+    for (let index = 0; index < count; index++) yield chunk({ content: ' ' })
+    yield chunk({ content: 'Answer' }, 'stop')
+  }
+
+  const parts = await collect(nativeChunks(source(), true))
+  expect(parts.map((part) => part.text).join('')).toBe(' '.repeat(count) + 'Answer')
+})

@@ -46,7 +46,62 @@ it.each([
 
 it.each(functionCallingModelIds)('reports native %s tool calling', (modelId) => {
   const { engine } = setup()
-  expect(new ChatWebLLM({ engine, modelId }).profile.toolCalling).toBe(true)
+  expect(new ChatWebLLM({ engine, modelId }).profile).toMatchObject({
+    toolCalling: true,
+    toolChoice: true,
+  })
+})
+
+it.each([
+  'gemma-4-E2B-it-q4f16_1-MLC',
+  'Qwen2.5-3B-Instruct-q4f16_1-MLC',
+  'Qwen3-4B-q4f16_1-MLC',
+  'Qwen3.5-4B-q4f16_1-MLC',
+])('reports %s tool choice support', (modelId) => {
+  const { engine } = setup()
+  expect(new ChatWebLLM({ engine, modelId }).profile).toMatchObject({
+    toolCalling: true,
+    toolChoice: true,
+  })
+})
+
+it.each([
+  { profile: { toolCalling: true }, toolChoice: true },
+  { profile: { toolCalling: true, toolChoice: false }, toolChoice: false },
+])('uses custom tool choice capability: $toolChoice', ({ profile, toolChoice }) => {
+  const { engine } = setup()
+  expect(new ChatWebLLM({ engine, modelId: 'custom-model', profile }).profile).toMatchObject({
+    toolCalling: true,
+    toolChoice,
+  })
+})
+
+it.each(['Phi-3.5-vision-instruct-q4f16_1-MLC', 'Phi-3.5-vision-instruct-q4f32_1-MLC'])(
+  'reports %s vision capabilities',
+  (modelId) => {
+    const { engine } = setup()
+    expect(new ChatWebLLM({ engine, modelId }).profile).toMatchObject({
+      imageInputs: true,
+      imageUrlInputs: true,
+      imageToolMessage: false,
+      audioInputs: false,
+      toolCalling: false,
+      toolChoice: false,
+      reasoningOutput: false,
+      structuredOutput: true,
+    })
+  },
+)
+
+it('profiles every vision model in the WebLLM catalog', () => {
+  const { engine } = setup()
+  const visionIds = prebuiltAppConfig.model_list
+    .filter((record) => record.model_type === ModelType.VLM)
+    .map((record) => record.model_id)
+
+  expect(visionIds.length).toBeGreaterThan(0)
+  for (const modelId of visionIds)
+    expect(new ChatWebLLM({ engine, modelId }).profile.imageInputs).toBe(true)
 })
 
 it.each([

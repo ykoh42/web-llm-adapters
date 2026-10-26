@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 
@@ -6,15 +6,14 @@ import { dirname, join } from 'node:path'
 export function checkTypes(directory: string, packageName: string): void {
   const require = createRequire(join(directory, 'package.json'))
   const ts: typeof import('typescript') = require('typescript')
-  if (typeof ts.createCompilerHost !== 'function') {
-    checkTypesWithCompiler(directory, packageName)
-    return
-  }
-
   const files = [
     join(directory, 'consumer.ts'),
     join(dirname(require.resolve(`${packageName}/runtime/manifest.json`)), '../index.d.ts'),
   ]
+  if (typeof ts.createCompilerHost !== 'function') {
+    checkNativeTypes(directory, files)
+    return
+  }
   for (const [module, moduleResolution] of [
     [ts.ModuleKind.ESNext, ts.ModuleResolutionKind.Bundler],
     [ts.ModuleKind.NodeNext, ts.ModuleResolutionKind.NodeNext],
@@ -51,35 +50,60 @@ export function checkTypes(directory: string, packageName: string): void {
   }
 }
 
-function checkTypesWithCompiler(directory: string, packageName: string): void {
-  const compiler = join(directory, 'node_modules', 'typescript', 'bin', 'tsc')
-  const consumer = join(directory, 'consumer.ts')
-  const declaration = join(directory, 'node_modules', packageName, 'dist/index.d.ts')
-  const checks = [
-    { module: 'ESNext', resolution: 'Bundler', files: [consumer, declaration] },
-    { module: 'NodeNext', resolution: 'NodeNext', files: [consumer] },
-  ]
-
-  for (const check of checks)
-    execFileSync(
-      process.execPath,
-      [
-        compiler,
-        '--noEmit',
-        '--strict',
-        '--exactOptionalPropertyTypes',
-        '--noUncheckedIndexedAccess',
-        '--skipLibCheck',
-        '--types',
-        'node',
-        '--target',
-        'ES2022',
-        '--module',
-        check.module,
-        '--moduleResolution',
-        check.resolution,
-        ...check.files,
-      ],
-      { cwd: directory, encoding: 'utf8', stdio: 'pipe' },
-    )
+function checkNativeTypes(directory: string, files: string[]): void {
+  const require = createRequire(join(directory, 'package.json'))
+  // The pinned native API checks our declarations without skipping every .d.ts file.
+  const {
+    API,
+  }: typeof import('@typescript/native/unstable/sync') = require('typescript/unstable/sync')
+  const temporary = mkdtempSync(join(directory, '.typecheck-'))
+  try {
+    for (const [module, moduleResolution] of [
+      ['ESNext', 'Bundler'],
+      ['NodeNext', 'NodeNext'],
+    ] as const) {
+      const config = join(temporary, `tsconfig.${moduleResolution}.json`)
+      writeFileSync(
+        config,
+        JSON.stringify({
+          compilerOptions: {
+            noEmit: true,
+            strict: true,
+            exactOptionalPropertyTypes: true,
+            noUncheckedIndexedAccess: true,
+            types: ['node'],
+            target: 'ES2022',
+            module,
+            moduleResolution,
+          },
+          files,
+        }),
+      )
+      const api = new API({ cwd: directory })
+      try {
+        const snapshot = api.updateSnapshot({ openProjects: [config] })
+        const program = snapshot.getProject(config)?.program
+        if (!program) throw new Error(`Missing typecheck project: ${config}`)
+        const checked = moduleResolution === 'Bundler' ? files : files.slice(0, 1)
+        for (const file of files)
+          if (!program.getSourceFileMetadata(file))
+            throw new Error(`Missing typecheck file: ${file}`)
+        const diagnostics = [
+          ...program.getConfigFileParsingDiagnostics(),
+          ...program.getProgramDiagnostics(),
+          ...program.getGlobalDiagnostics(),
+          ...program.getSyntacticDiagnostics(),
+          ...checked.flatMap((file) => [
+            ...program.getBindDiagnostics(file),
+            ...program.getSemanticDiagnostics(file),
+          ]),
+        ]
+        if (diagnostics.length) throw new Error(JSON.stringify(diagnostics, null, 2))
+      } finally {
+        api.close()
+      }
+    }
+  } finally {
+    rmSync(temporary, { recursive: true, force: true })
+  }
 }

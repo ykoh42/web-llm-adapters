@@ -10,6 +10,7 @@ npm install pi-ai-web-llm
 
 - Yarn: also install `@mlc-ai/web-llm` and `@earendil-works/pi-ai`. Check compatible versions with `yarn explain peer-requirements`.
 - pnpm: if dependency scripts are blocked, run [`pnpm approve-builds`](https://pnpm.io/cli/approve-builds) to allow or deny them, then rerun `pnpm install`.
+- TypeScript: use `moduleResolution: "bundler"` for full WebLLM option checking; its declarations lose type information under `NodeNext`.
 
 ## Use
 
@@ -88,9 +89,32 @@ try {
 
 The first load fetches WebLLM's runtime and model files. Inference runs locally. A main-thread `MLCEngine` also works; the browser example uses a Worker by default.
 
+While the engine is loaded, select a registered function for an API-specific call:
+
+```ts
+import { Type } from '@earendil-works/pi-ai'
+
+const result = await models.complete(
+  model,
+  {
+    messages: [{ role: 'user', content: 'Look up A7.', timestamp: Date.now() }],
+    tools: [
+      {
+        name: 'lookup',
+        description: 'Look up a code.',
+        parameters: Type.Object({ code: Type.String() }),
+      },
+    ],
+  },
+  { toolChoice: { type: 'function', function: { name: 'lookup' } } },
+)
+```
+
 You own the engine, model loading, and Worker. Creating or replacing a provider does not load or unload a model. Match `contextWindow` to the engine's actual loading configuration. To register multiple engines, assign distinct `providerId` values. Calls sharing the same engine run in order, including calls from the other adapters in this repository.
 
 For other native APIs, import `withEngine` from `pi-ai-web-llm` and await all work inside `withEngine(engine, callback)`, including consuming streams.
+
+With WebLLM 0.2.86, set `request.extra_body.resumable` to checkpoint chat, then call `resumeChatCompletion()` through `withEngine()`. WebLLM only resumes text-only requests without structured output or a custom logit processor; this does not restore Pi transcripts or agent state. Gemma tool and thinking requests use raw completions and cannot resume.
 
 ## Pi Agent Core
 
@@ -136,18 +160,18 @@ Install `@earendil-works/pi-durable` and `@earendil-works/chord` separately. `Me
 
 ## Support
 
-| Feature                                      | Behavior                                                                                        |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Text, thinking, tool calls                   | Pi `AssistantMessageEvent` streams; model-dependent                                             |
-| Tool results and history                     | Transcript system sections and tool updates are resolved before inference                       |
-| Cancellation                                 | `signal` interrupts generation without unloading; queued cancellation leaves active calls alone |
-| Errors                                       | Terminal Pi `error` events retain received text and available usage                             |
-| Token usage                                  | Native WebLLM counts; API cost is zero; cache and thinking breakdowns are not estimated         |
-| Images                                       | Base64 Pi image blocks require `imageInputs: true` and a compatible loaded artifact             |
-| Constrained tool schemas                     | `strict: 'prefer'` uses ordinary tools; `strict: 'require'` and grammar tools are rejected      |
-| Deferred requests and thinking token budgets | Unsupported                                                                                     |
+| Feature                                      | Behavior                                                                                                        |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Text, thinking, tool calls                   | Pi `AssistantMessageEvent` streams; model-dependent                                                             |
+| Tool results and history                     | Transcript system sections and tool updates are resolved before inference                                       |
+| Cancellation                                 | `signal` interrupts generation without unloading; queued cancellation leaves active calls alone                 |
+| Errors                                       | Terminal Pi `error` events retain received text and available usage                                             |
+| Token usage                                  | Native WebLLM counts; API cost is zero; cache and thinking breakdowns are not estimated                         |
+| Images                                       | Built-in Phi-3.5 Vision IDs enable base64 Pi image blocks by default; custom artifacts need `imageInputs: true` |
+| Constrained tool schemas                     | `strict: 'prefer'` uses ordinary tools; `strict: 'require'` and grammar tools are rejected                      |
+| Deferred requests and thinking token budgets | Unsupported                                                                                                     |
 
-Tool calls are published after native generation finishes and all calls have valid JSON object arguments. Truncated or malformed calls never become executable tool events. Pi still validates arguments against the tool schema before execution. Missing or mismatched tool results in replayed history produce errors; the adapter does not invent results.
+Available tool-call fragments are streamed. `toolcall_end` is emitted after generation finishes and all calls have valid JSON object arguments. Pi validates arguments against the tool schema before execution. Missing or mismatched tool results in replayed history produce errors; the adapter does not invent results.
 
 Images from tool results are sent as a user turn after the tool results, matching WebLLM's input format. Text on both sides of an image is rejected in user messages. User image input is verified with `Phi-3.5-vision-instruct-q4f16_1-MLC`.
 
@@ -159,9 +183,9 @@ Set `thinkingPrefilled: true` at construction if your loaded Qwen template alrea
 
 `streamSimple` and `completeSimple` follow Pi's thinking controls: omitted `reasoning` selects `off`; Pi chooses a supported level when needed. Levels do not select different native token budgets. `Agent` respects `thinkingLevel: 'off'` when the model supports it. Models that cannot reason reject an explicit reasoning request. Set `reasoning` on the provider options to override the model-family capability default.
 
-Full `stream` and `complete` calls preserve the native `request.extra_body.enable_thinking` default. Other native generation options can be set through `request` at construction or on full stream calls. Pi's `temperature` and `maxTokens` also work; `samplingParams` forwards WebLLM options and overrides named generation options, including thinking. Native `max_tokens: null` removes the output token cap. Request options cannot replace the provider's model, conversation, tools, or streaming mode.
+Full `stream` and `complete` calls preserve the native `request.extra_body.enable_thinking` default. Other native generation options can be set through `request` at construction or on full stream calls. A higher-priority `extra_body` replaces earlier WebLLM fields; `preserve_thinking` is retained unless overridden. Pi's `temperature` and `maxTokens` also work; `samplingParams` forwards WebLLM options and overrides named generation options, including thinking. Native `max_tokens: null` removes the output token cap. Request options cannot replace the provider's model, conversation, tools, or streaming mode.
 
-`onPayload` can inspect or replace the prepared native payload while preserving the loaded model and one streaming response. `onProviderStreamEvent` observes unchanged native chunks and is awaited in order. The provider-level `onChunk` is a synchronous native chunk observer. Callback failures fail the request and release the engine. HTTP-only options such as `fetch`, headers, retries, and `onResponse` do not apply to local inference. `timeoutMs` cancels a queued or active request.
+`onPayload` can inspect or replace the prepared native payload while preserving the loaded model and one streaming response. On WebLLM's native chat path, it may narrow Pi's registered tools but cannot add unknown tools or select a removed tool; returned calls are checked against that list. Gemma requests must keep the open protocol prefix intact. `onProviderStreamEvent` and provider-level `onChunk` callbacks are awaited in order; do not await work on the same engine from them. Callback failures fail the request and release the engine. HTTP-only options such as `fetch`, headers, retries, and `onResponse` do not apply to local inference. `timeoutMs` cancels a queued or active request.
 
 Qwen tools cannot be combined with native JSON output. For optional [Qwen tool-call constraints](https://github.com/ykoh42/web-llm-adapters#tool-call-constraints), set `request.constrainedToolCalls: true` with WebLLM 0.2.86. Install WebLLM `0.2.79` or later in the `0.2.x` series. Gemma 4 E2B was verified with WebLLM `0.2.86` and needs the bundled [runtime and protocol](https://github.com/ykoh42/web-llm-adapters/blob/main/shared/runtime/README.md). Gemma tools and thinking accept text and tool results only. Exact model artifacts determine support.
 
@@ -171,4 +195,4 @@ See the [verified models](https://github.com/ykoh42/web-llm-adapters#models) for
 
 Tested with Pi AI and Pi Agent Core **1.0.2** and **1.4.0**, and WebLLM **0.2.79** and **0.2.86**. Model availability depends on the installed WebLLM version.
 
-For Qwen3.5, declare object/array types to preserve XML in JSON. History cannot preserve `>` in top-level argument names or `<parameter=` / `</parameter>` in raw strings.
+Qwen3.5 preserves object/array arguments, type-less non-string `enum`/`const` values, and `anyOf`/`oneOf` unions without string branches as JSON. History rejects `<|im_start|>`, `<|im_end|>`, or `<|endoftext|>` in tool arguments, `>` in top-level argument names, and `<parameter=` / `</parameter>` in raw strings.

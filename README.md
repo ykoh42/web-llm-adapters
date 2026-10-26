@@ -63,16 +63,26 @@ Runnable examples use model-card sampling settings supported by WebLLM, except w
 
 ## Tool-call constraints
 
-With WebLLM **0.2.86**, all three adapters accept `request: { constrainedToolCalls: true }`
-for the Qwen models above. It constrains tool output using the existing tool definitions;
+WebLLM uses XGrammar for structured `response_format`; `structural_tag` is one format type, not a
+separate `xgrammar2` flag. Raw formats work on chat paths when the model supports them.
+`constrainedToolCalls` builds Qwen-specific tool grammar and is verified for every Qwen ID above.
+It does not add automatic tool constraints for other model formats. All three adapters accept it
+with WebLLM **0.2.86**. It uses the existing tool definitions;
 framework tool selection, thinking, and argument validation still apply. It can be slower or less accurate.
 It does not guarantee the intended tool call or argument values.
-Do not combine it with `request.response_format` or WebLLM resumable generation.
+Explicit text format is compatible; JSON, grammar, and structural-tag formats are not. WebLLM resumable generation is unsupported.
+The model table's `Tools` column means tool calls work; it does not indicate constrained decoding support.
+Gemma tool and thinking requests use WebLLM's Completion API, which does not accept `response_format`.
 
-Qwen3.5 accepts closed object schemas (`additionalProperties: false`) with fixed, typed properties.
-Raw string fields support `type`, `enum`, and `const`; JSON-valued fields must not use `$ref`.
+Qwen3.5 accepts closed object schemas (`additionalProperties: false`) with fixed properties.
+String enums and string `const` values can omit `type`.
+Type-less non-string `enum`/`const` values and `anyOf`/`oneOf` unions without string branches use JSON Schema constraints.
+Raw string fields support `type`, `enum`, and `const`; schema `$ref` references are unsupported,
+but literal `$ref` keys in JSON values are preserved.
 Unsupported XML shapes raise an error. JSON-valued fields retain native XGrammar limits;
 not every JSON Schema keyword is enforced. Omit the option for ordinary tool generation.
+
+Qwen3.5 tool history cannot safely replay message-boundary tokens such as `<|im_start|>`.
 
 ## Qwen3.5 engine setup
 

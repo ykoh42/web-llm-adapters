@@ -1,6 +1,8 @@
 import { ModelError, type ToolSpec, type ToolChoice } from '../types.js'
 import { stringifyJSON } from '../json.js'
 import { nativeTools } from '../native.js'
+import { containsMessageBoundaryToken } from './grammar.js'
+import { canUseXmlFunctionName } from './constraints.js'
 
 export function toolPrompt(tools: ToolSpec[], choice?: ToolChoice) {
   if (choice && !('auto' in choice) && !tools.length)
@@ -8,6 +10,7 @@ export function toolPrompt(tools: ToolSpec[], choice?: ToolChoice) {
   if (!tools.length) return ''
   if (choice && 'tool' in choice && !tools.some((tool) => tool.name === choice.tool.name))
     throw new ModelError('The chosen Qwen3.5 tool is not registered.')
+  for (const tool of tools) checkFunctionName(tool.name)
   const rules = [
     '# Tools',
     '',
@@ -53,6 +56,7 @@ function templateJson(value: unknown) {
 }
 
 export function formatCall(name: string, input: unknown) {
+  checkFunctionName(name)
   // Match the JSON values sent by native requests and browser transport.
   const args: unknown = JSON.parse(stringifyJSON(input))
   if (!isRecord(args)) throw new ModelError('Qwen3.5 tool arguments must be an object.')
@@ -65,6 +69,8 @@ export function formatCall(name: string, input: unknown) {
     )
       throw new ModelError('Qwen3.5 cannot preserve parameter tags in raw string arguments.')
     const text = typeof value === 'string' ? value : templateJson(value)
+    if (containsMessageBoundaryToken(text))
+      throw new ModelError('Qwen3.5 cannot preserve message-boundary tokens in tool arguments.')
     return `<parameter=${key}>\n${text}\n</parameter>`
   })
   return `<tool_call>\n<function=${name}>\n${parameters.join('\n')}${parameters.length ? '\n' : ''}</function>\n</tool_call>`
@@ -72,4 +78,9 @@ export function formatCall(name: string, input: unknown) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function checkFunctionName(name: string) {
+  if (!canUseXmlFunctionName(name))
+    throw new ModelError('Qwen3.5 tool names must be non-empty and cannot contain < or >.')
 }

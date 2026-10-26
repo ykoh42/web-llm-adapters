@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- Stream tool arguments and expose call IDs only after validation.
+- Use content events supported by LangChain Core 1.2.8 and later.
+- Keep text, thinking, and tool events in separate blocks.
+- Reject duplicate tool call IDs before returning tool calls.
+- Accept Qwen3.5 string enums and string `const` values without an explicit type.
+- Constrain type-less Qwen3.5 non-string `enum`/`const` values and JSON-only unions.
+- Allow explicit text format with constrained Qwen tool calls.
+- Reject incomplete or malformed Qwen tool calls instead of repairing their output.
+- Preserve cross-realm error types, causes, and provider fields across browser bridges.
+- Accept image, WAV, and PCM arrays created in another JavaScript realm.
+- Await async `onChunk` handlers and propagate their errors.
+- Keep browser errors when provider fields cannot be inspected.
+- Preserve native response creation times in metadata.
+- Report both WebLLM Phi-3.5 Vision precisions in model profiles.
+- Reject Qwen3.5 tool names that cannot be represented in XML.
+- Honor token callbacks enabled during a request.
+- Keep `preserve_thinking` when call-level requests set WebLLM options.
+- Reject non-array document lists before embedding.
 - Exclude runtime build tools from the npm package.
 - Avoid repeated Qwen tool-format serialization when no payload hook is used.
 

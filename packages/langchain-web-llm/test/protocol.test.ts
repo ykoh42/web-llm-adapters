@@ -25,6 +25,19 @@ function raw(text: string, finish: 'stop' | 'length' = 'stop') {
 }
 
 describe('model protocols', () => {
+  it('forwards WebLLM usage stream options', async () => {
+    const { engine, create } = setup(chunk({ content: 'Answer' }, 'stop'))
+    const model = new ChatWebLLM({
+      engine,
+      modelId: qwen,
+      request: { stream_options: { include_usage: false } },
+    })
+
+    await model.invoke('Hello')
+
+    expect(create.mock.calls[0]?.[0].stream_options).toEqual({ include_usage: false })
+  })
+
   it('constrains verified Qwen tool arguments on request and allows disabling it per call', async () => {
     const output = '<tool_call>{"name":"lookup","arguments":{"code":"A7"}}</tool_call>'
     const { engine, create } = setup(chunk({ content: output }, 'stop'))
@@ -242,6 +255,37 @@ describe('model protocols', () => {
     expect(history[1]?.content).toContainEqual({ type: 'reasoning', reasoning: 'Look up A7' })
   })
 
+  it('keeps Gemma reasoning when a per-call extra body sets native options', async () => {
+    const { engine } = setup()
+    const complete = vi.spyOn(engine.completions, 'create').mockImplementation(async () =>
+      (async function* () {
+        yield raw('<channel|>42')
+      })(),
+    )
+    const model = new ChatWebLLM({
+      engine,
+      modelId: gemmaId,
+      request: { extra_body: { enable_thinking: true, preserve_thinking: true } },
+    })
+    const history = [
+      new HumanMessage('Find A7'),
+      new AIMessage({
+        content: [{ type: 'reasoning', reasoning: 'Look up A7' }],
+        tool_calls: [{ id: 'call', name: 'lookup', args: { code: 'A7' } }],
+      }),
+      new ToolMessage({ content: '42', tool_call_id: 'call' }),
+      new HumanMessage('Repeat the answer'),
+    ]
+
+    await model.invoke(history, {
+      request: { extra_body: { enable_latency_breakdown: true } },
+    })
+
+    expect(complete.mock.calls[0]?.[0].prompt).toContain('<|channel>thought\nLook up A7')
+    expect(complete.mock.calls[0]?.[0].extra_body).toEqual({ enable_latency_breakdown: true })
+    expect(complete.mock.calls[0]?.[0].extra_body).not.toHaveProperty('preserve_thinking')
+  })
+
   it.each([
     { response_format: { type: 'json_object' as const } },
     { response_format: { schema: '{}' } },
@@ -445,9 +489,14 @@ describe('model protocols', () => {
     await expect(model.bindTools([definition]).invoke('Hi')).rejects.toThrow('structured response')
   })
 
-  it('uses the exact Qwen2.5 default and respects an explicitly empty system message', async () => {
+  it.each([
+    'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
+    'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
+    'Qwen2.5-3B-Instruct-q4f16_1-MLC',
+    'Qwen2.5-7B-Instruct-q4f16_1-MLC',
+  ])('%s keeps its system prompt and preserves an explicitly empty prompt', async (modelId) => {
     const { engine, create } = setup(chunk({ content: 'Hi' }, 'stop'))
-    const model = new ChatWebLLM({ engine, modelId: 'Qwen2.5-3B-Instruct-q4f16_1-MLC' })
+    const model = new ChatWebLLM({ engine, modelId })
     await model.invoke('Hi')
     expect(create.mock.calls[0]?.[0].messages[0]).toEqual({
       role: 'system',
@@ -455,6 +504,20 @@ describe('model protocols', () => {
     })
     await model.invoke([new SystemMessage(''), new HumanMessage('Hi')])
     expect(create.mock.calls[1]?.[0].messages[0]).toEqual({ role: 'system', content: '' })
+  })
+
+  it('keeps the Qwen2.5 system prompt with the tool protocol', async () => {
+    const { engine, create } = setup(chunk({ content: 'Hi' }, 'stop'))
+    const model = new ChatWebLLM({
+      engine,
+      modelId: 'Qwen2.5-3B-Instruct-q4f16_1-MLC',
+    })
+
+    await model.bindTools([definition]).invoke('Hi')
+
+    const system = create.mock.calls[0]?.[0].messages[0]?.content as string
+    expect(system).toContain('You may call one or more functions')
+    expect(system).toContain('You are Qwen, created by Alibaba Cloud. You are a helpful assistant.')
   })
 
   it('rejects unknown Qwen tool choices', async () => {

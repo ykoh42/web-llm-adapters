@@ -1,5 +1,7 @@
 import type { ChatCompletionContentPart } from '@mlc-ai/web-llm'
-import { pcmWav } from '../../../../shared/web-llm/audio.js'
+import { checkSampleRate, pcmWav } from '../../../../shared/web-llm/audio.js'
+import { base64Data } from '../../../../shared/web-llm/base64.js'
+import { isFloat32Array } from '../../../../shared/web-llm/typed-array.js'
 
 export function formatPart(
   value: unknown,
@@ -42,7 +44,7 @@ export function formatPart(
     if (value.input_audio.format === 'wav' && typeof value.input_audio.data === 'string')
       return { type: 'input_audio', input_audio: { format: 'wav', data: value.input_audio.data } }
     const { format, data, sample_rate } = value.input_audio
-    if (format === 'pcm_f32' && data instanceof Float32Array && typeof sample_rate === 'number') {
+    if (format === 'pcm_f32' && isFloat32Array(data) && typeof sample_rate === 'number') {
       if (pcmFormat === 'wav') {
         // Keep native errors for detached or out-of-bounds views.
         const samples = data.byteLength ? data : new Float32Array(data)
@@ -51,6 +53,7 @@ export function formatPart(
           input_audio: { format: 'wav', data: base64Data(pcmWav(samples, sample_rate))! },
         }
       }
+      checkSampleRate(sample_rate)
       return {
         type: 'input_audio',
         input_audio: { format, data: new Float32Array(data), sample_rate },
@@ -68,23 +71,6 @@ export function formatPart(
   throw new Error(
     `WebLLM cannot use this ${String(value.type)} block. Use image URLs/base64, WAV, or Float32 PCM audio.`,
   )
-}
-
-function base64Data(value: unknown): string | undefined {
-  if (typeof value === 'string') return value
-  if (!(value instanceof Uint8Array)) return undefined
-  if (!value.length) return ''
-  const prototype: Uint8Array & { toBase64?: () => string } = Uint8Array.prototype
-  if (typeof prototype.toBase64 === 'function') return prototype.toBase64.call(value)
-  if (typeof globalThis.Buffer === 'function')
-    return globalThis.Buffer.from(value.buffer, value.byteOffset, value.byteLength).toString(
-      'base64',
-    )
-
-  const parts: string[] = []
-  for (let index = 0; index < value.length; index += 0x6000)
-    parts.push(btoa(String.fromCharCode(...value.subarray(index, index + 0x6000))))
-  return parts.join('')
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

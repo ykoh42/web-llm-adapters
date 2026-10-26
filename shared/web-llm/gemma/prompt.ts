@@ -1,6 +1,7 @@
 import { ModelError, type ProtocolMessage, type ToolSpec } from '../types.js'
 import { writeValue } from './value.js'
 import { gemmaSchema } from './schema.js'
+import { validateToolName } from './markers.js'
 
 export function gemmaPrompt(
   history: readonly ProtocolMessage[],
@@ -12,6 +13,7 @@ export function gemmaPrompt(
   const start = first?.role === 'system' ? 1 : 0
   let prompt = '<|turn>system\n' + (thinking ? '<|think|>\n' : '') + system
   for (const tool of tools) {
+    validateToolName(tool.name)
     prompt +=
       '<|tool>declaration:' +
       tool.name +
@@ -62,6 +64,7 @@ export function gemmaPrompt(
     if (message.reasoning) prompt += '<|channel>thought\n' + message.reasoning + '\n<channel|>'
     prompt += message.content ?? ''
     for (const call of message.tool_calls ?? []) {
+      validateToolName(call.function.name)
       if (pending.has(call.id)) throw new ModelError('Gemma received a duplicate tool call ID.')
       const input: unknown = JSON.parse(call.function.arguments)
       prompt += '<|tool_call>call:' + call.function.name + writeValue(input) + '<tool_call|>'

@@ -42,13 +42,24 @@ async function request(client: string, modelId: string, prompt: string | undefin
 }
 
 for (const client of ['strands', 'langchain']) {
-  for (const modelId of ['test-model', hermes, 'Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC']) {
+  for (const modelId of [
+    'test-model',
+    hermes,
+    'Qwen2.5-3B-Instruct-q4f16_1-MLC',
+    'Qwen3-4B-q4f16_1-MLC',
+    'Qwen3.5-4B-q4f16_1-MLC',
+  ]) {
     it.each([undefined, '', ' ', 'Use these rules.'])(
       `${client} preserves the system prompt %j without native tools (${modelId})`,
       async (prompt) => {
         const value = await request(client, modelId, prompt)
+        const system =
+          prompt ??
+          (modelId.startsWith('Qwen2.5-')
+            ? 'You are Qwen, created by Alibaba Cloud. You are a helpful assistant.'
+            : undefined)
         expect(value.messages).toEqual([
-          ...(prompt !== undefined ? [{ role: 'system', content: prompt }] : []),
+          ...(system !== undefined ? [{ role: 'system', content: system }] : []),
           { role: 'user', content: 'Hi' },
         ])
       },
@@ -62,6 +73,14 @@ for (const client of ['strands', 'langchain']) {
       { role: 'user', content: 'Hi' },
     ])
   })
+
+  it.each(['Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC'])(
+    `${client} keeps the %s tool prompt without adding a default system message`,
+    async (modelId) => {
+      const value = await request(client, modelId, undefined, true)
+      expect(value.messages[0]?.content).not.toContain('You are a helpful assistant.')
+    },
+  )
 
   it.each([undefined, ''])(
     `${client} allows Hermes to supply its native tool prompt: %j`,

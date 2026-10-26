@@ -17,7 +17,8 @@ async function* forward<T>(source: AsyncGenerator<T>): AsyncGenerator<T> {
 
 it('bundles native chunks with parsed output without reading ahead', async () => {
   vi.stubGlobal('scheduler', { yield: turn })
-  const output = browserStream<number, string>([])
+  const chunks: string[] = []
+  const output = browserStream<number, string>(chunks)
   let reads = 0
   const source = forward(
     forward(
@@ -32,7 +33,9 @@ it('bundles native chunks with parsed output without reading ahead', async () =>
     ),
   )
   try {
-    expect(await output.next(source)).toEqual({ done: false, value: 1, chunks: ['raw'] })
+    const result = await output.next(source)
+    expect(result).toEqual({ done: false, value: 1, chunks: ['raw'] })
+    expect(result.chunks).toBe(chunks)
     expect(reads).toBe(1)
   } finally {
     await source.return(undefined)

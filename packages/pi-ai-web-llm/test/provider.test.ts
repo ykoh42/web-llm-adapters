@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Type, type Context, type Model, type Api } from '@earendil-works/pi-ai'
+import {
+  Type,
+  type Context,
+  type Model,
+  type Api,
+  type SimpleStreamOptions,
+} from '@earendil-works/pi-ai'
+import { ModelType, prebuiltAppConfig, type ChatCompletionTool } from '@mlc-ai/web-llm'
 import { createModels } from '@earendil-works/pi-ai/models'
 import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
 import { Agent } from '@earendil-works/pi-agent-core'
@@ -9,6 +16,7 @@ import {
   type WebLLMProviderOptions,
   type WebLLMStreamOptions,
 } from '../src/index.js'
+import { nativeTools } from '../../../shared/web-llm/native.js'
 
 const context: Context = { messages: [{ role: 'user', content: 'Hello', timestamp: 0 }] }
 const lookup = {
@@ -24,6 +32,16 @@ const call = (args = '{"code":"A7"}', name = 'lookup', id = 'call-1') =>
   )
 
 describe('Pi AI WebLLM provider', () => {
+  it('forwards WebLLM usage stream options', async () => {
+    const { models, model, create } = setup([chunk({ content: 'Answer' }, 'stop')])
+
+    await models.complete(model, context, {
+      request: { stream_options: { include_usage: false } },
+    })
+
+    expect(create.mock.calls[0]?.[0].stream_options).toEqual({ include_usage: false })
+  })
+
   it.each([false, true])(
     'uses Pi request telemetry without changing model I/O (simple=%s)',
     async (simple) => {
@@ -260,6 +278,33 @@ describe('Pi AI WebLLM provider', () => {
   })
 
   it.each([
+    'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
+    'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
+    'Qwen2.5-3B-Instruct-q4f16_1-MLC',
+    'Qwen2.5-7B-Instruct-q4f16_1-MLC',
+  ])('%s keeps its system prompt', async (modelId) => {
+    const { models, model, create } = setup(undefined, { modelId })
+
+    await models.completeSimple(model, context)
+
+    expect(create.mock.calls[0]?.[0].messages[0]).toEqual({
+      role: 'system',
+      content: 'You are Qwen, created by Alibaba Cloud. You are a helpful assistant.',
+    })
+  })
+
+  it('keeps the Qwen tool protocol when Pi supplies an empty system message', async () => {
+    const modelId = 'Qwen2.5-3B-Instruct-q4f16_1-MLC'
+    const { models, model, create } = setup(undefined, { modelId })
+
+    await models.completeSimple(model, tools)
+
+    const system = create.mock.calls[0]?.[0].messages[0]?.content as string
+    expect(system).toContain('You may call one or more functions')
+    expect(system).not.toContain('You are Qwen')
+  })
+
+  it.each([
     'loaded-model',
     'Qwen2.5-3B-Instruct-q4f16_1-MLC',
     'Qwen3-8B-q4f16_1-MLC',
@@ -326,7 +371,7 @@ describe('Pi AI WebLLM provider', () => {
     expect(input).toEqual(before)
   })
 
-  it('buffers native tool deltas into a complete Pi tool call', async () => {
+  it('streams native tool deltas into a complete Pi tool call', async () => {
     const { models, model } = setup([
       chunk({
         tool_calls: [{ index: 0, id: 'call-1', function: { name: 'look', arguments: '{"code":' } }],
@@ -340,6 +385,7 @@ describe('Pi AI WebLLM provider', () => {
     expect((await collect(stream)).map((event) => event.type)).toEqual([
       'start',
       'toolcall_start',
+      'toolcall_delta',
       'toolcall_delta',
       'toolcall_end',
       'done',
@@ -400,6 +446,39 @@ describe('Pi AI WebLLM provider', () => {
       })
     },
   )
+
+  it('does not execute a tool from a failed streamed call', async () => {
+    const { models, model, create } = setup([
+      chunk(
+        {
+          tool_calls: [
+            {
+              index: 0,
+              id: 'call-1',
+              type: 'function',
+              function: { name: 'lookup', arguments: '{' },
+            },
+          ],
+        },
+        'tool_calls',
+      ),
+    ])
+    const execute = vi.fn(async () => ({ content: [], details: {} }))
+    const agent = new Agent({
+      initialState: { model, tools: [{ ...lookup, label: 'Lookup', execute }] },
+      streamFn: models.streamSimple.bind(models),
+    })
+
+    await agent.prompt('Look up A7.')
+
+    expect(execute).not.toHaveBeenCalled()
+    expect(create).toHaveBeenCalledOnce()
+    expect(agent.state.messages.at(-1)).toMatchObject({
+      role: 'assistant',
+      stopReason: 'error',
+      content: [{ type: 'toolCall', id: 'call-1', name: 'lookup' }],
+    })
+  })
 
   it('rejects a tool call when its native ID changes between chunks', async () => {
     const { models, model } = setup([
@@ -514,6 +593,59 @@ describe('Pi AI WebLLM provider', () => {
     expect(create.mock.calls[1]?.[0]).not.toHaveProperty('constrainedToolCalls')
   })
 
+  it('keeps constrained tool parsing when onPayload only reorders JSON keys', async () => {
+    const output = '<tool_call>{"name":"lookup","arguments":{"code":"A7"}}</tool_call>'
+    const { models, model, create } = setup([chunk({ content: output }, 'stop')], {
+      modelId: 'Qwen3-4B-q4f16_1-MLC',
+    })
+    const result = await models.complete(model, tools, {
+      request: { constrainedToolCalls: true },
+      onPayload: (payload) => {
+        if (!payload || typeof payload !== 'object') throw new Error('Expected a native request.')
+        const format = 'response_format' in payload ? payload.response_format : undefined
+        const reordered = reverseKeys(format)
+        expect(JSON.stringify(reordered)).not.toBe(JSON.stringify(format))
+        return {
+          ...payload,
+          response_format: reordered,
+        }
+      },
+    })
+
+    expect(result.stopReason).toBe('toolUse')
+    expect(result.content).toContainEqual(
+      expect.objectContaining({ type: 'toolCall', name: 'lookup', arguments: { code: 'A7' } }),
+    )
+    expect(create.mock.calls[0]?.[0].response_format).toEqual(
+      expect.objectContaining({ type: 'structural_tag' }),
+    )
+  })
+
+  it('keeps constrained tool parsing when onPayload adds an undefined optional field', async () => {
+    const output = '<tool_call>{"name":"lookup","arguments":{"code":"A7"}}</tool_call>'
+    const { models, model, create } = setup([chunk({ content: output }, 'stop')], {
+      modelId: 'Qwen3-4B-q4f16_1-MLC',
+    })
+    let originalFormat: string | undefined
+    const result = await models.complete(model, tools, {
+      request: { constrainedToolCalls: true },
+      onPayload: (payload) => {
+        if (!payload || typeof payload !== 'object') throw new Error('Expected a native request.')
+        const format = 'response_format' in payload ? payload.response_format : undefined
+        if (!format) throw new Error('Expected constrained tool format.')
+        originalFormat = JSON.stringify(format)
+        return { ...payload, response_format: { ...format, schema: undefined } as typeof format }
+      },
+    })
+
+    expect(result.stopReason).toBe('toolUse')
+    expect(result.content).toContainEqual(
+      expect.objectContaining({ type: 'toolCall', name: 'lookup', arguments: { code: 'A7' } }),
+    )
+    expect(create.mock.calls).toHaveLength(1)
+    expect(JSON.stringify(create.mock.calls[0]?.[0].response_format)).toBe(originalFormat)
+  })
+
   it.each(['{', '[]', '{"code":1e999}', 'null'])(
     'does not publish executable tool calls for invalid arguments %s',
     async (args) => {
@@ -524,6 +656,22 @@ describe('Pi AI WebLLM provider', () => {
     },
   )
 
+  it('does not complete a valid Qwen call before a later unknown call fails', async () => {
+    const valid =
+      '<tool_call><function=lookup><parameter=code>A7</parameter></function></tool_call>'
+    const invalid = valid.replace('<function=lookup>', '<function=missing>')
+    const { models, model } = setup(
+      [chunk({ content: valid }), chunk({ content: invalid }, 'stop')],
+      { modelId: 'Qwen3.5-4B-q4f16_1-MLC' },
+    )
+    const stream = models.streamSimple(model, tools)
+    const events = await collect(stream)
+
+    expect(events.some((event) => event.type === 'toolcall_start')).toBe(true)
+    expect(events.filter((event) => event.type === 'toolcall_end')).toEqual([])
+    expect((await stream.result()).stopReason).toBe('error')
+  })
+
   it('does not execute a tool the model was not offered', async () => {
     const { models, model } = setup([call('{}', 'unregistered')])
     expect(await models.completeSimple(model, tools)).toMatchObject({
@@ -532,22 +680,351 @@ describe('Pi AI WebLLM provider', () => {
     })
   })
 
-  it('enforces toolChoice none and withholds truncated calls', async () => {
+  it('enforces toolChoice none and leaves truncated calls unfinished', async () => {
     const { models, model, create } = setup([call()])
     expect((await models.completeSimple(model, tools, { toolChoice: 'none' })).stopReason).toBe(
       'error',
     )
     expect(create.mock.calls[0]?.[0]).toHaveProperty('tool_choice', 'none')
+    const incomplete = call('{')
     create.mockResolvedValueOnce(
-      chunks({ ...call('{'), choices: [{ ...call().choices[0]!, finish_reason: 'length' }] }),
+      chunks({
+        ...incomplete,
+        choices: [{ ...incomplete.choices[0]!, finish_reason: 'length' }],
+      }),
     )
     const truncated = await models.completeSimple(model, tools)
-    expect(truncated).toMatchObject({ stopReason: 'length', content: [] })
+    expect(truncated).toMatchObject({
+      stopReason: 'length',
+      content: [{ type: 'toolCall', id: 'call-1', name: 'lookup', arguments: {} }],
+    })
+  })
+
+  it('selects a registered tool with WebLLM native tool choice', async () => {
+    const { models, model, create } = setup([call()])
+    const result = await models.complete(model, tools, {
+      toolChoice: { type: 'function', function: { name: 'lookup' } },
+    })
+
+    expect(create.mock.calls[0]?.[0].tool_choice).toEqual({
+      type: 'function',
+      function: { name: 'lookup' },
+    })
+    expect(result).toMatchObject({
+      stopReason: 'toolUse',
+      content: [expect.objectContaining({ type: 'toolCall', name: 'lookup' })],
+    })
+  })
+
+  it('uses the native tool choice selected by onPayload', async () => {
+    const { models, model, create } = setup([chunk({ content: 'No tool.' }, 'stop')])
+    const result = await models.complete(model, tools, {
+      toolChoice: { type: 'function', function: { name: 'lookup' } },
+      onPayload: (payload) => {
+        if (!payload || typeof payload !== 'object') throw new Error('Expected a native request.')
+        return { ...payload, tool_choice: 'none' }
+      },
+    })
+
+    expect(result.errorMessage).toBeUndefined()
+    expect(result.stopReason).toBe('stop')
+    expect(create.mock.calls[0]?.[0].tool_choice).toBe('none')
+  })
+
+  it('suppresses native tool JSON when onPayload adds a registered tool', async () => {
+    const callChunk = call()
+    const output = '[{"name":"lookup","arguments":{"code":"A7"}}]'
+    const { models, model } = setup([
+      chunk({ ...callChunk.choices[0]!.delta, content: output }, 'tool_calls'),
+    ])
+    const result = await models.complete(model, tools, {
+      toolChoice: 'none',
+      onPayload: (payload) => {
+        if (!payload || typeof payload !== 'object') throw new Error('Expected a native request.')
+        return {
+          ...payload,
+          tools: nativeTools([
+            {
+              name: 'lookup',
+              description: 'Look up a code.',
+              inputSchema: {
+                type: 'object',
+                properties: { code: { type: 'string' } },
+                required: ['code'],
+                additionalProperties: false,
+              },
+            },
+          ]),
+          tool_choice: 'auto',
+        }
+      },
+    })
+
+    expect(result.stopReason).toBe('toolUse')
+    expect(result.content).toEqual([
+      expect.objectContaining({ type: 'toolCall', name: 'lookup', arguments: { code: 'A7' } }),
+    ])
+  })
+
+  it('accepts the tool selected by onPayload', async () => {
+    const { models, model, create } = setup([call()])
+    const result = await models.complete(model, tools, {
+      onPayload: (payload) => {
+        if (!payload || typeof payload !== 'object') throw new Error('Expected a native request.')
+        return {
+          ...payload,
+          tool_choice: { type: 'function', function: { name: 'lookup' } },
+        }
+      },
+    })
+
+    expect(create.mock.calls[0]?.[0].tool_choice).toEqual({
+      type: 'function',
+      function: { name: 'lookup' },
+    })
+    expect(result).toMatchObject({
+      stopReason: 'toolUse',
+      content: [expect.objectContaining({ type: 'toolCall', name: 'lookup' })],
+    })
+  })
+
+  it('rejects a tool outside the native choice selected by onPayload', async () => {
+    const other = { ...lookup, name: 'search' }
+    const { models, model, create } = setup([call('{}', 'search')])
+    const result = await models.complete(
+      model,
+      { ...tools, tools: [lookup, other] },
+      {
+        onPayload: (payload) => {
+          if (!payload || typeof payload !== 'object') throw new Error('Expected a native request.')
+          return {
+            ...payload,
+            tool_choice: { type: 'function', function: { name: 'lookup' } },
+          }
+        },
+      },
+    )
+
+    expect(result).toMatchObject({ stopReason: 'error' })
+    expect(create.mock.calls[0]?.[0].tool_choice).toEqual({
+      type: 'function',
+      function: { name: 'lookup' },
+    })
+  })
+
+  it('rejects a tool choice outside the prepared tool list', async () => {
+    const { models, model, create } = setup()
+    const result = await models.complete(model, tools, {
+      onPayload: (payload) => {
+        if (!payload || typeof payload !== 'object') throw new Error('Expected a native request.')
+        return {
+          ...payload,
+          tool_choice: { type: 'function', function: { name: 'missing' } },
+        }
+      },
+    })
+
+    expect(result).toMatchObject({
+      stopReason: 'error',
+      errorMessage: 'onPayload selected a tool that is not in its tools list.',
+    })
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('rejects tools that are not registered with Pi before inference', async () => {
+    const { models, model, create } = setup()
+    const result = await models.complete(model, tools, {
+      onPayload: (payload) => {
+        if (
+          !payload ||
+          typeof payload !== 'object' ||
+          !('tools' in payload) ||
+          !Array.isArray(payload.tools)
+        )
+          throw new Error('Expected registered tools in the native request.')
+        const registeredTools = payload.tools as ChatCompletionTool[]
+        return {
+          ...payload,
+          tools: [
+            ...registeredTools,
+            {
+              type: 'function',
+              function: { name: 'missing', description: 'Unregistered.', parameters: {} },
+            },
+          ],
+        }
+      },
+    })
+
+    expect(result).toMatchObject({
+      stopReason: 'error',
+      errorMessage: 'onPayload cannot add tools that Pi has not registered.',
+    })
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('rejects duplicate registered tools in the prepared request', async () => {
+    const { models, model, create } = setup()
+    const result = await models.complete(model, tools, {
+      onPayload: (payload) => {
+        if (
+          !payload ||
+          typeof payload !== 'object' ||
+          !('tools' in payload) ||
+          !Array.isArray(payload.tools)
+        )
+          throw new Error('Expected registered tools in the native request.')
+        const registeredTools = payload.tools as ChatCompletionTool[]
+        return { ...payload, tools: [...registeredTools, registeredTools[0]!] }
+      },
+    })
+
+    expect(result).toMatchObject({
+      stopReason: 'error',
+      errorMessage: 'onPayload must keep tool names unique.',
+    })
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('rejects a tool removed by onPayload', async () => {
+    const other = { ...lookup, name: 'search' }
+    const { models, model, create } = setup([call('{}', 'search')])
+    const result = await models.complete(
+      model,
+      { ...tools, tools: [lookup, other] },
+      {
+        onPayload: (payload) => {
+          if (
+            !payload ||
+            typeof payload !== 'object' ||
+            !('tools' in payload) ||
+            !Array.isArray(payload.tools)
+          )
+            throw new Error('Expected registered tools in the native request.')
+          const registeredTools = payload.tools as ChatCompletionTool[]
+          return {
+            ...payload,
+            tools: registeredTools.filter((tool) => tool.function.name !== 'search'),
+          }
+        },
+      },
+    )
+
+    expect(result).toMatchObject({ stopReason: 'error' })
+    expect(create.mock.calls[0]?.[0].tools?.map((tool) => tool.function.name)).toEqual(['lookup'])
+  })
+
+  it('accepts a remaining tool when onPayload narrows the registered list', async () => {
+    const other = { ...lookup, name: 'search' }
+    const { models, model, create } = setup([call('{}', 'lookup')])
+    const result = await models.complete(
+      model,
+      { ...tools, tools: [lookup, other] },
+      {
+        onPayload: (payload) => {
+          if (
+            !payload ||
+            typeof payload !== 'object' ||
+            !('tools' in payload) ||
+            !Array.isArray(payload.tools)
+          )
+            throw new Error('Expected registered tools in the native request.')
+          const registeredTools = payload.tools as ChatCompletionTool[]
+          return {
+            ...payload,
+            tools: registeredTools.filter((tool) => tool.function.name !== 'search'),
+          }
+        },
+      },
+    )
+
+    expect(create.mock.calls[0]?.[0].tools?.map((tool) => tool.function.name)).toEqual(['lookup'])
+    expect(result).toMatchObject({
+      stopReason: 'toolUse',
+      content: [expect.objectContaining({ type: 'toolCall', name: 'lookup' })],
+    })
+  })
+
+  it('uses the named choice in the Qwen protocol and validates its tool call', async () => {
+    const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
+    const output =
+      '<tool_call><function=lookup><parameter=code>A7</parameter></function></tool_call>'
+    const { models, model, create } = setup([chunk({ content: output }, 'stop')], { modelId })
+    const result = await models.complete(model, tools, {
+      toolChoice: { type: 'function', function: { name: 'lookup' } },
+    })
+
+    expect(create.mock.calls[0]?.[0].messages[0]).toMatchObject({
+      role: 'system',
+      content: expect.stringContaining('Call only the lookup function.'),
+    })
+    expect(result).toMatchObject({
+      stopReason: 'toolUse',
+      content: [expect.objectContaining({ type: 'toolCall', name: 'lookup' })],
+    })
+  })
+
+  it('uses the named choice in the Gemma protocol', async () => {
+    const modelId = 'gemma-4-E2B-it-q4f16_1-MLC'
+    const { models, model, engine } = setup(undefined, { modelId })
+    const raw = vi.spyOn(engine.completions, 'create').mockImplementation(async () =>
+      (async function* () {
+        yield {
+          id: 'raw',
+          object: 'text_completion' as const,
+          model: modelId,
+          created: 0,
+          choices: [{ index: 0, text: '"code":"A7"}<tool_call|>', finish_reason: 'stop' as const }],
+        }
+      })(),
+    )
+    const result = await models.complete(model, tools, {
+      toolChoice: { type: 'function', function: { name: 'lookup' } },
+    })
+
+    expect(raw.mock.calls[0]?.[0].prompt).toContain('<|tool_call>call:lookup{')
+    expect(result).toMatchObject({
+      stopReason: 'toolUse',
+      content: [expect.objectContaining({ type: 'toolCall', name: 'lookup' })],
+    })
+  })
+
+  it('rejects an unregistered named tool before inference', async () => {
+    const { models, model, create } = setup([call()])
+    const result = await models.complete(model, tools, {
+      toolChoice: { type: 'function', function: { name: 'missing' } },
+    })
+
+    expect(result).toMatchObject({
+      stopReason: 'error',
+      errorMessage: expect.stringContaining('not registered'),
+    })
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('rejects a different registered tool returned for a named choice', async () => {
+    const other = { ...lookup, name: 'search' }
+    const { models, model, create } = setup([call('{}', 'search')])
+    const result = await models.complete(
+      model,
+      { ...tools, tools: [lookup, other] },
+      {
+        toolChoice: { type: 'function', function: { name: 'lookup' } },
+      },
+    )
+
+    expect(result).toMatchObject({
+      stopReason: 'error',
+      errorMessage: expect.stringContaining('outside tool_choice'),
+    })
+    expect(create).toHaveBeenCalledOnce()
   })
 
   it.each(
     [false, true].flatMap((simple) =>
-      ['required', 'lookup', 'none ', null].map((toolChoice) => ({ simple, toolChoice })),
+      ['required', 'lookup', 'none ', null, { type: 'function', function: { name: 7 } }].map(
+        (toolChoice) => ({ simple, toolChoice }),
+      ),
     ),
   )(
     'rejects unsupported JavaScript toolChoice $toolChoice before inference (simple=$simple)',
@@ -559,7 +1036,7 @@ describe('Pi AI WebLLM provider', () => {
       })
       const onPayload = vi.fn()
       const onProviderStreamEvent = vi.fn()
-      const options: WebLLMStreamOptions = { onPayload, onProviderStreamEvent }
+      const options: SimpleStreamOptions = { onPayload, onProviderStreamEvent }
       Object.assign(options, { toolChoice })
       const result = simple
         ? await models.completeSimple(model, tools, options)
@@ -567,7 +1044,7 @@ describe('Pi AI WebLLM provider', () => {
 
       expect(result).toMatchObject({
         stopReason: 'error',
-        errorMessage: 'toolChoice must be auto or none.',
+        errorMessage: 'toolChoice must be auto, none, or a function choice.',
         content: [],
       })
       expect(create).not.toHaveBeenCalled()
@@ -604,6 +1081,19 @@ describe('Pi AI WebLLM provider', () => {
       content: [{ type: 'text', text: 'Partial' }],
     })
     expect((await models.completeSimple(model, context)).stopReason).toBe('stop')
+  })
+
+  it('reports errors when a provider proxy rejects prototype inspection', async () => {
+    const { models, model, create } = setup()
+    const error = new Proxy(new TypeError('GPU lost'), {
+      getPrototypeOf() {
+        throw new Error('Cannot inspect provider prototype')
+      },
+    })
+    create.mockRejectedValueOnce(error)
+
+    const result = await models.completeSimple(model, context)
+    expect(result).toMatchObject({ stopReason: 'error', errorMessage: 'GPU lost' })
   })
 
   it('awaits native observers and interrupts after an observer cancels', async () => {
@@ -705,8 +1195,11 @@ describe('Pi AI WebLLM provider', () => {
     expect(create).not.toHaveBeenCalled()
   })
 
-  it('preserves base64 images on a vision model', async () => {
-    const { models, model, create } = setup(undefined, { imageInputs: true })
+  it.each([
+    ['Phi-3.5-vision-instruct-q4f16_1-MLC', {}],
+    ['custom-vision', { imageInputs: true }],
+  ] as const)('preserves base64 images on %s', async (modelId, options) => {
+    const { models, model, create } = setup(undefined, { modelId, ...options })
     await models.completeSimple(model, {
       messages: [
         {
@@ -729,4 +1222,34 @@ describe('Pi AI WebLLM provider', () => {
       },
     ])
   })
+
+  it('advertises every built-in WebLLM vision model', () => {
+    const ids = prebuiltAppConfig.model_list
+      .filter((record) => record.model_type === ModelType.VLM)
+      .map((record) => record.model_id)
+
+    for (const modelId of ids) {
+      const { model } = setup(undefined, { modelId })
+      expect(model.input).toEqual(['text', 'image'])
+    }
+  })
+
+  it('allows callers to disable built-in vision input', () => {
+    const { model } = setup(undefined, {
+      modelId: 'Phi-3.5-vision-instruct-q4f16_1-MLC',
+      imageInputs: false,
+    })
+
+    expect(model.input).toEqual(['text'])
+  })
 })
+
+function reverseKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(reverseKeys)
+  if (typeof value !== 'object' || value === null) return value
+  return Object.fromEntries(
+    Object.entries(value)
+      .reverse()
+      .map(([key, item]) => [key, reverseKeys(item)]),
+  )
+}

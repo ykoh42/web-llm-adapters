@@ -53,6 +53,36 @@ describe.each(['local', 'browser'])('%s callback errors', (mode) => {
       await bridge.close()
     }
   })
+
+  it('awaits async chunk callbacks and recovers after rejection', async () => {
+    const { engine, create, stop } = setup(chunk({ content: 'Recovered' }, 'stop'))
+    const bridge = createBrowserBridge(engine)
+    vi.stubGlobal('window', { webllmLangChainBridge: bridge })
+    const page: BrowserPage = {
+      async evaluate(run, input) {
+        const result = await run(structuredClone(input))
+        return result === undefined ? result : JSON.parse(JSON.stringify(result))
+      },
+    }
+    const onChunk = vi.fn().mockImplementationOnce(async () => {
+      await Promise.resolve()
+      throw new Error('Async observer failed')
+    })
+    const options = { modelId: 'test-model', maxRetries: 1, onChunk }
+    const model =
+      mode === 'local'
+        ? new ChatWebLLM({ engine, ...options })
+        : new BrowserChatWebLLM(page, options)
+    try {
+      await expect(model.invoke('Hi')).rejects.toThrow('Async observer failed')
+      expect(onChunk).toHaveBeenCalledOnce()
+      expect(stop).toHaveBeenCalledOnce()
+      expect((await model.invoke('Next')).text).toBe('Recovered')
+      expect(create).toHaveBeenCalledTimes(2)
+    } finally {
+      await bridge.close()
+    }
+  })
 })
 
 it.each([null, 0, 'Cancelled by caller'])(

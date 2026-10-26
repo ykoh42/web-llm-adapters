@@ -16,6 +16,7 @@ import {
   WebLLMModel,
   createBrowserBridge,
   type BrowserPage,
+  type WebLLMChunk,
 } from '../../src/index.js'
 import { chunk, chunks, collect, pause, setup } from '../../fixtures/engine.js'
 
@@ -46,7 +47,9 @@ it('delivers native tool chunks while the model is still generating arguments', 
     await bridge.close()
   }
   expect(onChunk).toHaveBeenCalledTimes(3)
-  expect(await pending).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'toolUse' })
+  expect(await pending).toContainEqual(
+    expect.objectContaining({ type: 'modelMessageStopEvent', stopReason: 'toolUse' }),
+  )
 })
 
 it.each(['abort', 'throw'])(
@@ -85,10 +88,9 @@ it.each(['abort', 'throw'])(
       expect(onChunk).toHaveBeenCalledTimes(1)
       expect(closed).toHaveBeenCalledTimes(1)
       expect(stop).toHaveBeenCalledTimes(1)
-      expect(await collect(plain.stream(messages))).toContainEqual({
-        type: 'modelMessageStopEvent',
-        stopReason: 'endTurn',
-      })
+      expect(await collect(plain.stream(messages))).toContainEqual(
+        expect.objectContaining({ type: 'modelMessageStopEvent', stopReason: 'endTurn' }),
+      )
     } finally {
       hold.resume()
       await bridge.close()
@@ -144,11 +146,11 @@ function open() {
   native.create.mockImplementation(async () => chunks(chunk({ content: 'Hi' }, 'stop')))
   const bridge = createBrowserBridge(native.engine)
   vi.stubGlobal('window', { webllmBridge: bridge })
-  // Exercise the JSON boundary in both directions, as a browser transport does.
+  // Simulate Playwright's page.evaluate result transfer.
   const page: BrowserPage = {
     evaluate: async (run, arg) => {
       const result = await run(arg)
-      return result === undefined ? result : JSON.parse(JSON.stringify(result))
+      return result === undefined ? result : structuredClone(result)
     },
   }
   const config = { modelId: 'test-model', maxTokens: 128, contextWindowLimit: 8192 }
@@ -203,6 +205,48 @@ it('delivers every native chunk once when bridge reads overlap', async () => {
   }
 })
 
+it('keeps browser output intact when the host callback mutates native chunks', async () => {
+  const { page, bridge, create } = open()
+  create.mockResolvedValueOnce(chunks(chunk({ content: 'Answer' }, 'stop')))
+  const onChunk = vi.fn((native: WebLLMChunk) => {
+    const choice = native.choices[0]
+    if (choice && 'delta' in choice) choice.delta.content = 'Changed'
+  })
+  const model = new BrowserModel(page, { modelId: 'test-model', onChunk })
+
+  try {
+    const output = await collect(model.stream(messages))
+    expect(onChunk).toHaveBeenCalledOnce()
+    expect(output).toContainEqual({
+      type: 'modelContentBlockDeltaEvent',
+      delta: { type: 'textDelta', text: 'Answer' },
+    })
+  } finally {
+    await bridge.close()
+  }
+})
+
+it('does not copy native chunks for the internal browser relay', async () => {
+  const { bridge, request, create } = open()
+  const native = chunk({ content: 'Hi' }, 'stop')
+  const copyChoices = vi.spyOn(native.choices, 'map')
+  create.mockResolvedValueOnce(chunks(native))
+  const id = await bridge.start({ ...request, includeChunks: true })
+  const received = []
+  try {
+    while (true) {
+      const result = await bridge.next(id)
+      if ('error' in result) throw new Error(result.error.message)
+      received.push(...(result.chunks ?? []))
+      if (result.done) break
+    }
+    expect(received[0]).toBe(native)
+    expect(copyChoices).not.toHaveBeenCalled()
+  } finally {
+    await bridge.stop(id)
+  }
+})
+
 it('prepares one stream event while the browser consumer handles the previous one', async () => {
   const { bridge, request, create } = open()
   const produced = vi.fn()
@@ -233,10 +277,9 @@ it('preserves Strands model errors across the browser boundary', async () => {
   invalid.choices[0]!.index = 1
   create.mockResolvedValueOnce(chunks(invalid))
   await expect(collect(model.stream(messages))).rejects.toBeInstanceOf(ModelError)
-  await expect(collect(model.stream(messages))).resolves.toContainEqual({
-    type: 'modelMessageStopEvent',
-    stopReason: 'endTurn',
-  })
+  await expect(collect(model.stream(messages))).resolves.toContainEqual(
+    expect.objectContaining({ type: 'modelMessageStopEvent', stopReason: 'endTurn' }),
+  )
 })
 
 it('delivers buffered native output before a browser stream failure', async () => {
@@ -261,10 +304,9 @@ it('delivers buffered native output before a browser stream failure', async () =
     })(),
   ).rejects.toBeInstanceOf(TypeError)
   expect(output.join('')).toBe(raw)
-  await expect(collect(model.stream(messages))).resolves.toContainEqual({
-    type: 'modelMessageStopEvent',
-    stopReason: 'endTurn',
-  })
+  await expect(collect(model.stream(messages))).resolves.toContainEqual(
+    expect.objectContaining({ type: 'modelMessageStopEvent', stopReason: 'endTurn' }),
+  )
   await bridge.close()
 })
 
@@ -314,7 +356,9 @@ it('delivers native chunks with logprobs through a Strands Agent in order', asyn
   const { page, create, model } = open()
   const first = chunk({ content: 'Hi' })
   first.choices[0]!.logprobs = {
-    content: [{ token: 'Hi', logprob: -0.25, bytes: [72, 105], top_logprobs: [] }],
+    content: [
+      { token: 'Hi', logprob: Number.NEGATIVE_INFINITY, bytes: [72, 105], top_logprobs: [] },
+    ],
   }
   const last = chunk({}, 'stop')
   create.mockResolvedValueOnce(chunks(first, last))
@@ -330,11 +374,13 @@ it('exposes log probabilities in the browser stop event', async () => {
   const { page, bridge, create } = open()
   const first = chunk({ content: 'Hi' })
   first.choices[0]!.logprobs = {
-    content: [{ token: 'Hi', logprob: -0.25, bytes: [72, 105], top_logprobs: [] }],
+    content: [
+      { token: 'Hi', logprob: Number.NEGATIVE_INFINITY, bytes: [72, 105], top_logprobs: [] },
+    ],
   }
   const last = chunk({}, 'stop')
   last.choices[0]!.logprobs = {
-    content: [{ token: '!', logprob: -0.5, bytes: [33], top_logprobs: [] }],
+    content: [{ token: '!', logprob: Number.NEGATIVE_INFINITY, bytes: [33], top_logprobs: [] }],
   }
   create.mockResolvedValueOnce(chunks(first, last))
   const model = new BrowserModel(page, {
@@ -349,10 +395,43 @@ it('exposes log probabilities in the browser stop event', async () => {
       additionalModelResponseFields: {
         logprobs: {
           content: [
-            { token: 'Hi', logprob: -0.25, bytes: [72, 105], top_logprobs: [] },
-            { token: '!', logprob: -0.5, bytes: [33], top_logprobs: [] },
+            {
+              token: 'Hi',
+              logprob: Number.NEGATIVE_INFINITY,
+              bytes: [72, 105],
+              top_logprobs: [],
+            },
+            { token: '!', logprob: Number.NEGATIVE_INFINITY, bytes: [33], top_logprobs: [] },
           ],
         },
+      },
+    })
+  } finally {
+    await bridge.close()
+  }
+})
+
+it('exposes the native response id and model in the browser stop event', async () => {
+  const { page, bridge, create } = open()
+  const first = chunk({ content: 'Hi' })
+  first.id = 'chatcmpl-123'
+  first.model = 'served-model'
+  first.created = 1_761_484_800
+  const last = chunk({}, 'stop')
+  last.id = first.id
+  last.model = first.model
+  last.created = first.created
+  create.mockResolvedValueOnce(chunks(first, last))
+  const model = new BrowserModel(page, { modelId: 'test-model' })
+
+  try {
+    const events = await collect(model.stream(messages))
+    const stop = events.find((event) => event.type === 'modelMessageStopEvent')
+    expect(stop).toMatchObject({
+      additionalModelResponseFields: {
+        id: 'chatcmpl-123',
+        model: 'served-model',
+        created: 1_761_484_800,
       },
     })
   } finally {
@@ -369,10 +448,9 @@ it('delivers the native chunk that caused a protocol error before reporting it',
   const browser = new BrowserModel(page, { ...model.getConfig(), onChunk })
   await expect(collect(browser.stream(messages))).rejects.toThrow('one response')
   expect(onChunk).toHaveBeenCalledExactlyOnceWith(invalid)
-  await expect(collect(browser.stream(messages))).resolves.toContainEqual({
-    type: 'modelMessageStopEvent',
-    stopReason: 'endTurn',
-  })
+  await expect(collect(browser.stream(messages))).resolves.toContainEqual(
+    expect.objectContaining({ type: 'modelMessageStopEvent', stopReason: 'endTurn' }),
+  )
 })
 
 it('closes the native stream when the Node.js chunk callback throws', async () => {
@@ -396,10 +474,36 @@ it('closes the native stream when the Node.js chunk callback throws', async () =
   await expect(collect(browser.stream(messages))).rejects.toThrow('Callback failed')
   expect(closed).toHaveBeenCalledOnce()
   expect(stop).toHaveBeenCalledOnce()
-  await expect(collect(model.stream(messages))).resolves.toContainEqual({
-    type: 'modelMessageStopEvent',
-    stopReason: 'endTurn',
+  await expect(collect(model.stream(messages))).resolves.toContainEqual(
+    expect.objectContaining({ type: 'modelMessageStopEvent', stopReason: 'endTurn' }),
+  )
+})
+
+it('closes the native stream when the Node.js async chunk callback rejects', async () => {
+  const { page, model, create, stop } = open()
+  const closed = vi.fn()
+  create.mockResolvedValueOnce(
+    (async function* () {
+      try {
+        yield chunk({ content: 'Hi' })
+      } finally {
+        closed()
+      }
+    })(),
+  )
+  const browser = new BrowserModel(page, {
+    ...model.getConfig(),
+    onChunk: async () => {
+      await Promise.resolve()
+      throw new Error('Async callback failed')
+    },
   })
+  await expect(collect(browser.stream(messages))).rejects.toThrow('Async callback failed')
+  expect(closed).toHaveBeenCalledOnce()
+  expect(stop).toHaveBeenCalledOnce()
+  await expect(collect(model.stream(messages))).resolves.toContainEqual(
+    expect.objectContaining({ type: 'modelMessageStopEvent', stopReason: 'endTurn' }),
+  )
 })
 
 it('does not transfer native chunks unless requested', async () => {
@@ -570,10 +674,9 @@ it.each(['overflow', 'native', 'string'] as const)(
       await expect(failed).rejects.toMatchObject({
         name: kind === 'native' ? 'NativeError' : 'Error',
       })
-    await expect(collect(model.stream(messages))).resolves.toContainEqual({
-      type: 'modelMessageStopEvent',
-      stopReason: 'endTurn',
-    })
+    await expect(collect(model.stream(messages))).resolves.toContainEqual(
+      expect.objectContaining({ type: 'modelMessageStopEvent', stopReason: 'endTurn' }),
+    )
   },
 )
 
@@ -601,10 +704,9 @@ it('stops an abandoned browser iterator on abort and releases the shared engine'
   controller.abort(new Error('Stopped'))
   await closed.wait
   expect(stop).toHaveBeenCalledTimes(1)
-  await expect(collect(model.stream(messages))).resolves.toContainEqual({
-    type: 'modelMessageStopEvent',
-    stopReason: 'endTurn',
-  })
+  await expect(collect(model.stream(messages))).resolves.toContainEqual(
+    expect.objectContaining({ type: 'modelMessageStopEvent', stopReason: 'endTurn' }),
+  )
   await first.return(undefined)
 })
 
@@ -631,10 +733,9 @@ it('cleans up after early consumer return', async () => {
   await stream.next()
   await stream.return(undefined)
   expect(stop).toHaveBeenCalledTimes(1)
-  await expect(collect(model.stream(messages))).resolves.toContainEqual({
-    type: 'modelMessageStopEvent',
-    stopReason: 'endTurn',
-  })
+  await expect(collect(model.stream(messages))).resolves.toContainEqual(
+    expect.objectContaining({ type: 'modelMessageStopEvent', stopReason: 'endTurn' }),
+  )
 })
 
 it('waits for every stream to close and leaves engine unloading to the caller', async () => {
@@ -672,10 +773,9 @@ it('keeps a failed stop visible to the consumer and still permits reuse', async 
   const first = model.stream(messages)
   await first.next()
   await expect(first.return(undefined)).rejects.toThrow('Interrupt failed')
-  await expect(collect(model.stream(messages))).resolves.toContainEqual({
-    type: 'modelMessageStopEvent',
-    stopReason: 'endTurn',
-  })
+  await expect(collect(model.stream(messages))).resolves.toContainEqual(
+    expect.objectContaining({ type: 'modelMessageStopEvent', stopReason: 'endTurn' }),
+  )
 })
 
 it('forwards tool choices and trailing context without sharing per-call options', async () => {

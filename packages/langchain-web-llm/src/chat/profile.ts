@@ -10,6 +10,10 @@ const nativeToolModels = new Set([
   'Hermes-3-Llama-3.1-8B-q4f32_1-MLC',
   'Hermes-3-Llama-3.1-8B-q4f16_1-MLC',
 ])
+const visionModels = new Set([
+  'Phi-3.5-vision-instruct-q4f16_1-MLC',
+  'Phi-3.5-vision-instruct-q4f32_1-MLC',
+])
 
 export function modelProfile(
   modelId: string,
@@ -25,10 +29,12 @@ export function modelProfile(
   if (profile.midConversationTools) throw new Error('WebLLM cannot add tools mid-conversation.')
   const gemma = /^gemma-4-/i.test(modelId)
   const qwen = isQwen(modelId) || isQwen35(modelId)
-  const vision = modelId === 'Phi-3.5-vision-instruct-q4f16_1-MLC'
+  const vision = visionModels.has(modelId)
   const nativeTools = nativeToolModels.has(modelId)
+  const toolCalling = profile.toolCalling ?? (nativeTools || qwen || gemma)
+  const toolChoice = profile.toolChoice ?? toolCalling
   return {
-    toolCalling: nativeTools || qwen || gemma,
+    toolCalling,
     ...(!nativeTools && { structuredOutput: true }),
     ...((qwen || gemma) && { reasoningOutput: !modelId.startsWith('Qwen2.5-') }),
     ...((nativeTools || qwen || gemma) && {
@@ -46,6 +52,7 @@ export function modelProfile(
       structuredOutput: true,
     }),
     ...structuredClone(profile),
+    toolChoice,
     midConversationSystemMessages: false,
     midConversationTools: false,
     ...(gemma && request?.extra_body?.enable_thinking === true && { structuredOutput: false }),

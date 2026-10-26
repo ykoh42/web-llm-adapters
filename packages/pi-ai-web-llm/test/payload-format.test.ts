@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Type } from '@earendil-works/pi-ai'
+import { pause } from '../../../fixtures/web-llm.js'
 import { chunk, setup } from './helpers.js'
 
 const context = { messages: [{ role: 'user' as const, content: 'Hello', timestamp: 0 }] }
@@ -7,6 +8,96 @@ const json = { type: 'json_object' as const, schema: '{}' }
 const text = { type: 'text' as const }
 
 describe('Pi payload format changes', () => {
+  it.each([
+    { mode: 'removed', tools: undefined },
+    { mode: 'null', tools: null },
+  ])('streams array text immediately with $mode tools after onPayload', async (test) => {
+    const finish = pause()
+    const { models, model, create } = setup()
+    create.mockImplementationOnce(async () =>
+      (async function* () {
+        yield chunk({ content: '[1' })
+        await finish.wait
+        yield chunk({ content: ',2]' }, 'stop')
+      })(),
+    )
+    const stream = models.stream(
+      model,
+      {
+        ...context,
+        tools: [{ name: 'lookup', description: 'Look up a code.', parameters: Type.Object({}) }],
+      },
+      {
+        onPayload: (payload) => {
+          if (!payload || typeof payload !== 'object') throw new Error('Expected a native request.')
+          return { ...payload, tools: test.tools, tool_choice: 'none' }
+        },
+      },
+    )
+    const deltas: string[] = []
+    const consume = (async () => {
+      for await (const event of stream) if (event.type === 'text_delta') deltas.push(event.delta)
+    })()
+    try {
+      await vi.waitFor(() => expect(deltas).toEqual(['[1']))
+    } finally {
+      finish.resume()
+      await consume
+    }
+
+    expect(deltas).toEqual(['[1', ',2]'])
+    expect(await stream.result()).toMatchObject({
+      stopReason: 'stop',
+      content: [{ type: 'text', text: '[1,2]' }],
+    })
+    expect(create).toHaveBeenCalledOnce()
+    expect(create.mock.calls[0]?.[0].tools).toEqual(test.tools)
+    expect(create.mock.calls[0]?.[0].tool_choice).toBe('none')
+  })
+
+  it('keeps native tool parsing for an empty tools list selected by onPayload', async () => {
+    const output = '[{"name":"lookup","arguments":{}}]'
+    const { models, model } = setup([
+      chunk({ content: output }),
+      chunk(
+        {
+          tool_calls: [
+            {
+              index: 0,
+              id: 'call',
+              type: 'function',
+              function: { name: 'lookup', arguments: '{}' },
+            },
+          ],
+        },
+        'tool_calls',
+      ),
+    ])
+    const stream = models.stream(
+      model,
+      {
+        ...context,
+        tools: [{ name: 'lookup', description: 'Look up a code.', parameters: Type.Object({}) }],
+      },
+      {
+        onPayload: (payload) => {
+          if (!payload || typeof payload !== 'object') throw new Error('Expected a native request.')
+          return { ...payload, tools: [] }
+        },
+      },
+    )
+    const events = []
+    for await (const event of stream) events.push(event)
+
+    expect(events.filter((event) => event.type === 'text_delta')).toEqual([])
+    expect(events.filter((event) => event.type === 'toolcall_end')).toEqual([])
+    expect(await stream.result()).toMatchObject({
+      stopReason: 'error',
+      content: [{ type: 'toolCall', id: 'call', name: 'lookup', arguments: {} }],
+      errorMessage: expect.stringContaining('unknown tool'),
+    })
+  })
+
   describe.each(['Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC'])(
     '%s thinking stops',
     (modelId) => {
@@ -124,6 +215,101 @@ describe('Pi payload format changes', () => {
     expect(response).toMatchObject({
       stopReason: test.stopReason,
       content: [{ type: 'thinking', thinking: 'Plan' }],
+    })
+  })
+
+  it('rejects a Gemma tool prefix changed by onPayload', async () => {
+    const { models, model, engine } = setup(undefined, {
+      modelId: 'gemma-4-E2B-it-q4f16_1-MLC',
+    })
+    const create = vi.spyOn(engine.completions, 'create').mockImplementation(async () =>
+      (async function* () {
+        yield {
+          id: 'raw',
+          object: 'text_completion' as const,
+          model: model.id,
+          created: 0,
+          choices: [{ index: 0, text: '"code":"A7"}<tool_call|>', finish_reason: 'stop' as const }],
+        }
+      })(),
+    )
+    const tools = ['lookup', 'search'].map((name) => ({
+      name,
+      description: `${name} a code.`,
+      parameters: Type.Object({ code: Type.String() }),
+    }))
+    const response = await models.complete(
+      model,
+      { ...context, tools },
+      {
+        toolChoice: { type: 'function', function: { name: 'lookup' } },
+        onPayload: (payload) => {
+          if (
+            !payload ||
+            typeof payload !== 'object' ||
+            !('prompt' in payload) ||
+            typeof payload.prompt !== 'string'
+          )
+            throw new Error('Expected a Gemma completion request.')
+          return {
+            ...payload,
+            prompt: payload.prompt.replace('call:lookup{', 'call:search{'),
+          }
+        },
+      },
+    )
+
+    expect(response).toMatchObject({
+      stopReason: 'error',
+      errorMessage: 'onPayload cannot change the Gemma protocol prefix.',
+    })
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('keeps the Gemma tool prefix when onPayload changes earlier prompt text', async () => {
+    const { models, model, engine } = setup(undefined, {
+      modelId: 'gemma-4-E2B-it-q4f16_1-MLC',
+    })
+    const create = vi.spyOn(engine.completions, 'create').mockImplementation(async () =>
+      (async function* () {
+        yield {
+          id: 'raw',
+          object: 'text_completion' as const,
+          model: model.id,
+          created: 0,
+          choices: [{ index: 0, text: '"code":"A7"}<tool_call|>', finish_reason: 'stop' as const }],
+        }
+      })(),
+    )
+    const tools = [
+      {
+        name: 'lookup',
+        description: 'Look up a code.',
+        parameters: Type.Object({ code: Type.String() }),
+      },
+    ]
+    const response = await models.complete(
+      model,
+      { ...context, tools },
+      {
+        toolChoice: { type: 'function', function: { name: 'lookup' } },
+        onPayload: (payload) => {
+          if (
+            !payload ||
+            typeof payload !== 'object' ||
+            !('prompt' in payload) ||
+            typeof payload.prompt !== 'string'
+          )
+            throw new Error('Expected a Gemma completion request.')
+          return { ...payload, prompt: payload.prompt.replace('Hello', 'Find code') }
+        },
+      },
+    )
+
+    expect(create.mock.calls[0]?.[0].prompt).toContain('Find code')
+    expect(response).toMatchObject({
+      stopReason: 'toolUse',
+      content: [expect.objectContaining({ type: 'toolCall', name: 'lookup' })],
     })
   })
 

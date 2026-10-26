@@ -6,13 +6,14 @@ import { withEngine } from '../../../../shared/web-llm/engine/access.js'
 import {
   defaultEmbeddingBatchSize,
   validateEmbeddingBatchSize,
-  validateEmbeddingTexts,
+  copyEmbeddingTexts,
+  validateEmbeddingText,
 } from './input.js'
 
 export interface WebLLMEmbeddingsOptions extends EmbeddingsParams {
   engine: MLCEngineInterface
   modelId: string
-  /** Maximum documents sent per WebLLM request. Defaults to 32. */
+  /** Maximum documents per request; WebLLM splits to the artifact's GPU batch limit. Defaults to 32. */
   batchSize?: number
   /** Defaults to Snowflake Arctic's recommended search prefix for Snowflake models. */
   queryPrefix?: string
@@ -50,15 +51,14 @@ export class WebLLMEmbeddings extends Embeddings {
   }
 
   override async embedQuery(query: string): Promise<number[]> {
-    validateEmbeddingTexts([query])
+    validateEmbeddingText(query)
     const [vector] = await this.embed([this.queryPrefix + query])
     return vector!
   }
 
   private async embed(input: string[]): Promise<number[][]> {
-    const texts = [...input]
+    const texts = copyEmbeddingTexts(input)
     if (!texts.length) return []
-    validateEmbeddingTexts(texts)
     const vectors: number[][] = []
     for (let offset = 0; offset < texts.length; offset += this.batchSize) {
       const batch = texts.slice(offset, offset + this.batchSize)

@@ -129,6 +129,29 @@ it('preserves an embedding context error across a real JSON error boundary witho
   await bridge.close()
 })
 
+it('restores a proxied embedding context error through the browser bridge', async () => {
+  const { engine, bridge, page } = browser()
+  const native = Object.assign(new Error('The input is too long.'), {
+    name: 'EmbeddingExceedContextWindowSizeError',
+  })
+  const error = new Proxy(native, {
+    getPrototypeOf() {
+      throw new Error('Cannot inspect provider prototype')
+    },
+  })
+  const create = vi.spyOn(engine.embeddings, 'create').mockRejectedValue(error)
+  const model = new BrowserWebLLMEmbeddings(page, { modelId: 'embedding-model', maxRetries: 1 })
+
+  const failure = await model.embedQuery('Orchid').catch((error: unknown) => error)
+
+  expect(ContextOverflowError.isInstance(failure)).toBe(true)
+  expect(getRetryable(failure)).toBe(false)
+  expect(failure).toHaveProperty('cause.name', native.name)
+  expect(failure).toHaveProperty('cause.message', native.message)
+  expect(create).toHaveBeenCalledOnce()
+  await bridge.close()
+})
+
 it('does not retry a malformed browser embedding response', async () => {
   const { page, engine, bridge } = browser()
   const create = vi.spyOn(engine.embeddings, 'create').mockResolvedValue({

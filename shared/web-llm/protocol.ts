@@ -17,11 +17,13 @@ import { isQwen35 } from './qwen35/models.js'
 import { isTextFormat } from './response.js'
 import { streamCall } from './engine/call.js'
 import type { StreamChunk } from './stream/chunks.js'
+import type { ChunkCallback } from './callback.js'
 import { nativeChunks, nativeHistory, nativeTools } from './native.js'
-import type { ProtocolMessage, ToolSpec, ToolChoice } from './types.js'
-import { nativeRequest, preserveThinking, type WebLLMRequest } from './request.js'
+import { validateToolNames, type ProtocolMessage, type ToolSpec, type ToolChoice } from './types.js'
+import { nativeRequest, preserveThinking, streamOptions, type WebLLMRequest } from './request.js'
 import { singleToolChoice } from './stream/choice.js'
 import { qwenToolResponseFormat } from './qwen/constraints.js'
+import { sameJSON } from './json.js'
 
 export type { WebLLMRequest }
 export type WebLLMChunk = ChatCompletionChunk | Completion
@@ -34,6 +36,7 @@ async function keepRequest<T extends NativeRequest>(request: T): Promise<T> {
 
 export interface ProtocolInput {
   prepare?: <T extends NativeRequest>(request: T) => Promise<T>
+  onPrepared?: (request: ChatCompletionRequestStreaming) => void
   open?: <T>(run: () => Promise<AsyncIterable<T>>) => Promise<AsyncIterable<T>>
   engine: MLCEngineInterface
   modelId: string
@@ -42,7 +45,9 @@ export interface ProtocolInput {
   tools: ToolSpec[]
   choice: ToolChoice | 'none' | undefined
   request: WebLLMRequest
-  onChunk?: ((chunk: WebLLMChunk) => void) | undefined
+  onChunk?: ChunkCallback<WebLLMChunk> | undefined
+  /** Defaults to true; adapters can disable snapshots for internal observers. */
+  onChunkMayMutate?: boolean | undefined
   signal?: AbortSignal | undefined
 }
 
@@ -50,6 +55,7 @@ export function protocolStream({
   engine,
   open = (run) => run(),
   prepare = keepRequest,
+  onPrepared,
   modelId,
   thinkingPrefilled = false,
   history,
@@ -57,12 +63,14 @@ export function protocolStream({
   choice,
   request,
   onChunk,
+  onChunkMayMutate = true,
   signal,
 }: ProtocolInput): AsyncIterable<StreamChunk> {
   const gemma = /^gemma-4-/i.test(modelId)
   const preserve = preserveThinking(modelId, request)
   const structured = !isTextFormat(request.response_format)
   if (choice === 'none') tools = []
+  validateToolNames(tools)
   const toolResponseFormat = qwenToolResponseFormat(
     modelId,
     request,
@@ -85,7 +93,7 @@ export function protocolStream({
     ...nativeRequest(request, modelId),
     model: modelId,
     stream: true as const,
-    stream_options: { include_usage: true },
+    stream_options: streamOptions(request),
     n: 1,
   }
   if (gemmaProtocol) {
@@ -95,12 +103,15 @@ export function protocolStream({
       async () => {
         const prepared = await prepare(createRequest())
         checkGemmaRequest(prepared)
+        if (prefix && !prepared.prompt.endsWith(prefix))
+          throw new Error('onPayload cannot change the Gemma protocol prefix.')
         stopRequested = Boolean(prepared.stop?.length)
         return engine.completions.create(prepared)
       },
       (chunks) =>
         gemmaChunks(chunks, tools, {
           onChunk,
+          onChunkMayMutate,
           prefix,
           stopRequested,
           signal,
@@ -133,8 +144,7 @@ export function protocolStream({
         parseProtocol =
           isTextFormat(prepared.response_format) ||
           (toolResponseFormat !== undefined &&
-            (prepare === keepRequest ||
-              JSON.stringify(prepared.response_format) === JSON.stringify(toolResponseFormat)))
+            (prepare === keepRequest || sameJSON(prepared.response_format, toolResponseFormat)))
         thinkingDisabled = prepared.extra_body?.enable_thinking === false
         prefilled = thinkingPrefilled && !thinkingDisabled
         stopRequested = Boolean(prepared.stop?.length)
@@ -146,6 +156,7 @@ export function protocolStream({
         xml
           ? qwen35Chunks(chunks, tools, {
               onChunk,
+              onChunkMayMutate,
               parseProtocol,
               thinkingPrefilled: prefilled,
               thinkingDisabled,
@@ -154,6 +165,7 @@ export function protocolStream({
             })
           : qwenChunks(chunks, tools, {
               onChunk,
+              onChunkMayMutate,
               parseProtocol,
               parseThinking: modelId.startsWith('Qwen3-'),
               thinkingPrefilled: prefilled,
@@ -181,11 +193,17 @@ export function protocolStream({
     throw new Error('Required tool choice needs exactly one tool for this model.')
   else if (choice && 'tool' in choice)
     native.tool_choice = { type: 'function', function: { name: choice.tool.name } }
+  let hasTools = false
   return stream(
-    // Hermes adds its system prompt and response format while opening a request.
-    async () =>
-      engine.chat.completions.create(await prepare({ ...native, messages: [...native.messages] })),
-    (chunks) => nativeChunks(chunks, Boolean(native.tools), { onChunk, signal }),
+    async () => {
+      // Hermes adds its system prompt and response format while opening a request.
+      const prepared = await prepare({ ...native, messages: [...native.messages] })
+      onPrepared?.(prepared)
+      // WebLLM treats an empty tools list as native tool mode, too.
+      hasTools = Boolean(prepared.tools)
+      return engine.chat.completions.create(prepared)
+    },
+    (chunks) => nativeChunks(chunks, hasTools, { onChunk, onChunkMayMutate, signal }),
   )
 
   function stream<T>(

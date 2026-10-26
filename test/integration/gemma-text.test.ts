@@ -2,8 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { Message, TextBlock } from '@strands-agents/sdk'
 import { Type } from '@earendil-works/pi-ai'
 import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
-import type { Completion } from '@mlc-ai/web-llm'
-import { postInitAndCheckFieldsCompletion } from '@mlc-ai/web-llm'
+import { postInitAndCheckFieldsCompletion, type Completion } from '@mlc-ai/web-llm'
 import { BrowserModel, WebLLMModel, createBrowserBridge as strandsBridge } from 'strands-web-llm'
 import {
   BrowserChatWebLLM,

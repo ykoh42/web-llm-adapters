@@ -1,3 +1,4 @@
+import { runInNewContext } from 'node:vm'
 import { describe, expect, it, vi } from 'vitest'
 import {
   AudioBlock,
@@ -480,6 +481,24 @@ describe('messages', () => {
         { type: 'image_url', image_url: { url: 'https://example.com/image.jpg' } },
       ],
     })
+  })
+
+  it('passes image and WAV bytes from another realm', () => {
+    const bytes = runInNewContext('new Uint8Array([1, 2, 3])') as Uint8Array
+    const output = formatMessages([
+      new Message({
+        role: 'user',
+        content: [
+          new ImageBlock({ format: 'png', source: { bytes } }),
+          new AudioBlock({ format: 'wav', source: { bytes } }),
+        ],
+      }),
+    ])
+
+    expect(output[0]?.content).toEqual([
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,AQID' } },
+      { type: 'input_audio', input_audio: { format: 'wav', data: 'AQID' } },
+    ])
   })
 
   it('passes WAV bytes for models with audio support', () => {

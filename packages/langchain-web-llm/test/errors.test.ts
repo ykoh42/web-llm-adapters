@@ -25,6 +25,38 @@ describe('LangChain errors', () => {
     },
   )
 
+  it('preserves an error proxy when its prototype cannot be inspected', async () => {
+    const { model, create } = setup()
+    const error = new Proxy(new TypeError('Native failed'), {
+      getPrototypeOf() {
+        throw new Error('Cannot inspect provider prototype')
+      },
+    })
+    create.mockRejectedValueOnce(error)
+
+    const failure = await model.invoke('Hi').catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(Error)
+    expect(failure).toHaveProperty('name', 'TypeError')
+    expect(failure).toHaveProperty('message', 'Native failed')
+    expect((failure as Error).cause).toBe(error)
+  })
+
+  it('recognizes a proxied native context overflow', async () => {
+    const { model, create } = setup()
+    const native = Object.assign(new Error(message), { name: 'ContextWindowSizeExceededError' })
+    const error = new Proxy(native, {
+      getPrototypeOf() {
+        throw new Error('Cannot inspect provider prototype')
+      },
+    })
+    create.mockRejectedValueOnce(error)
+
+    const failure = await model.invoke('Hi').catch((error: unknown) => error)
+    expect(ContextOverflowError.isInstance(failure)).toBe(true)
+    expect(failure).toHaveProperty('message', message)
+    expect((failure as Error).cause).toBe(error)
+  })
+
   it.each(failures.map((error) => ({ error })))(
     'marks an opening overflow as non-retryable: $error',
     async ({ error }) => {

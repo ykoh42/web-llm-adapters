@@ -3,10 +3,68 @@ import type { ResponseFormat } from '@mlc-ai/web-llm'
 import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
 import { clampMaxTokensToContext } from '@earendil-works/pi-ai/api/simple-options'
 import { setup } from './helpers.js'
+import { requestOptions } from '../src/request.js'
 
-const context = { messages: [{ role: 'user' as const, content: 'Hello', timestamp: 0 }] }
+const context = normalizeContext({
+  messages: [{ role: 'user' as const, content: 'Hello', timestamp: 0 }],
+})
 
 describe('Pi sampling options', () => {
+  it('keeps adapter thinking options when sampling adds native WebLLM options', () => {
+    const { model } = setup()
+    const request = requestOptions(
+      model,
+      { extra_body: { preserve_thinking: true } },
+      { samplingParams: { extra_body: { enable_latency_breakdown: true } } },
+      false,
+      context,
+    )
+
+    expect(request.extra_body).toEqual({
+      enable_latency_breakdown: true,
+      preserve_thinking: true,
+    })
+  })
+
+  it('keeps call-level preservation precedence with native sampling options', () => {
+    const { model } = setup()
+    const request = requestOptions(
+      model,
+      { extra_body: { preserve_thinking: true } },
+      {
+        request: { extra_body: { preserve_thinking: false } },
+        samplingParams: { extra_body: { enable_latency_breakdown: true } },
+      },
+      false,
+      context,
+    )
+
+    expect(request.extra_body).toMatchObject({
+      enable_latency_breakdown: true,
+      preserve_thinking: false,
+    })
+  })
+
+  it('lets a sampling preservation value override request preservation', () => {
+    const { model } = setup()
+    const request = requestOptions(
+      model,
+      { extra_body: { preserve_thinking: true } },
+      {
+        samplingParams: {
+          extra_body: { enable_latency_breakdown: true, preserve_thinking: false },
+        },
+      },
+      false,
+      context,
+    )
+
+    expect(request.extra_body).toEqual({
+      enable_latency_breakdown: true,
+      preserve_thinking: false,
+    })
+  })
+
   it.each([
     ['deferred request', { deferred: true }, 'WebLLM does not support deferred requests.'],
     [
@@ -190,7 +248,7 @@ describe('Pi sampling options', () => {
     })
   })
 
-  it.each(['model', 'messages', 'prompt', 'tools', 'tool_choice', 'n', 'stream', 'stream_options'])(
+  it.each(['model', 'messages', 'prompt', 'tools', 'tool_choice', 'n', 'stream'])(
     'rejects thinking-level overrides of %s before generation',
     async (key) => {
       const { models, model, create } = setup(undefined, { reasoning: true })

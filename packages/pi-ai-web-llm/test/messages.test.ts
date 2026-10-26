@@ -159,14 +159,27 @@ describe('Pi transcript conversion', () => {
     const { model } = setup(undefined, { imageInputs: true })
     const input = normalizeContext({
       messages: [
-        assistant([toolCall]),
+        assistant([toolCall, { ...toolCall, id: 'call-2' }]),
         {
           ...result,
           isError: true,
-          content: [...result.content, { type: 'image', mimeType: 'image/png', data: 'AQ==' }],
+          content: [
+            { type: 'text', text: '4' },
+            { type: 'image', mimeType: 'image/png', data: 'AQ==' },
+            { type: 'text', text: '2' },
+          ],
+        },
+        {
+          ...result,
+          toolCallId: 'call-2',
+          content: [
+            { type: 'image', mimeType: 'image/png', data: 'Ag==' },
+            { type: 'text', text: 'Ready' },
+          ],
         },
       ],
     })
+    const before = structuredClone(input)
     expect(formatContext(input, model).history).toEqual([
       {
         role: 'assistant',
@@ -177,14 +190,36 @@ describe('Pi transcript conversion', () => {
             type: 'function',
             function: { name: 'lookup', arguments: '{"code":"A7"}' },
           },
+          {
+            id: 'call-2',
+            type: 'function',
+            function: { name: 'lookup', arguments: '{"code":"A7"}' },
+          },
         ],
       },
       { role: 'tool', tool_call_id: 'call-1', content: '[ERROR] 42' },
+      { role: 'tool', tool_call_id: 'call-2', content: 'Ready' },
       {
         role: 'user',
-        content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,AQ==' } }],
+        content: [
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,AQ==' } },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,Ag==' } },
+        ],
       },
     ])
+    expect(input).toEqual(before)
+  })
+
+  it('preserves the error prefix for an empty tool error', () => {
+    const { model } = setup()
+    const error = { ...result, content: [], isError: true }
+    const context = normalizeContext({ messages: [assistant([toolCall]), error] })
+
+    expect(formatContext(context, model).history.at(-1)).toEqual({
+      role: 'tool',
+      tool_call_id: 'call-1',
+      content: '[ERROR] ',
+    })
   })
 
   it.each([

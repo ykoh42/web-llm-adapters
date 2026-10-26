@@ -1,4 +1,4 @@
-import { checkToolChoice } from '../../../../shared/web-llm/stream/choice.js'
+import { checkToolCallIds, checkToolChoice } from '../../../../shared/web-llm/stream/choice.js'
 import { parseJSON } from '../../../../shared/web-llm/json.js'
 import type { ToolChoice } from '../../../../shared/web-llm/types.js'
 import { AIMessageChunk, type StandardMessageStructure } from '@langchain/core/messages'
@@ -7,11 +7,19 @@ import { ChatGenerationChunk } from '@langchain/core/outputs'
 import type { StreamChunk, ToolDelta } from '../../../../shared/web-llm/stream/chunks.js'
 
 interface ToolCall extends ToolDelta {
+  readonly index: number
   name: string
   input: string
+  pending: { delta: ToolDelta; name?: string }[]
+  streamed: boolean
 }
 
-/** Publish complete tool calls only; a truncated call must never run. */
+const contentFields = [
+  ['reasoning', 'reasoning'],
+  ['text', 'text'],
+] as const
+
+/** Stream arguments without an ID until the complete call is validated. */
 export async function* readChunks(
   chunks: AsyncIterable<StreamChunk>,
   modelId: string,
@@ -24,6 +32,7 @@ export async function* readChunks(
   let usage: StreamChunk['usage']
   let block: 'text' | 'reasoning' | undefined
   let index = -1
+  let nextToolCallIndex = 0
   for await (const chunk of chunks) {
     signal?.throwIfAborted()
     if (stop && (chunk.text || chunk.reasoning || chunk.calls.length || chunk.stop))
@@ -32,18 +41,44 @@ export async function* readChunks(
     for (const delta of chunk.calls) {
       let call = calls.get(delta.index)
       if (!call) {
-        call = { index: delta.index, id: undefined, name: '', input: '' }
+        call = {
+          index: delta.index,
+          id: undefined,
+          name: '',
+          input: '',
+          pending: [],
+          streamed: false,
+        }
         calls.set(delta.index, call)
       }
-      call.index = delta.index
-      call.id = delta.id ?? call.id
+      if (delta.id) {
+        if (call.id && delta.id !== call.id) throw new Error('WebLLM changed a tool call ID.')
+        call.id = delta.id
+      }
       call.name += delta.name ?? ''
       call.input += delta.input ?? ''
+      if (canStreamToolCalls(choice)) {
+        if (call.streamed) {
+          yield toolCallDeltaChunk(call.index, delta, delta.name ? call.name : undefined)
+          signal?.throwIfAborted()
+        } else {
+          call.pending.push({ delta, ...(delta.name && { name: call.name }) })
+          while (true) {
+            const ready = calls.get(nextToolCallIndex)
+            if (!ready) break
+            for (const pending of ready.pending) {
+              yield toolCallDeltaChunk(ready.index, pending.delta, pending.name)
+              signal?.throwIfAborted()
+            }
+            ready.pending = []
+            ready.streamed = true
+            nextToolCallIndex++
+          }
+        }
+      }
     }
-    for (const [type, value] of [
-      ['reasoning', chunk.reasoning],
-      ['text', chunk.text],
-    ] as const) {
+    for (const [type, field] of contentFields) {
+      const value = chunk[field]
       if (!value) continue
       if (block !== type) {
         block = type
@@ -67,15 +102,14 @@ export async function* readChunks(
     throw stampRetryable(error, false)
   }
   const ordered = [...calls.values()].sort((left, right) => left.index - right.index)
-  checkToolChoice(
-    ordered.map((call) => call.name),
-    choice,
-    stop,
-    toolNames,
-  )
+  checkToolChoice(ordered, choice, stop, toolNames)
   if (ordered.length && stop !== 'maxTokens') {
-    for (const call of ordered) {
-      yield toolCallChunk(call)
+    checkToolCallIds(ordered)
+    const inputs = ordered.map(checkToolCall)
+    for (const [index, call] of ordered.entries()) {
+      call.id ??= crypto.randomUUID()
+      if (!call.streamed) yield toolCallChunk(call)
+      else yield toolCallIdChunk(call, call.id, inputs[index]!)
       signal?.throwIfAborted()
     }
     stop = 'toolUse'
@@ -104,11 +138,32 @@ export async function* readChunks(
   })
 }
 
+function canStreamToolCalls(choice: ToolChoice | 'none' | undefined): boolean {
+  return choice !== 'none' && (!choice || 'auto' in choice || 'any' in choice)
+}
+
+function toolCallDeltaChunk(
+  callIndex: number,
+  delta: ToolDelta,
+  name?: string,
+): ChatGenerationChunk {
+  return new ChatGenerationChunk({
+    text: '',
+    message: new AIMessageChunk({
+      content: '',
+      tool_call_chunks: [
+        {
+          type: 'tool_call_chunk',
+          index: callIndex,
+          ...(name && { name }),
+          args: delta.input ?? '',
+        },
+      ],
+    }),
+  })
+}
+
 function toolCallChunk(call: ToolCall): ChatGenerationChunk {
-  if (!call.name) throw new Error('WebLLM returned a tool call without a name.')
-  const input = parseJSON(call.input)
-  if (typeof input !== 'object' || input === null || Array.isArray(input))
-    throw new Error('WebLLM tool arguments must be an object.')
   return new ChatGenerationChunk({
     text: '',
     message: new AIMessageChunk({
@@ -124,4 +179,30 @@ function toolCallChunk(call: ToolCall): ChatGenerationChunk {
       ],
     }),
   })
+}
+
+function toolCallIdChunk(
+  call: ToolCall,
+  id: string,
+  args: Record<string, unknown>,
+): ChatGenerationChunk {
+  const message = new AIMessageChunk({
+    content: '',
+    tool_call_chunks: [{ type: 'tool_call_chunk', index: call.index, id }],
+  })
+  // The ID-only delta completes prior fragments; it is not a standalone empty call.
+  message.tool_calls = [{ type: 'tool_call', id, name: call.name, args }]
+  message.lc_kwargs.tool_calls = message.tool_calls
+  return new ChatGenerationChunk({
+    text: '',
+    message,
+  })
+}
+
+function checkToolCall(call: ToolCall): Record<string, unknown> {
+  if (!call.name) throw new Error('WebLLM returned a tool call without a name.')
+  const input = parseJSON(call.input)
+  if (typeof input !== 'object' || input === null || Array.isArray(input))
+    throw new Error('WebLLM tool arguments must be an object.')
+  return input
 }

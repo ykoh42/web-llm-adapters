@@ -1,5 +1,10 @@
-const markers = ['<parameter=', '</parameter>', '<|im_end|>', '<|endoftext|>']
+export const messageBoundaryTokens = ['<|im_start|>', '<|im_end|>', '<|endoftext|>'] as const
+const markers = ['<parameter=', '</parameter>', ...messageBoundaryTokens]
 let grammar: string | undefined
+
+export function containsMessageBoundaryToken(text: string) {
+  return messageBoundaryTokens.some((token) => text.includes(token))
+}
 
 /** Match raw parameter text without admitting parser delimiters or a trailing CR. */
 export function xmlStringFormat() {

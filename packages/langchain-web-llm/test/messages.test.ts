@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer'
+import { runInNewContext } from 'node:vm'
 import { describe, expect, it } from 'vitest'
 import {
   AIMessage,
@@ -502,6 +503,57 @@ it('preserves native Float32 PCM samples and their sample rate', () => {
   ])
 })
 
+it('accepts Float32 PCM samples from another realm', () => {
+  const data = runInNewContext('new Float32Array([0.25, -0.5])') as Float32Array
+  const output = formatMessages([
+    new HumanMessage({
+      content: [
+        { type: 'input_audio', input_audio: { format: 'pcm_f32', data, sample_rate: 24000 } },
+      ],
+    }),
+  ])
+
+  expect(output[0]?.content).toEqual([
+    {
+      type: 'input_audio',
+      input_audio: { format: 'pcm_f32', data: new Float32Array([0.25, -0.5]), sample_rate: 24000 },
+    },
+  ])
+})
+
+it('accepts WebLLM’s maximum sample rate for native PCM', () => {
+  const data = new Float32Array([0])
+  expect(
+    formatMessages([
+      new HumanMessage({
+        content: [
+          { type: 'input_audio', input_audio: { format: 'pcm_f32', data, sample_rate: 384_000 } },
+        ],
+      }),
+    ])[0]?.content,
+  ).toEqual([
+    { type: 'input_audio', input_audio: { format: 'pcm_f32', data, sample_rate: 384_000 } },
+  ])
+})
+
+it.each([0, -1, 1.5, NaN, Infinity, 384_001])(
+  'rejects an invalid native PCM sample rate before opening WebLLM: %s',
+  async (sampleRate) => {
+    const { model, create } = setup()
+    const input = new HumanMessage({
+      content: [
+        {
+          type: 'input_audio',
+          input_audio: { format: 'pcm_f32', data: new Float32Array([0]), sample_rate: sampleRate },
+        },
+      ],
+    })
+
+    await expect(model.invoke([input])).rejects.toThrow('Sample rate')
+    expect(create).not.toHaveBeenCalled()
+  },
+)
+
 it('accepts LangChain standard base64 image and WAV blocks', () => {
   const output = formatMessages([
     new HumanMessage({
@@ -514,6 +566,23 @@ it('accepts LangChain standard base64 image and WAV blocks', () => {
   expect(output[0]?.content).toEqual([
     { type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } },
     { type: 'input_audio', input_audio: { format: 'wav', data: 'AQ==' } },
+  ])
+})
+
+it('accepts image and WAV bytes from another realm', () => {
+  const data = runInNewContext('new Uint8Array([1, 2, 3])') as Uint8Array
+  const output = formatMessages([
+    new HumanMessage({
+      content: [
+        { type: 'image', source_type: 'base64', data, mime_type: 'image/png' },
+        { type: 'audio', source_type: 'base64', data, mime_type: 'audio/wav' },
+      ],
+    }),
+  ])
+
+  expect(output[0]?.content).toEqual([
+    { type: 'image_url', image_url: { url: 'data:image/png;base64,AQID' } },
+    { type: 'input_audio', input_audio: { format: 'wav', data: 'AQID' } },
   ])
 })
 
@@ -732,13 +801,14 @@ it('exposes model capabilities and caller-owned context limits without guessing 
       profile: { imageInputs: true, imageToolMessage: true },
     }).profile,
   ).toMatchObject({ imageInputs: true, imageToolMessage: true })
-  expect(
-    new ChatWebLLM({ engine, modelId: 'Phi-3.5-vision-instruct-q4f16_1-MLC' }).profile.imageInputs,
-  ).toBe(true)
-  expect(
-    new ChatWebLLM({ engine, modelId: 'Phi-3.5-vision-instruct-q4f16_1-MLC' }).profile
-      .imageToolMessage,
-  ).toBe(false)
+  for (const modelId of [
+    'Phi-3.5-vision-instruct-q4f16_1-MLC',
+    'Phi-3.5-vision-instruct-q4f32_1-MLC',
+  ])
+    expect(new ChatWebLLM({ engine, modelId }).profile).toMatchObject({
+      imageInputs: true,
+      imageToolMessage: false,
+    })
 })
 
 it.each([0, -1, NaN, 1.5])('rejects invalid model context limits %s', (maxInputTokens) => {

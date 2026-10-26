@@ -1,3 +1,4 @@
+import { runInNewContext } from 'node:vm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { browser } from '../fixtures/browser.js'
 import { ContextOverflowError } from '@langchain/core/errors'
@@ -6,7 +7,12 @@ import { AIMessage, AIMessageChunk, HumanMessage, ToolMessage } from '@langchain
 import { tool } from '@langchain/core/tools'
 import { CallbackManager } from '@langchain/core/callbacks/manager'
 import { z } from 'zod'
-import { BrowserChatWebLLM, BrowserWebLLMEmbeddings, type BrowserPage } from '../src/index.js'
+import {
+  BrowserChatWebLLM,
+  BrowserWebLLMEmbeddings,
+  type BrowserPage,
+  type WebLLMChunk,
+} from '../src/index.js'
 import { chunk, chunks, collect, pause } from '../fixtures/engine.js'
 
 afterEach(() => vi.unstubAllGlobals())
@@ -397,6 +403,43 @@ describe('browser transport', () => {
     expect(seen.at(-1)?.response_metadata.finish_reason).toBe('tool_calls')
   })
 
+  it.each(['lc_prefer_streaming', 'lc_prefer_chat_model_stream_events'] as const)(
+    'does not run a truncated tool call with %s across the browser boundary',
+    async (preference) => {
+      const { model, create, bridge } = browser()
+      const complete = '<tool_call>{"name":"lookup","arguments":{"code":"A7"}}</tool_call>'
+      const partial = '<tool_call>{"name":"lookup","arguments":{"code":"A8'
+      create.mockResolvedValueOnce(
+        chunks(chunk({ content: 'Checking.' + complete + partial }), chunk({}, 'length')),
+      )
+      create.mockResolvedValueOnce(chunks(chunk({ content: 'Done.' }, 'stop')))
+      const execute = vi.fn(() => 'Done')
+      const lookup = tool(execute, { name: 'lookup', schema: z.object({ code: z.string() }) })
+      const callbacks = CallbackManager.fromHandlers({
+        handleLLMNewToken: () => {},
+        handleChatModelStreamEvent: () => {},
+      })
+      const [handler] = callbacks.handlers
+      if (!handler) throw new Error('Missing callback handler.')
+      Object.assign(handler, { [preference]: true })
+
+      try {
+        const result = await createAgent({ model, tools: [lookup] }).invoke(
+          { messages: [new HumanMessage('Look up codes A7 and A8.')] },
+          { callbacks },
+        )
+        expect(execute).not.toHaveBeenCalled()
+        expect(result.messages.at(-1)?.text).toBe('Checking.')
+        expect(result.messages.at(-1)?.response_metadata.finish_reason).toBe('length')
+        expect(
+          (await model.invoke([...result.messages, new HumanMessage('Try again.')])).text,
+        ).toBe('Done.')
+      } finally {
+        await bridge.close()
+      }
+    },
+  )
+
   it('runs the callback before yielding when the consumer stops early', async () => {
     const { model } = browser(chunk({ content: 'A' }), chunk({ content: 'B' }, 'stop'))
     const callback = vi.fn()
@@ -526,6 +569,34 @@ describe('browser transport', () => {
     },
   )
 
+  it('rejects PCM above WebLLM’s sample-rate limit before browser calls', async () => {
+    const { page, create, bridge } = browser()
+    const evaluate = vi.spyOn(page, 'evaluate')
+    const model = new BrowserChatWebLLM(page, { modelId: 'test-model' })
+    try {
+      await expect(
+        model.invoke([
+          new HumanMessage({
+            content: [
+              {
+                type: 'input_audio',
+                input_audio: {
+                  format: 'pcm_f32',
+                  data: new Float32Array([0.25]),
+                  sample_rate: 384_001,
+                },
+              },
+            ],
+          }),
+        ]),
+      ).rejects.toThrow('384000')
+      expect(evaluate).not.toHaveBeenCalled()
+      expect(create).not.toHaveBeenCalled()
+    } finally {
+      await bridge.close()
+    }
+  })
+
   it('preserves inline WAV URLs in browser messages', async () => {
     const { page, create, bridge } = browser(chunk({ content: 'Heard it' }, 'stop'))
     const url = 'data:audio/wav;base64,AQ=='
@@ -557,6 +628,31 @@ describe('browser transport', () => {
       { type: 'image_url', image_url: { url: 'data:image/png;base64,AH//' } },
       { type: 'input_audio', input_audio: { data: 'AQID', format: 'wav' } },
     ])
+  })
+
+  it('preserves image and audio bytes from another realm in browser messages', async () => {
+    const { page, create, bridge } = browser(chunk({ content: 'Okay' }, 'stop'))
+    const model = new BrowserChatWebLLM(page, { modelId: 'test-model' })
+    const image = runInNewContext('new Uint8Array([0, 127, 255])') as Uint8Array
+    const audio = runInNewContext('new Uint8Array([1, 2, 3])') as Uint8Array
+
+    try {
+      await model.invoke([
+        new HumanMessage({
+          content: [
+            { type: 'image', data: image, mimeType: 'image/png' },
+            { type: 'audio', data: audio, mimeType: 'audio/wav' },
+          ],
+        }),
+      ])
+
+      expect(create.mock.calls[0]?.[0].messages[0]?.content).toEqual([
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,AH//' } },
+        { type: 'input_audio', input_audio: { data: 'AQID', format: 'wav' } },
+      ])
+    } finally {
+      await bridge.close()
+    }
   })
 
   it('leaves tool artifacts outside the browser request', async () => {
@@ -651,6 +747,50 @@ describe('browser transport', () => {
     }
   })
 
+  it('keeps browser output intact when the host callback mutates native chunks', async () => {
+    const { page, bridge, create } = browser()
+    create.mockResolvedValueOnce(chunks(chunk({ content: 'Answer' }, 'stop')))
+    const onChunk = vi.fn((native: WebLLMChunk) => {
+      const choice = native.choices[0]
+      if (choice && 'delta' in choice) choice.delta.content = 'Changed'
+    })
+    const model = new BrowserChatWebLLM(page, { modelId: 'test-model', onChunk })
+
+    try {
+      const result = await model.invoke('Hi')
+      expect(onChunk).toHaveBeenCalledOnce()
+      expect(result.text).toBe('Answer')
+    } finally {
+      await bridge.close()
+    }
+  })
+
+  it('does not copy native chunks for the internal browser relay', async () => {
+    const { bridge, create } = browser()
+    const native = chunk({ content: 'Hi' }, 'stop')
+    const copyChoices = vi.spyOn(native.choices, 'map')
+    create.mockResolvedValueOnce(chunks(native))
+    const id = await bridge.start({
+      config: { modelId: 'test-model' },
+      messages: [{ role: 'human', content: 'Hi' }],
+      options: {},
+      includeChunks: true,
+    })
+    const received = []
+    try {
+      while (true) {
+        const result = await bridge.next(id)
+        if ('error' in result) throw new Error(result.error.message)
+        received.push(...(result.chunks ?? []))
+        if (result.done) break
+      }
+      expect(received[0]).toBe(native)
+      expect(copyChoices).not.toHaveBeenCalled()
+    } finally {
+      await bridge.stop(id)
+    }
+  })
+
   it('runs a Node agent and preserves reasoning, tool IDs and tool results across the browser boundary', async () => {
     const { model, create } = browser()
     create.mockResolvedValueOnce(
@@ -707,6 +847,38 @@ describe('browser transport', () => {
     const outputTokens: number | undefined = result.usage_metadata?.output_tokens
     expect(outputTokens).toBe(3)
     expect(onChunk).toHaveBeenCalledExactlyOnceWith(native)
+  })
+
+  it('preserves non-JSON log probabilities across browser evaluation', async () => {
+    const native = chunk({ content: 'Okay' }, 'stop')
+    native.choices[0]!.logprobs = {
+      content: [
+        {
+          token: 'Okay',
+          bytes: [79, 107, 97, 121],
+          logprob: Number.NEGATIVE_INFINITY,
+          top_logprobs: [],
+        },
+      ],
+    }
+    const { model, bridge } = browser(native)
+
+    try {
+      const result = await model.invoke('Hi')
+
+      expect(result.response_metadata.logprobs).toEqual({
+        content: [
+          {
+            token: 'Okay',
+            bytes: [79, 107, 97, 121],
+            logprob: Number.NEGATIVE_INFINITY,
+            top_logprobs: [],
+          },
+        ],
+      })
+    } finally {
+      await bridge.close()
+    }
   })
 
   it('passes browser errors through and releases the failed stream', async () => {

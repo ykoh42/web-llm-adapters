@@ -1,29 +1,38 @@
 import { ContextOverflowError } from '@langchain/core/errors'
 import {
   errorText,
+  isError,
   isContextOverflow,
   restoreError,
   serializeError,
 } from '../../../shared/web-llm/errors.js'
 
 /** Preserve native failures while exposing LangChain's standard overflow marker. */
-export function modelError(error: unknown): unknown {
-  if (ContextOverflowError.isInstance(error)) return error
-  if (error instanceof Error) {
+export function modelError(error: unknown): Error {
+  try {
+    if (ContextOverflowError.isInstance(error)) return error
+  } catch {
+    // Proxies may reject prototype checks.
+  }
+  const nativeError = isError(error) ? error : undefined
+  if (nativeError) {
     try {
-      const { name, message } = error
+      const { name, message } = nativeError
       if (name === 'ContextOverflowError') {
         const restored = new ContextOverflowError(message)
-        if (error.cause instanceof Error) restored.cause = error.cause
+        if (isError(nativeError.cause)) restored.cause = nativeError.cause
         return restored
       }
     } catch {
-      const restored = restoreError(serializeError(error))
-      restored.cause = error
-      return restored
+      return restoreFailure(error)
     }
   }
-  if (!isContextOverflow(error))
-    return error instanceof Error ? error : new Error(errorText(error), { cause: error })
-  return ContextOverflowError.fromError(error instanceof Error ? error : new Error(String(error)))
+  if (!isContextOverflow(error)) return nativeError ?? restoreFailure(error)
+  return Object.assign(new ContextOverflowError(errorText(error)), { cause: error })
+}
+
+function restoreFailure(error: unknown): Error {
+  const restored = restoreError(serializeError(error))
+  restored.cause = error
+  return restored
 }

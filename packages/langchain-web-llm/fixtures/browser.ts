@@ -10,7 +10,7 @@ export function browser(...items: ReturnType<typeof chunk>[]) {
   const page: BrowserPage = {
     async evaluate(run, arg) {
       const value = await run(structuredClone(arg))
-      return value === undefined ? value : JSON.parse(JSON.stringify(value))
+      return value === undefined ? value : structuredClone(value)
     },
   }
   return {

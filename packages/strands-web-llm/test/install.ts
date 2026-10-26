@@ -52,7 +52,23 @@ engine.chat.completions.create = (async () => {
           'tool_calls',
         ),
       ]
-    : [chunk({ content: 'Finished' }, 'stop')]
+    : turn === 2
+      ? [chunk({ content: 'Finished' }, 'stop')]
+      : [
+          chunk(
+            {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'call-2',
+                  type: 'function',
+                  function: { name: 'echo', arguments: '{' },
+                },
+              ],
+            },
+            'length',
+          ),
+        ]
   return (async function* () {
     yield* items
   })()
@@ -74,6 +90,8 @@ const agent = new Agent({
   printer: false,
 })
 assert.match(String(await agent.invoke('Echo this')), /Finished/)
+assert.equal(toolCalls, 1)
+await assert.rejects(agent.invoke('Echo a truncated call'))
 assert.equal(toolCalls, 1)
 
 const strategy = new WebLLMEmbeddingSearchStrategy({

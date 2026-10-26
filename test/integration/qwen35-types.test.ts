@@ -71,6 +71,20 @@ const cases = [
     text: '{"code":123}',
     value: '{"code":123}',
   },
+  {
+    schema: { anyOf: [{ type: 'object' }, { type: 'null' }] },
+    text: 'null',
+    value: null,
+  },
+  {
+    schema: { oneOf: [{ type: 'array', items: { type: 'string' } }, { type: 'null' }] },
+    text: '["A7"]',
+    value: ['A7'],
+  },
+  { schema: { enum: [7, 9] }, text: '7', value: 7 },
+  { schema: { const: false }, text: 'false', value: false },
+  { schema: { const: null }, text: 'null', value: null },
+  { schema: { enum: [{ code: 'A7' }] }, text: '{"code":"A7"}', value: { code: 'A7' } },
 ] satisfies { schema: JSONSchema; text: string; value: unknown }[]
 
 it.each(cases)('preserves a valid value with $schema: $text', ({ schema, text, value }) => {

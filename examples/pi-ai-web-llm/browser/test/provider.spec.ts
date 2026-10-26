@@ -1,10 +1,9 @@
 import { modelCheck } from '../../../../scripts/release/support.js'
 import { writeFile } from 'node:fs/promises'
-import type { AssistantMessage } from '@earendil-works/pi-ai'
+import type { AssistantMessage, SimpleStreamOptions } from '@earendil-works/pi-ai'
 import { test, expect } from './browser.js'
 import type {} from './checks.js'
 import type { ChatCompletionChunk, ChatCompletionRequestStreaming } from '@mlc-ai/web-llm'
-import type { WebLLMStreamOptions } from 'pi-ai-web-llm'
 
 test('Pi rejects invalid tool choices before inference and keeps auto and none usable', async ({
   page,
@@ -25,7 +24,7 @@ test('Pi rejects invalid tool choices before inference and keeps auto and none u
     const invalid = []
     for (const simple of [false, true]) {
       for (const toolChoice of ['required', 'lookup', 'none ', null]) {
-        const options: WebLLMStreamOptions = {
+        const options: SimpleStreamOptions = {
           reasoning: 'low',
           onPayload: () => {
             payloadCalls++
@@ -63,7 +62,7 @@ test('Pi rejects invalid tool choices before inference and keeps auto and none u
   for (const result of results.invalid)
     expect(result).toMatchObject({
       stopReason: 'error',
-      errorMessage: 'toolChoice must be auto or none.',
+      errorMessage: 'toolChoice must be auto, none, or a function choice.',
       content: [],
     })
   expect(results.valid[0]).toMatchObject({
@@ -74,6 +73,97 @@ test('Pi rejects invalid tool choices before inference and keeps auto and none u
   })
   expect(results.valid[1]?.stopReason).toBe('stop')
   expect(results.valid[1]?.content.some((part) => part.type === 'toolCall')).toBe(false)
+})
+
+test('Pi API calls can select one registered function on Qwen3.5', async ({ page }, info) => {
+  await page.goto('http://127.0.0.1:4173/pi/test/checks.html')
+  await page.evaluate(() => window.piChecks.load('Qwen3.5-2B-q4f16_1-MLC'))
+  const result = await page.evaluate(async () => {
+    const { models, model } = await window.piChecks.provider(true)
+    const agent = await window.piChecks.createAgent(true)
+    let request: unknown
+    const message = await models.complete(
+      model,
+      {
+        systemPrompt: agent.state.systemPrompt,
+        tools: agent.state.tools,
+        messages: [
+          { role: 'user', content: 'Use lookup to look up code A7.', timestamp: Date.now() },
+        ],
+      },
+      {
+        toolChoice: { type: 'function', function: { name: 'lookup' } },
+        reasoning: 'low',
+        onPayload: (payload) => {
+          request = payload
+        },
+      },
+    )
+    return { message, request }
+  })
+  await info.attach('named-tool-choice', {
+    body: JSON.stringify(result, null, 2),
+    contentType: 'application/json',
+  })
+
+  expect(result.request).toMatchObject({
+    messages: expect.arrayContaining([
+      {
+        role: 'system',
+        content: expect.stringContaining('Call only the lookup function.'),
+      },
+    ]),
+  })
+  expect(result.message.stopReason).toBe('toolUse')
+  expect(result.message.content).toContainEqual(
+    expect.objectContaining({ type: 'toolCall', name: 'lookup', arguments: { code: 'A7' } }),
+  )
+})
+
+test('Pi keeps Qwen3.5 tool names that contain spaces', async ({ page }, info) => {
+  await page.goto('http://127.0.0.1:4173/pi/test/checks.html')
+  await page.evaluate(() => window.piChecks.load('Qwen3.5-4B-q4f16_1-MLC'))
+  const result = await page.evaluate(async () => {
+    const { models, model } = await window.piChecks.provider(true)
+    const agent = await window.piChecks.createAgent(true)
+    const tool = { ...agent.state.tools[0]!, name: 'read file', label: 'Read file' }
+    let request: unknown
+    const message = await models.complete(
+      model,
+      {
+        systemPrompt: 'Use read file when asked to look up a code. Report its result.',
+        tools: [tool],
+        messages: [
+          { role: 'user', content: 'Use read file to look up code A7.', timestamp: Date.now() },
+        ],
+      },
+      {
+        toolChoice: { type: 'function', function: { name: 'read file' } },
+        reasoning: 'low',
+        onPayload: (payload) => {
+          request = payload
+        },
+      },
+    )
+    return { message, request }
+  })
+  await info.attach('spaced-tool-name', {
+    body: JSON.stringify(result, null, 2),
+    contentType: 'application/json',
+  })
+
+  expect(result.request).toMatchObject({
+    messages: expect.arrayContaining([
+      {
+        role: 'system',
+        content: expect.stringContaining('Call only the read file function.'),
+      },
+    ]),
+  })
+  expect(result.message.stopReason).toBe('toolUse')
+  expect(result.message.content).toContainEqual(
+    expect.objectContaining({ type: 'toolCall', name: 'read file', arguments: { code: 'A7' } }),
+  )
 })
 
 test('Pi applies thinking-level sampling and cancels pending callbacks on a real Worker', async ({
@@ -325,6 +415,89 @@ for (const modelId of process.env.MODEL_IDS?.split(',') ?? [
   )
 }
 
+const gemmaModel = 'gemma-4-E2B-it-q4f16_1-MLC'
+
+test(
+  `${gemmaModel}: preserves thinking history when sampling sets WebLLM options`,
+  modelCheck(gemmaModel),
+  async ({ page }) => {
+    await page.goto('http://127.0.0.1:4173/pi/test/checks.html')
+    await page.evaluate((id) => window.piChecks.load(id), gemmaModel)
+    const evidence = await page.evaluate(async () => {
+      const { models, model } = await window.piChecks.provider(true)
+      const preserved = 'Prior lookup reasoning should survive.'
+      const history: AssistantMessage = {
+        role: 'assistant',
+        api: 'webllm',
+        provider: 'webllm',
+        model: model.id,
+        content: [
+          { type: 'thinking', thinking: preserved },
+          { type: 'toolCall', id: 'lookup-1', name: 'lookup', arguments: { code: 'A7' } },
+        ],
+        stopReason: 'toolUse',
+        timestamp: 0,
+        usage: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 0,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+      }
+      let payload: unknown
+      const message = await models.complete(
+        model,
+        {
+          messages: [
+            { role: 'user', content: 'Look up A7.', timestamp: 0 },
+            history,
+            {
+              role: 'toolResult',
+              toolCallId: 'lookup-1',
+              toolName: 'lookup',
+              content: [{ type: 'text', text: 'ORCHID-42' }],
+              isError: false,
+              timestamp: 0,
+            },
+            {
+              role: 'user',
+              content: 'What was the lookup result? Reply with only the value.',
+              timestamp: 0,
+            },
+          ],
+        },
+        {
+          request: { extra_body: { enable_thinking: true, preserve_thinking: true } },
+          samplingParams: {
+            extra_body: { enable_thinking: true, enable_latency_breakdown: true },
+          },
+          onPayload: (request) => {
+            payload = structuredClone(request)
+          },
+        },
+      )
+      return { message, payload, preserved }
+    })
+
+    expect(evidence.payload).toMatchObject({
+      extra_body: { enable_latency_breakdown: true },
+      prompt: expect.stringContaining(`<|think|>\n`),
+    })
+    expect(evidence.payload).not.toHaveProperty('extra_body.enable_thinking')
+    expect(evidence.payload).not.toHaveProperty('extra_body.preserve_thinking')
+    expect(evidence.payload).toMatchObject({ prompt: expect.stringContaining(evidence.preserved) })
+    expect(evidence.message.stopReason).toBe('stop')
+    expect(
+      evidence.message.content
+        .filter((part) => part.type === 'text')
+        .map((part) => part.text)
+        .join(''),
+    ).toContain('ORCHID-42')
+  },
+)
+
 for (const modelId of ['Qwen3.5-9B-q4f16_1-MLC', 'Qwen3.5-2B-q4f16_1-MLC']) {
   test(`${modelId}: thinking and answer match native WebLLM output`, async ({ page }, info) => {
     await page.goto('http://127.0.0.1:4173/pi/test/checks.html')
@@ -395,7 +568,7 @@ for (const modelId of [
         for (const enable_thinking of [true, false]) {
           let payload: ChatCompletionRequestStreaming | undefined
           let native = ''
-          const options: WebLLMStreamOptions = {
+          const options: SimpleStreamOptions = {
             ...(!enable_thinking && { reasoning: 'high' }),
             samplingParams: { extra_body: { enable_thinking, enable_latency_breakdown: true } },
             onPayload: (request) => {

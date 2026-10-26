@@ -1,6 +1,27 @@
 import { Agent, FunctionTool, Message, TextBlock } from '@strands-agents/sdk'
 import { expect, it, vi } from 'vitest'
 import { chunk, chunks, collect, setup } from '../../fixtures/engine.js'
+import { WebLLMModel } from '../../src/index.js'
+
+it.each(['Qwen2.5-3B-Instruct-q4f16_1-MLC', 'Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC'])(
+  '%s reports an async chunk callback failure and releases the engine',
+  async (modelId) => {
+    const { engine, model: next, create } = setup(chunk({ content: 'Hi' }, 'stop'))
+    const onChunk = vi.fn().mockImplementationOnce(async () => {
+      await Promise.resolve()
+      throw new Error('Async callback failed')
+    })
+    const model = new WebLLMModel({ engine, modelId, onChunk })
+    const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+
+    await expect(collect(model.stream(messages))).rejects.toThrow('Async callback failed')
+    expect(onChunk).toHaveBeenCalledOnce()
+    await expect(collect(next.stream(messages))).resolves.toContainEqual(
+      expect.objectContaining({ type: 'modelMessageStopEvent' }),
+    )
+    expect(create).toHaveBeenCalledTimes(2)
+  },
+)
 
 it.each(['Qwen2.5-3B-Instruct-q4f16_1-MLC', 'Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC'])(
   '%s keeps tool syntax as text when no tools are registered',
@@ -302,7 +323,9 @@ it('preserves the token limit when a tool call is truncated', async () => {
     }),
   )
 
-  expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'maxTokens' })
+  expect(events).toContainEqual(
+    expect.objectContaining({ type: 'modelMessageStopEvent', stopReason: 'maxTokens' }),
+  )
   expect(events).not.toContainEqual({
     type: 'modelContentBlockDeltaEvent',
     delta: { type: 'textDelta', text: '<tool_call>{"name":"lookup","arguments":{"city":"Se' },
@@ -328,7 +351,9 @@ it('preserves cancellation when a tool call is interrupted', async () => {
     }),
   )
 
-  expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'cancelled' })
+  expect(events).toContainEqual(
+    expect.objectContaining({ type: 'modelMessageStopEvent', stopReason: 'cancelled' }),
+  )
   expect(events).not.toContainEqual({
     type: 'modelContentBlockDeltaEvent',
     delta: { type: 'textDelta', text: '<tool_call>{"name":"lookup","arguments":{"city":"Se' },

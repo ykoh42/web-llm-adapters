@@ -5,6 +5,7 @@ import type { WebLLMRequest } from '../request.js'
 import { supportsConstrainedToolCalls } from './models.js'
 import { isQwen35 } from '../qwen35/models.js'
 import { xmlToolTag } from '../qwen35/constraints.js'
+import { isTextFormat } from '../response.js'
 
 interface ToolTag {
   type: 'tag'
@@ -25,7 +26,7 @@ export function qwenToolResponseFormat(
   if (request.constrainedToolCalls !== true) return
   if (!supportsConstrainedToolCalls(modelId))
     throw new ModelError(`Constrained tool calls are not verified for ${modelId}.`)
-  if (request.response_format !== undefined)
+  if (!isTextFormat(request.response_format))
     throw new ModelError('constrainedToolCalls cannot be combined with request.response_format.')
 
   const selectedTools =
@@ -34,12 +35,15 @@ export function qwenToolResponseFormat(
 
   const tags = isQwen35(modelId)
     ? selectedTools.map(xmlToolTag)
-    : nativeTools(selectedTools).map(({ function: tool }) => ({
-        type: 'tag' as const,
-        begin: `<tool_call>\n{"name": ${JSON.stringify(tool.name)}, "arguments": `,
-        content: { type: 'json_schema', json_schema: tool.parameters },
-        end: '}\n</tool_call>',
-      }))
+    : nativeTools(selectedTools).map(
+        ({ function: tool }) =>
+          ({
+            type: 'tag',
+            begin: `<tool_call>\n{"name": ${JSON.stringify(tool.name)}, "arguments": `,
+            content: { type: 'json_schema', json_schema: tool.parameters },
+            end: '}\n</tool_call>',
+          }) satisfies ToolTag,
+      )
   if (tags.some((tag) => !tag))
     throw new ModelError('Qwen3.5 tool constraints cannot represent this tool schema.')
   const toolTags = tags.filter((tag) => tag !== undefined)

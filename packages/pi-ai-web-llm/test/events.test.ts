@@ -1,3 +1,4 @@
+import { runInNewContext } from 'node:vm'
 import { describe, expect, it } from 'vitest'
 import type { StreamChunk } from '../../../shared/web-llm/stream/chunks.js'
 import { responseStream } from '../src/events.js'
@@ -13,7 +14,7 @@ function stream(...values: Partial<StreamChunk>[]) {
     chunks: (async function* () {
       for (const value of values) yield chunk(value)
     })(),
-    toolNames: ['lookup'],
+    toolPolicy: { choice: undefined, toolNames: ['lookup'] },
   }))
 }
 
@@ -25,6 +26,24 @@ const call = (index: number, input: string, id = `call-${index}`) => ({
 })
 
 describe('Pi response events', () => {
+  it('marks AbortError failures from another realm as aborted', async () => {
+    const { model } = setup()
+    const response = responseStream(model, () => ({
+      chunks: (async function* () {
+        yield chunk({})
+        throw runInNewContext(
+          'Object.assign(new Error("Generation interrupted."), { name: "AbortError" })',
+        )
+      })(),
+      toolPolicy: { choice: undefined, toolNames: ['lookup'] },
+    }))
+
+    expect(await response.result()).toMatchObject({
+      stopReason: 'aborted',
+      errorMessage: 'Generation interrupted.',
+    })
+  })
+
   it.each([
     { name: 'null prototype', error: () => Object.create(null) },
     {
@@ -116,14 +135,123 @@ describe('Pi response events', () => {
     ])
   })
 
+  it('streams native tool argument fragments in output order', async () => {
+    const response = stream(
+      { calls: [call(0, '{"code":"A')] },
+      { text: 'Between' },
+      { calls: [{ index: 0, id: undefined, name: undefined, input: '7"}' }] },
+      { stop: 'toolUse' },
+    )
+    const events = await collect(response)
+
+    expect(events.map((event) => event.type)).toEqual([
+      'start',
+      'toolcall_start',
+      'toolcall_delta',
+      'text_start',
+      'text_delta',
+      'toolcall_delta',
+      'text_end',
+      'toolcall_end',
+      'done',
+    ])
+    expect(
+      events.filter((event) => event.type === 'toolcall_delta').map((event) => event.delta),
+    ).toEqual(['{"code":"A', '7"}'])
+    expect((await response.result()).content).toEqual([
+      { type: 'toolCall', id: 'call-0', name: 'lookup', arguments: { code: 'A7' } },
+      { type: 'text', text: 'Between' },
+    ])
+  })
+
+  it('keeps partial arguments available while WebLLM is still generating', async () => {
+    const { model } = setup()
+    let resume!: () => void
+    let finish!: () => void
+    let reachedPause!: () => void
+    let reachedSecondPause!: () => void
+    const gate = new Promise<void>((resolve) => (resume = resolve))
+    const finishGate = new Promise<void>((resolve) => (finish = resolve))
+    const paused = new Promise<void>((resolve) => (reachedPause = resolve))
+    const secondPause = new Promise<void>((resolve) => (reachedSecondPause = resolve))
+    const response = responseStream(model, () => ({
+      chunks: (async function* () {
+        yield chunk({ calls: [call(0, '{"code":"A')] })
+        reachedPause()
+        await gate
+        yield chunk({ calls: [{ index: 0, id: undefined, name: undefined, input: '7"}' }] })
+        reachedSecondPause()
+        await finishGate
+        yield chunk({ stop: 'toolUse' })
+      })(),
+      toolPolicy: { choice: undefined, toolNames: ['lookup'] },
+    }))
+    const iterator = response[Symbol.asyncIterator]()
+
+    try {
+      expect((await iterator.next()).value?.type).toBe('start')
+      const start = await iterator.next()
+      const delta = await iterator.next()
+      await paused
+
+      expect(start.value?.type).toBe('toolcall_start')
+      expect(delta.value?.type).toBe('toolcall_delta')
+      if (delta.value?.type === 'toolcall_delta')
+        expect(delta.value.partial.content[0]).toMatchObject({
+          type: 'toolCall',
+          arguments: { code: 'A' },
+        })
+
+      resume()
+      const nextDelta = await iterator.next()
+      await secondPause
+      expect(nextDelta.value?.type).toBe('toolcall_delta')
+      if (nextDelta.value?.type === 'toolcall_delta')
+        expect(nextDelta.value.partial.content[0]).toMatchObject({
+          type: 'toolCall',
+          arguments: { code: 'A7' },
+        })
+      finish()
+      let next = await iterator.next()
+      while (!next.done) next = await iterator.next()
+      expect((await response.result()).content[0]).toMatchObject({
+        type: 'toolCall',
+        arguments: { code: 'A7' },
+      })
+    } finally {
+      resume()
+      finish()
+    }
+  })
+
   it.each([
     [call(0, '{}'), call(1, '{')],
     [call(0, '{}', 'same-id'), call(1, '{}', 'same-id')],
   ])('withholds all executable calls when any call is invalid %#', async (...calls) => {
     const response = stream({ calls, stop: 'toolUse' })
     const events = await collect(response)
-    expect(events.map((event) => event.type)).toEqual(['start', 'error'])
-    expect(await response.result()).toMatchObject({ stopReason: 'error', content: [] })
+    expect(events.at(-1)?.type).toBe('error')
+    expect(events.filter((event) => event.type === 'toolcall_end')).toEqual([])
+    expect(await response.result()).toMatchObject({
+      stopReason: 'error',
+      content: [
+        { type: 'toolCall', name: 'lookup' },
+        { type: 'toolCall', name: 'lookup' },
+      ],
+    })
+  })
+
+  it('does not complete a tool call truncated by the token limit', async () => {
+    const response = stream({ calls: [call(0, '{"code":"A')], stop: 'maxTokens' })
+    const events = await collect(response)
+
+    expect(events.map((event) => event.type)).toEqual([
+      'start',
+      'toolcall_start',
+      'toolcall_delta',
+      'done',
+    ])
+    expect(await response.result()).toMatchObject({ stopReason: 'length' })
   })
 
   it('keeps final usage received after the stop chunk', async () => {

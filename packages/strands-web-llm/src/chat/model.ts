@@ -16,6 +16,7 @@ export function chatStream(
   messages: Message[],
   options: StreamOptions,
   onChunk?: WebLLMModelOptions['onChunk'],
+  onChunkMayMutate = true,
 ) {
   const choice = options.toolChoice && singleToolChoice(options.toolChoice, options.toolSpecs ?? [])
   if (qwenToolResponseFormat(config.modelId, config.request ?? {}, options.toolSpecs ?? [], choice))
@@ -41,10 +42,14 @@ export function chatStream(
     () => engine.chat.completions.create(request),
     (chunks) =>
       readStream(
-        nativeChunks(chunks, Boolean(request.tools), { onChunk, signal: options.cancelSignal }),
+        nativeChunks(chunks, Boolean(request.tools), {
+          onChunk,
+          onChunkMayMutate,
+          signal: options.cancelSignal,
+        }),
         options.cancelSignal,
         choice ?? config.request?.tool_choice,
-        options.toolSpecs?.map((tool) => tool.name),
+        options.toolSpecs?.map((tool) => tool.name) ?? [],
         true,
       ),
     options.cancelSignal,

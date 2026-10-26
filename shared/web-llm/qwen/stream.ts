@@ -24,6 +24,7 @@ export function qwenChunks(
     {
       end: (text, limit) => toolEnd(text, limit, quoted),
       parse: (text, index) => [parseCall(text, tools, index)],
+      unclosedError: () => 'Qwen ended inside a tool call.',
     },
     { ...options, parseTools: tools.length > 0 },
   )
@@ -52,12 +53,7 @@ function parseCall(text: string, tools: ToolSpec[], index: number): ToolDelta {
     value = parseJSON(source)
   } catch (cause) {
     if (cause instanceof ModelError) throw cause
-    if (!source.endsWith('}')) throw new ModelError('Qwen returned invalid tool JSON.', { cause })
-    try {
-      value = parseJSON(source.slice(0, -1))
-    } catch {
-      throw new ModelError('Qwen returned invalid tool JSON.', { cause })
-    }
+    throw new ModelError('Qwen returned invalid tool JSON.', { cause })
   }
   if (!isToolCall(value)) throw new ModelError('Qwen returned a malformed tool call.')
   if (!tools.some((tool) => tool.name === value.name))

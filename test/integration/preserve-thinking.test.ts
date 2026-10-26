@@ -143,6 +143,7 @@ function open(
   modelId = gemma,
   override?: WebLLMRequest,
   bound = false,
+  samplingParams?: Record<string, unknown>,
 ) {
   const { engine, create } = setupEngine(chunk({ content: 'Done' }, 'stop'))
   const raw = vi.spyOn(engine.completions, 'create').mockImplementation(async () =>
@@ -181,8 +182,10 @@ function open(
         const provider = createWebLLMProvider({ engine, ...config, contextWindow: 32768 })
         const models = createModels()
         models.setProvider(provider)
+        const model = provider.getModels()[0]!
+        if (samplingParams) model.samplingParams = samplingParams
         const result = await models.complete(
-          provider.getModels()[0]!,
+          model,
           {
             tools: [
               {
@@ -370,3 +373,22 @@ it.each([false, true])(
     expect(JSON.stringify(history)).toBe(snapshot)
   },
 )
+
+it('Pi retains Gemma tool reasoning when native sampling options are set', async () => {
+  const { run, raw } = open(
+    'pi',
+    { extra_body: { enable_thinking: true, preserve_thinking: true } },
+    gemma,
+    undefined,
+    false,
+    { extra_body: { enable_latency_breakdown: true } },
+  )
+
+  await run()
+
+  const sent = raw.mock.calls[0]![0]
+  expect(sent.prompt).toContain('Old tool plan')
+  expect(sent.prompt).toContain('Current tool plan')
+  expect(sent).not.toHaveProperty('extra_body.preserve_thinking')
+  expect(sent.extra_body).toEqual({ enable_latency_breakdown: true })
+})

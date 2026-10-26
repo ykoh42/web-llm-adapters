@@ -10,7 +10,7 @@ import { protocolStream } from './protocol/stream.js'
 import { modelError } from './error.js'
 import { readChunks } from './chat/chunks.js'
 import { appendLogprobs, type WebLLMLogprobs } from '../../../shared/web-llm/logprobs.js'
-import { waitForCallback } from '../../../shared/web-llm/callback.js'
+import { chunkCallbackMayMutate, waitForCallback } from '../../../shared/web-llm/callback.js'
 import type { ChatWebLLMOptions } from './types.js'
 
 /** Use a caller-owned WebLLM engine with LangChain, LangGraph, or Deep Agents. */
@@ -30,13 +30,13 @@ export class ChatWebLLM extends WebLLMChatModel {
     runManager?: CallbackManagerForLLMRun,
   ): AsyncGenerator<ChatGenerationChunk> {
     options.signal?.throwIfAborted()
-    const notifyTokenCallbacks = hasTokenCallbacks(runManager)
     const request = this.formatRequest(options)
     const choice = formatChoice(options.tool_choice)
     const history = formatMessages(messages)
     const tools = formatTools(options.tools)
     let responseId: string | undefined
     let responseModel: string | undefined
+    let responseCreated: number | undefined
     let logprobs: WebLLMLogprobs | undefined
     const chunks = protocolStream({
       engine: this.engine,
@@ -47,11 +47,13 @@ export class ChatWebLLM extends WebLLMChatModel {
       tools,
       choice,
       request,
+      onChunkMayMutate: chunkCallbackMayMutate(this.onChunk),
       onChunk: (chunk) => {
         responseId ??= chunk.id
         responseModel ??= chunk.model
+        responseCreated ??= chunk.created
         logprobs = appendLogprobs(logprobs, chunk.choices[0]?.logprobs)
-        this.onChunk?.(chunk)
+        return this.onChunk?.(chunk)
       },
       signal: options.signal,
       maxRetries: options.maxRetries,
@@ -67,6 +69,8 @@ export class ChatWebLLM extends WebLLMChatModel {
         options.signal?.throwIfAborted()
         if (responseId) chunk.message.id = responseId
         if (chunk.generationInfo?.finish_reason) {
+          if (responseCreated !== undefined)
+            chunk.message.response_metadata.created = responseCreated
           if (responseModel) {
             chunk.message.response_metadata.model = responseModel
             chunk.message.response_metadata.model_name = responseModel
@@ -76,7 +80,7 @@ export class ChatWebLLM extends WebLLMChatModel {
             chunk.generationInfo.logprobs = logprobs
           }
         }
-        if (runManager && notifyTokenCallbacks)
+        if (runManager && hasTokenCallbacks(runManager))
           await waitForCallback(
             runManager.handleLLMNewToken(chunk.text, undefined, undefined, undefined, undefined, {
               chunk,

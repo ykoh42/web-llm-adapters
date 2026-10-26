@@ -88,3 +88,49 @@ it('uses canonical mixed-case order for declarations, calls and structured resul
   expect(prompt).toContain('<|tool_response>response:lookup{a:3,A:4,B:2,b:5,z:1}<tool_response|>')
   expect({ history, tools }).toEqual(before)
 })
+
+it('preserves spaces in tool names across Gemma declarations and history', () => {
+  const name = 'read <file>'
+  const tool = { name, description: 'Read a file.' }
+  const history: ProtocolMessage[] = [
+    { role: 'user', content: 'Read the file.' },
+    {
+      role: 'assistant',
+      content: '',
+      tool_calls: [
+        { id: 'call', type: 'function', function: { name, arguments: '{"path":"/answer.txt"}' } },
+      ],
+    },
+    { role: 'tool', content: 'Read complete.', tool_call_id: 'call' },
+  ]
+
+  const prompt = gemmaPrompt(history, [tool])
+
+  expect(prompt).toContain('<|tool>declaration:read <file>{')
+  expect(prompt).toContain('<|tool_call>call:read <file>{path:<|"|>/answer.txt<|"|>}<tool_call|>')
+})
+
+it.each(['read{file', 'read}file', 'read<|turn>', 'read<tool|>', 'read<|"|>'])(
+  'rejects Gemma tool names with protocol delimiters: %s',
+  (name) => {
+    expect(() => gemmaPrompt([], [{ name, description: 'Invalid.' }])).toThrow(
+      'Gemma tool names cannot contain braces or control markers.',
+    )
+  },
+)
+
+it('rejects Gemma protocol delimiters in tool names from history', () => {
+  const history: ProtocolMessage[] = [
+    {
+      role: 'assistant',
+      content: '',
+      tool_calls: [
+        { id: 'call', type: 'function', function: { name: 'lookup<|channel>', arguments: '{}' } },
+      ],
+    },
+  ]
+
+  expect(() => gemmaPrompt(history, [])).toThrow(
+    'Gemma tool names cannot contain braces or control markers.',
+  )
+})

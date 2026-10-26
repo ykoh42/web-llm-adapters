@@ -1,5 +1,6 @@
-import { isQwen } from '../../../../shared/web-llm/qwen/models.js'
+import { isQwen35 } from '../../../../shared/web-llm/qwen35/models.js'
 import { toolPrompt } from '../../../../shared/web-llm/qwen/tools.js'
+import { toolPrompt as xmlToolPrompt } from '../../../../shared/web-llm/qwen35/tools.js'
 import { ModelError, type Message, type StreamOptions } from '@strands-agents/sdk'
 import type { ChatCompletionRequestStreaming } from '@mlc-ai/web-llm'
 import type { WebLLMModelConfig } from '../types.js'
@@ -10,15 +11,12 @@ import { qwenToolResponseFormat } from '../../../../shared/web-llm/qwen/constrai
 
 const qwen25SystemPrompt = 'You are Qwen, created by Alibaba Cloud. You are a helpful assistant.'
 
-export function usesQwenProtocol(config: WebLLMModelConfig) {
-  return isQwen(config.modelId)
-}
-
 export function qwenRequest(
   config: WebLLMModelConfig,
   messages: Message[],
   options: StreamOptions,
 ): ChatCompletionRequestStreaming {
+  const xml = isQwen35(config.modelId)
   const tools = options.toolSpecs ?? []
   const responseFormat = qwenToolResponseFormat(
     config.modelId,
@@ -28,23 +26,40 @@ export function qwenRequest(
     config.thinkingPrefilled,
   )
   if (tools.length && hasStructuredResponse(config))
-    throw new ModelError('Qwen tool calls cannot use a structured response format.')
+    throw new ModelError(
+      `${xml ? 'Qwen3.5' : 'Qwen'} tool calls cannot use a structured response format.`,
+    )
   const request = generationOptions(config)
   if (responseFormat) request.response_format = responseFormat
   delete request.tool_choice
-  const history = qwenMessages(config.modelId.startsWith('Qwen3-'), messages, options)
-  return { ...request, messages: history }
+  return {
+    ...request,
+    messages: xml
+      ? qwen35Messages(messages, options)
+      : qwenMessages(config.modelId.startsWith('Qwen3-'), messages, options),
+  }
 }
 
 function qwenMessages(isQwen3: boolean, messages: Message[], options: StreamOptions) {
   const system = formatSystemPrompt(options.systemPrompt)
+  const prompt = toolPrompt(options.toolSpecs ?? [], options.toolChoice)
   const systemParts = []
   if (system !== undefined) systemParts.push(system)
   else if (!isQwen3) systemParts.push(qwen25SystemPrompt)
-  const prompt = toolPrompt(options.toolSpecs ?? [], options.toolChoice)
   if (prompt) systemParts.push(prompt)
   return qwenHistory(messages, options, {
     systemPrompt: systemParts.length ? systemParts.join('\n\n') : undefined,
     keepThoughts: isQwen3,
+  })
+}
+
+function qwen35Messages(messages: Message[], options: StreamOptions) {
+  const system = formatSystemPrompt(options.systemPrompt)
+  const declarations = xmlToolPrompt(options.toolSpecs ?? [], options.toolChoice)
+  const prompt = declarations ? [declarations, ...(system ? [system] : [])].join('\n\n') : system
+  return qwenHistory(messages, options, {
+    systemPrompt: prompt,
+    keepThoughts: true,
+    xml: true,
   })
 }

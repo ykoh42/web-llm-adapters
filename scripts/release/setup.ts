@@ -1,9 +1,7 @@
-import { rmSync } from 'node:fs'
 import { chromium, type FullConfig } from '@playwright/test'
-import { checkClean, reportPath } from './source.ts'
+import { checkClean } from './source.ts'
 
 export default async function setup(config: FullConfig) {
-  rmSync(reportPath, { force: true })
   checkClean()
   if (config.shard || config.projects.some((project) => project.retries))
     throw new Error('Release model checks must run together without retries.')

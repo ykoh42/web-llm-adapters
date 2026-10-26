@@ -97,7 +97,7 @@ export async function checkInstall({
           .map((specifier) => `await import(${JSON.stringify(specifier)})`)
           .join(';'),
       ])
-      run(process.execPath, ['consumer.ts'])
+      run(process.execPath, ['--experimental-strip-types', 'consumer.ts'])
       const audit = JSON.parse(run('npm', ['audit', '--omit=dev', '--json']))
       if (audit.metadata.vulnerabilities.total)
         throw new Error('Published dependencies failed npm audit.')
@@ -122,13 +122,14 @@ export async function checkInstall({
         throw new Error(`Expected TypeScript ${version}, found ${installedTypeScript.version}.`)
       const checker = new URL('./check-types.ts', import.meta.url)
       run(process.execPath, [
+        '--experimental-strip-types',
         '--input-type=module',
         '--eval',
         `import { checkTypes } from ${JSON.stringify(checker.href)}; checkTypes(${JSON.stringify(temporary)}, ${JSON.stringify(name)});`,
       ])
       console.log(`${name}: public types passed TypeScript ${version}.`)
     }
-    run(process.execPath, ['consumer.ts'])
+    run(process.execPath, ['--experimental-strip-types', 'consumer.ts'])
     console.log(
       `${name}: installed tarball, public types, runtime hashes, and runtime smoke passed (${pack.files.length} files).`,
     )

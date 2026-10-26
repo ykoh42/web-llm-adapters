@@ -1,7 +1,97 @@
 import { describe, expect, it, vi } from 'vitest'
-import { setup } from './helpers.js'
+import type { ChatCompletionChunk } from '@mlc-ai/web-llm'
+import { chunk, setup } from './helpers.js'
 
 const context = { messages: [{ role: 'user' as const, content: 'Hello', timestamp: 0 }] }
+
+it('does not let the provider stream observer change parsed output', async () => {
+  const native = chunk({ content: 'Original' }, 'stop')
+  native.choices[0]!.logprobs = {
+    content: [{ token: 'Original', logprob: -0.1, bytes: null, top_logprobs: [] }],
+  }
+  const { models, model } = setup([native])
+  const observed: unknown[] = []
+  const response = await models.completeSimple(model, context, {
+    onProviderStreamEvent: (event) => {
+      observed.push(event)
+      if (isChatChunk(event)) event.choices[0]!.delta.content = 'Changed'
+    },
+  })
+
+  expect(response.content).toEqual([{ type: 'text', text: 'Original' }])
+  expect(observed).toHaveLength(1)
+  expect(isChatChunk(observed[0])).toBe(true)
+  if (isChatChunk(observed[0]))
+    expect(observed[0]).toMatchObject({
+      id: 'response',
+      model: 'loaded-model',
+      created: 0,
+      choices: [{ logprobs: { content: [{ token: 'Original', logprob: -0.1 }] } }],
+    })
+})
+
+it('awaits async provider chunk callbacks and reports their failures', async () => {
+  const { models, model, create } = setup(undefined, {
+    onChunk: async () => {
+      await Promise.resolve()
+      throw new Error('Async observer failed')
+    },
+  })
+  const response = await models.completeSimple(model, context)
+
+  expect(response).toMatchObject({
+    stopReason: 'error',
+    errorMessage: 'Async observer failed',
+    content: [],
+  })
+  expect(create).toHaveBeenCalledOnce()
+})
+
+it('keeps parsed output when an async provider chunk callback mutates its copy', async () => {
+  const native = chunk({ content: 'Original' }, 'stop')
+  const observed: unknown[] = []
+  const { models, model } = setup([native], {
+    onChunk: async (value) => {
+      await Promise.resolve()
+      observed.push(value)
+      if (isChatChunk(value)) value.choices[0]!.delta.content = 'Changed'
+    },
+  })
+  const response = await models.completeSimple(model, context)
+
+  expect(response.content).toEqual([{ type: 'text', text: 'Original' }])
+  expect(observed).toHaveLength(1)
+})
+
+it('cancels without waiting for an async provider chunk callback', async () => {
+  let finish!: () => void
+  const hold = new Promise<void>((resolve) => {
+    finish = resolve
+  })
+  const onChunk = vi.fn().mockImplementationOnce(() => hold)
+  const { models, model, create } = setup(undefined, { onChunk })
+  const close = vi.fn(async () => ({ done: true as const, value: undefined }))
+  create.mockResolvedValueOnce({
+    [Symbol.asyncIterator]: () => ({
+      next: async () => ({ done: false as const, value: chunk({ content: 'Hello' }) }),
+      return: close,
+    }),
+  })
+  const controller = new AbortController()
+  const pending = models.completeSimple(model, context, { signal: controller.signal })
+  try {
+    await vi.waitFor(() => expect(onChunk).toHaveBeenCalledOnce())
+    controller.abort()
+    expect((await pending).stopReason).toBe('aborted')
+    expect(create).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
+    expect((await models.completeSimple(model, context)).stopReason).toBe('stop')
+    expect(onChunk).toHaveBeenCalledTimes(2)
+    expect(create).toHaveBeenCalledTimes(2)
+  } finally {
+    finish()
+  }
+})
 
 it.each(['onPayload', 'onProviderStreamEvent'] as const)(
   '%s reports an unreadable failure and releases the engine',
@@ -60,3 +150,12 @@ describe.each(['onPayload', 'onProviderStreamEvent'] as const)('%s cancellation'
     expect(create).toHaveBeenCalledTimes(callback === 'onPayload' ? 1 : 2)
   })
 })
+
+function isChatChunk(event: unknown): event is ChatCompletionChunk {
+  return (
+    typeof event === 'object' &&
+    event !== null &&
+    'object' in event &&
+    event.object === 'chat.completion.chunk'
+  )
+}

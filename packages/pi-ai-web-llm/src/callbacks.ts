@@ -41,7 +41,7 @@ export function streamHooks(
               if (!item.done) {
                 signal?.throwIfAborted()
                 await waitForCallback(
-                  Promise.resolve(call.onProviderStreamEvent?.(item.value, model)),
+                  Promise.resolve(call.onProviderStreamEvent?.(structuredClone(item.value), model)),
                   signal,
                 )
                 signal?.throwIfAborted()

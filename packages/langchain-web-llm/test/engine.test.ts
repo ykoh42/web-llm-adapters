@@ -102,6 +102,15 @@ describe('engine ownership', () => {
     expect(peak).toBe(1)
   })
 
+  it('does not start an engine call when already aborted', async () => {
+    const { model, create, stop } = setup()
+
+    await expect(model.invoke('Hi', { signal: AbortSignal.abort() })).rejects.toThrow()
+
+    expect(create).not.toHaveBeenCalled()
+    expect(stop).not.toHaveBeenCalled()
+  })
+
   it('shares the native queue across Strands and LangChain adapters', async () => {
     const { engine, model, create } = setup(chunk({ content: 'Okay' }, 'stop'))
     const hold = pause()
@@ -114,6 +123,28 @@ describe('engine ownership', () => {
     hold.resume()
     await native
     expect((await result).text).toBe('Okay')
+  })
+
+  it('keeps separate engines independent', async () => {
+    const { engine: firstEngine } = setup()
+    const { engine: secondEngine } = setup()
+    const hold = pause()
+    let firstEntered = false
+    let secondEntered = false
+    const first = withEngine(firstEngine, async () => {
+      firstEntered = true
+      await hold.wait
+    })
+    const second = withEngine(secondEngine, () => {
+      secondEntered = true
+    })
+
+    await nextTurn()
+    const bothEntered = firstEntered && secondEntered
+    hold.resume()
+    await Promise.all([first, second])
+
+    expect(bothEntered).toBe(true)
   })
 
   it('cancels a queued call without interrupting the active call', async () => {

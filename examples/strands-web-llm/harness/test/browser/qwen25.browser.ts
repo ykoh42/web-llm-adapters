@@ -114,7 +114,7 @@ for (const { modelId, sample, exactCopy, release } of cases) {
         })
 
         const result = await agent.invoke(
-          `Use the read tool to read ${path}. What secret code does it contain?`,
+          `Use the read tool once with offset 1 to read ${path}. After it returns, answer with the secret code. Do not call the read tool again.`,
           { limits: { turns: 3 } },
         )
 

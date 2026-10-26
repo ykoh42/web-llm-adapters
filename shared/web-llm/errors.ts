@@ -22,41 +22,70 @@ const errorTypes = new Map<string, ErrorType>([
 
 const contextErrors = ['ContextWindowSizeExceededError', 'EmbeddingExceedContextWindowSizeError']
 
+export function isError(error: unknown): error is Error {
+  return errorType(error) === true
+}
+
+function errorType(error: unknown): boolean | undefined {
+  try {
+    return error instanceof Error || isCrossRealmError(error)
+  } catch {
+    return undefined
+  }
+}
+
+function isCrossRealmError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    Object.prototype.toString.call(error) === '[object Error]'
+  )
+}
+
 /** Workers may return native context errors as either strings or Errors. */
 export function isContextOverflow(error: unknown): boolean {
   if (typeof error === 'string') return contextErrors.some((name) => error.startsWith(name + ':'))
-  try {
-    if (!(error instanceof Error)) return false
-    if (contextErrors.includes(error.name)) return true
-    const message = error.message
-    return (
-      typeof message === 'string' && contextErrors.some((name) => message.startsWith(name + ':'))
-    )
-  } catch {
-    return false
-  }
+  const name = errorField(error, 'name')
+  if (typeof name === 'string' && contextErrors.includes(name)) return true
+  const message = errorField(error, 'message')
+  return typeof message === 'string' && contextErrors.some((name) => message.startsWith(name + ':'))
 }
 
 export function serializeError(error: unknown): ErrorInfo {
   const info: ErrorInfo = { name: 'Error', message: errorText(error) }
   const causes: NonNullable<ErrorInfo['causes']> = []
+  const type = errorType(error)
   try {
-    if (error instanceof Error) {
-      const name = error.name
+    if (type === true) {
+      const nativeError = error as Error
+      const name = nativeError.name
       if (typeof name === 'string') info.name = name
-      let parent = error
+      let parent = nativeError
       let cause = parent.cause
-      while (cause instanceof Error && causes.length < 5) {
+      let causeType = errorType(cause)
+      while (causeType === true && causes.length < 5 && isError(cause)) {
         const name = cause.name
         causes.push({ name: typeof name === 'string' ? name : 'Error', message: errorText(cause) })
         parent = cause
         cause = parent.cause
+        causeType = errorType(cause)
       }
-      if ('cause' in parent && !(cause instanceof Error))
-        info.causeValue = cause === undefined ? {} : { value: JSON.parse(stringifyJSON(cause)) }
-    }
+      if (causeType === undefined) {
+        const name = errorField(cause, 'name')
+        const message = errorField(cause, 'message')
+        if (typeof name === 'string' && typeof message === 'string') causes.push({ name, message })
+      }
+      if (causeType === false && 'cause' in parent) {
+        try {
+          info.causeValue = cause === undefined ? {} : { value: JSON.parse(stringifyJSON(cause)) }
+        } catch {
+          // Keep the error chain when a non-Error cause cannot be serialized.
+        }
+      }
+    } else if (type === undefined) readErrorFields(error, info)
   } catch {
-    // Provider getters or unserializable causes must not replace the original failure.
+    // Proxies may reject prototype or error-field inspection.
+    readErrorFields(error, info)
   }
   if (causes.length) info.causes = causes
   return info
@@ -64,9 +93,32 @@ export function serializeError(error: unknown): ErrorInfo {
 
 export function errorText(error: unknown): string {
   try {
-    return String(error instanceof Error ? error.message : error)
+    const type = errorType(error)
+    if (type === true) return String((error as Error).message)
+    if (type === undefined) {
+      const message = errorField(error, 'message')
+      if (typeof message === 'string') return message
+    }
+    return String(error)
   } catch {
-    return 'The request failed with an unreadable error.'
+    const message = errorField(error, 'message')
+    return typeof message === 'string' ? message : 'The request failed with an unreadable error.'
+  }
+}
+
+function readErrorFields(error: unknown, info: ErrorInfo): void {
+  const name = errorField(error, 'name')
+  if (typeof name === 'string') info.name = name
+  const message = errorField(error, 'message')
+  if (typeof message === 'string') info.message = message
+}
+
+function errorField(error: unknown, key: string): unknown {
+  if ((typeof error !== 'object' || error === null) && typeof error !== 'function') return
+  try {
+    return Reflect.get(error, key)
+  } catch {
+    return
   }
 }
 

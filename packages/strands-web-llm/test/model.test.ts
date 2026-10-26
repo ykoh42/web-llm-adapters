@@ -10,9 +10,10 @@ import {
   ReasoningBlock,
   TextBlock,
   ToolUseBlock,
+  type ModelStreamEvent,
+  type StreamOptions,
 } from '@strands-agents/sdk'
-import type { ModelStreamEvent, StreamOptions } from '@strands-agents/sdk'
-import { WebLLMModel } from '../src/index.js'
+import { WebLLMModel, type WebLLMChunk } from '../src/index.js'
 import { chunk, chunks, collect, pause, setup } from '../fixtures/engine.js'
 
 const messages = [new Message({ role: 'user', content: [new TextBlock('Hi')] })]
@@ -195,7 +196,7 @@ describe('WebLLMModel', () => {
         type: 'modelContentBlockDeltaEvent',
         delta: { type: 'textDelta', text: ' there' },
       })
-      expect(rest.at(-1)).toEqual({ type: 'modelMessageStopEvent', stopReason: 'endTurn' })
+      expect(rest.at(-1)).toMatchObject({ type: 'modelMessageStopEvent', stopReason: 'endTurn' })
     } finally {
       hold.resume()
       await stream.return(undefined)
@@ -297,7 +298,12 @@ describe('WebLLMModel', () => {
     }
     const { engine, create } = setup()
     create.mockImplementation(async () => chunks(first, last))
-    const onChunk = vi.fn()
+    const onChunk = vi.fn(async (chunk: WebLLMChunk) => {
+      await Promise.resolve()
+      if (chunk.object !== 'chat.completion.chunk') return
+      const token = chunk.choices[0]?.logprobs?.content?.[0]
+      if (token) token.token = 'Changed'
+    })
     const model = new WebLLMModel({
       engine,
       modelId: 'test-model',
@@ -328,6 +334,30 @@ describe('WebLLMModel', () => {
       },
     })
     expect(onChunk.mock.calls.map(([value]) => value)).toEqual([first, last])
+  })
+
+  it('exposes the native response id and model on the stop event', async () => {
+    const first = chunk({ content: 'Hi' })
+    first.id = 'chatcmpl-123'
+    first.model = 'served-model'
+    first.created = 1_761_484_800
+    const last = chunk({}, 'stop')
+    last.id = first.id
+    last.model = first.model
+    last.created = first.created
+    const { model, create } = setup()
+    create.mockResolvedValueOnce(chunks(first, last))
+
+    const events = await collect(model.stream(messages))
+    const stop = events.find((event) => event.type === 'modelMessageStopEvent')
+
+    expect(stop).toMatchObject({
+      additionalModelResponseFields: {
+        id: 'chatcmpl-123',
+        model: 'served-model',
+        created: 1_761_484_800,
+      },
+    })
   })
 
   it('runs a tool and sends its result back through the Agent loop', async () => {
@@ -451,7 +481,7 @@ describe('WebLLMModel', () => {
         type: 'modelContentBlockDeltaEvent',
         delta: { type: 'toolUseInputDelta', input: '"Seoul"}' },
       })
-      expect(rest.at(-1)).toEqual({ type: 'modelMessageStopEvent', stopReason: 'toolUse' })
+      expect(rest.at(-1)).toMatchObject({ type: 'modelMessageStopEvent', stopReason: 'toolUse' })
     } finally {
       hold.resume()
       await stream.return(undefined)
@@ -497,7 +527,7 @@ describe('WebLLMModel', () => {
       delta: { type: 'toolUseInputDelta', input: '"Seoul"}' },
     })
     expect(events).toContainEqual({ type: 'modelContentBlockStopEvent' })
-    expect(events.at(-1)).toEqual({ type: 'modelMessageStopEvent', stopReason: 'maxTokens' })
+    expect(events.at(-1)).toMatchObject({ type: 'modelMessageStopEvent', stopReason: 'maxTokens' })
   })
 
   it('never turns a truncated tool call into executable tool use', async () => {
@@ -540,7 +570,9 @@ describe('WebLLMModel', () => {
         .join('')
 
       expect(text).toBe('')
-      expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'maxTokens' })
+      expect(events).toContainEqual(
+        expect.objectContaining({ type: 'modelMessageStopEvent', stopReason: 'maxTokens' }),
+      )
       expect(
         events.some(
           (event) =>
@@ -563,6 +595,24 @@ describe('WebLLMModel', () => {
       for await (const event of model.stream(messages, { toolSpecs: tools })) events.push(event)
     }).rejects.toThrow('invalid tool JSON')
     expect(events).toContainEqual({ type: 'modelContentBlockStopEvent' })
+  })
+
+  it('does not run a native tool when its arguments are malformed', async () => {
+    const { model } = setup(
+      chunk({
+        tool_calls: [{ index: 0, id: 'call-1', function: { name: 'weather', arguments: '{' } }],
+      }),
+      chunk({ tool_calls: [{ index: 0, function: { arguments: 'invalid' } }] }, 'tool_calls'),
+    )
+    const callback = vi.fn(() => 'Sunny')
+    const agent = new Agent({
+      model,
+      printer: false,
+      tools: [new FunctionTool({ ...tools[0]!, callback })],
+    })
+
+    await expect(agent.invoke('What is the weather?')).rejects.toThrow('invalid tool JSON')
+    expect(callback).not.toHaveBeenCalled()
   })
 
   it('rejects a tool-choice violation before publishing a native tool block', async () => {
@@ -604,6 +654,59 @@ describe('WebLLMModel', () => {
     expect(blocks.filter((block) => block instanceof ToolUseBlock)).toEqual([
       new ToolUseBlock({ name: 'weather', toolUseId: 'call-1', input: { city: 'Seoul' } }),
     ])
+  })
+
+  it('preserves long tool arguments split across native chunks', async () => {
+    const input = JSON.stringify({ city: 'A'.repeat(512) })
+    const chunks = [...input].map((argument, index) =>
+      chunk({
+        tool_calls: [
+          {
+            index: 0,
+            ...(index === 0 && { id: 'call-1' }),
+            function: { ...(index === 0 && { name: 'weather' }), arguments: argument },
+          },
+        ],
+      }),
+    )
+    chunks.push(chunk({}, 'tool_calls'))
+    const { model } = setup(...chunks)
+    const argumentDeltas: string[] = []
+
+    for await (const event of model.stream(messages, { toolSpecs: tools }))
+      if (event.type === 'modelContentBlockDeltaEvent' && event.delta.type === 'toolUseInputDelta')
+        argumentDeltas.push(event.delta.input)
+
+    expect(argumentDeltas.join('')).toBe(input)
+  })
+
+  it('rejects duplicate native tool call IDs before running tools', async () => {
+    const { model, create } = setup()
+    create.mockResolvedValueOnce(
+      chunks(
+        chunk({
+          tool_calls: [{ index: 0, id: 'same-id', function: { name: 'weather', arguments: '{}' } }],
+        }),
+        chunk(
+          {
+            tool_calls: [
+              { index: 1, id: 'same-id', function: { name: 'weather', arguments: '{}' } },
+            ],
+          },
+          'tool_calls',
+        ),
+      ),
+    )
+    const callback = vi.fn(() => 'Sunny')
+    const agent = new Agent({
+      model,
+      printer: false,
+      tools: [new FunctionTool({ ...tools[0]!, callback })],
+    })
+
+    await expect(agent.invoke('Weather?')).rejects.toThrow('duplicate tool call IDs')
+    expect(callback).not.toHaveBeenCalled()
+    expect(create).toHaveBeenCalledTimes(1)
   })
 
   it.each(['[]', 'null', '42', '"text"'])(
@@ -662,7 +765,7 @@ describe('WebLLMModel', () => {
     const input = ' { "small": 1e-300, "large": 1e300, "text": "</tool_call>", "items": [null] } '
     const { model } = setup(
       chunk(
-        { tool_calls: [{ index: 0, function: { name: 'weather', arguments: input } }] },
+        { tool_calls: [{ index: 0, function: { name: 'lookup', arguments: input } }] },
         'tool_calls',
       ),
     )
@@ -713,6 +816,33 @@ describe('WebLLMModel', () => {
       },
     })
     await expect(aggregate(model)).rejects.toThrow('Callback failed')
+    expect(closed).toBe(true)
+    create.mockResolvedValueOnce(chunks(chunk({ content: 'Hi' }, 'stop')))
+    const next = new WebLLMModel({ engine, modelId: 'test-model' })
+    await expect(aggregate(next)).resolves.toMatchObject({ stopReason: 'endTurn' })
+  })
+
+  it('closes the native stream when an async chunk callback rejects', async () => {
+    const { engine, create } = setup()
+    let closed = false
+    create.mockResolvedValueOnce(
+      (async function* () {
+        try {
+          yield chunk({ content: 'Hi' })
+        } finally {
+          closed = true
+        }
+      })(),
+    )
+    const model = new WebLLMModel({
+      engine,
+      modelId: 'test-model',
+      onChunk: async () => {
+        await Promise.resolve()
+        throw new Error('Async callback failed')
+      },
+    })
+    await expect(aggregate(model)).rejects.toThrow('Async callback failed')
     expect(closed).toBe(true)
     create.mockResolvedValueOnce(chunks(chunk({ content: 'Hi' }, 'stop')))
     const next = new WebLLMModel({ engine, modelId: 'test-model' })
@@ -854,7 +984,11 @@ describe('WebLLMModel', () => {
     const events: ModelStreamEvent[] = await collect(model.stream(messages))
     expect(events).toEqual([
       { type: 'modelMessageStartEvent', role: 'assistant' },
-      { type: 'modelMessageStopEvent', stopReason: 'endTurn' },
+      {
+        type: 'modelMessageStopEvent',
+        stopReason: 'endTurn',
+        additionalModelResponseFields: { id: 'test', model: 'test-model', created: 0 },
+      },
     ])
   })
 })

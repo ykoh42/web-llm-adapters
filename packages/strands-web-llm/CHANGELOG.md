@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Reject duplicate tool call IDs before producing tool results.
+- Avoid rebuilding accumulated text for each streamed tool argument chunk.
+- Accept Qwen3.5 string enums and string `const` values without an explicit type.
+- Constrain type-less Qwen3.5 non-string `enum`/`const` values and JSON-only unions.
+- Allow explicit text format with constrained Qwen tool calls.
+- Reject incomplete or malformed Qwen tool calls instead of repairing their output.
+- Preserve cross-realm error types and causes across the browser bridge.
+- Accept image and WAV byte arrays created in another JavaScript realm.
+- Await async `onChunk` handlers and propagate their errors.
+- Preserve native response IDs, model IDs, and creation times in metadata.
+- Reject Qwen3.5 tool names that cannot be represented in XML.
 - Exclude runtime build tools from the npm package.
 - Reuse similarity scores for duplicate document contents within each search.
 

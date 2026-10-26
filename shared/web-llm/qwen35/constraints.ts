@@ -1,5 +1,10 @@
 import type { JSONSchema, ToolSpec } from '../types.js'
-import { xmlStringFormat } from './grammar.js'
+import { messageBoundaryTokens, xmlStringFormat } from './grammar.js'
+import { argumentSchema, type ArgumentSchemaCache } from './schema.js'
+
+export function canUseXmlFunctionName(name: unknown): name is string {
+  return typeof name === 'string' && name.length > 0 && !/[<>]/u.test(name)
+}
 
 const annotations = [
   'title',
@@ -20,14 +25,24 @@ const objectKeys = new Set([
   'additionalProperties',
 ])
 const stringKeys = new Set([...annotations, 'type', 'enum', 'const'])
+const jsonValueTypes = new Set(['integer', 'nonInteger', 'boolean', 'null', 'array', 'object'])
+const jsonValueKeywords = new Set(['default', 'examples', 'enum', 'const'])
+const schemaMapKeywords = new Set([
+  'properties',
+  'patternProperties',
+  'definitions',
+  '$defs',
+  'dependencies',
+  'dependentSchemas',
+])
 
 /** Raw XML strings must stay raw; the bundled XML schema compiler quotes enums. */
 export function xmlToolTag(tool: ToolSpec) {
   const schema = tool.inputSchema
   if (
-    !tool.name ||
-    /[<>\s]/u.test(tool.name) ||
+    !canUseXmlFunctionName(tool.name) ||
     !schema ||
+    hasCycle(schema) ||
     schema.type !== 'object' ||
     schema.additionalProperties !== false ||
     Object.keys(schema).some((key) => !objectKeys.has(key))
@@ -35,10 +50,11 @@ export function xmlToolTag(tool: ToolSpec) {
     return
   const properties = schema.properties ?? {}
   if (schema.required?.some((name) => !Object.hasOwn(properties, name))) return
+  const argumentSchemas: ArgumentSchemaCache = new WeakMap()
   const elements = []
   for (const [name, value] of Object.entries(properties)) {
     if (!name || /[<>\r\n]/u.test(name) || typeof value === 'boolean' || hasReference(value)) return
-    const content = parameterFormat(value)
+    const content = parameterFormat(value, tool, name, argumentSchemas)
     if (!content) return
     const parameter = {
       type: 'tag',
@@ -62,8 +78,42 @@ export function xmlToolTag(tool: ToolSpec) {
   }
 }
 
-function parameterFormat(schema: JSONSchema) {
-  const types = Array.isArray(schema.type) ? schema.type : [schema.type]
+function parameterFormat(
+  schema: JSONSchema,
+  tool: ToolSpec,
+  name: string,
+  cache: ArgumentSchemaCache,
+) {
+  if (Array.isArray(schema.enum) && !schema.enum.length) return
+  const values = Object.hasOwn(schema, 'const') ? [schema.const] : schema.enum
+  let types = Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : []
+  if (!types.length) {
+    if (
+      Array.isArray(values) &&
+      values.length &&
+      !values.some((value) => typeof value === 'string')
+    ) {
+      const inferred = argumentSchema(tool, name, cache).types
+      if (
+        isJsonValue(values) &&
+        inferred?.length &&
+        inferred.every((type) => jsonValueTypes.has(type))
+      )
+        return { type: 'json_schema', json_schema: schema }
+      return
+    }
+    if (!Array.isArray(values) || !values.length) {
+      const hasTypeUnion =
+        (Array.isArray(schema.anyOf) && schema.anyOf.length > 0) ||
+        (Array.isArray(schema.oneOf) && schema.oneOf.length > 0)
+      if (!hasTypeUnion) return
+      const inferred = argumentSchema(tool, name, cache).types
+      if (inferred?.length && inferred.every((type) => jsonValueTypes.has(type)))
+        return { type: 'json_schema', json_schema: schema }
+      return
+    }
+    types = values.includes(null) ? ['string', 'null'] : ['string']
+  }
   if (!types.includes('string')) {
     if (!schema.type) return
     return { type: 'json_schema', json_schema: schema }
@@ -73,8 +123,7 @@ function parameterFormat(schema: JSONSchema) {
     Object.keys(schema).some((key) => !stringKeys.has(key))
   )
     return
-  const values = Object.hasOwn(schema, 'const') ? [schema.const] : schema.enum
-  if (!values) return xmlStringFormat()
+  if (!values) return types.includes('null') ? undefined : xmlStringFormat()
   if (
     !values.length ||
     (Object.hasOwn(schema, 'const') && schema.enum && !schema.enum.includes(schema.const!)) ||
@@ -82,7 +131,8 @@ function parameterFormat(schema: JSONSchema) {
       (value) =>
         (typeof value !== 'string' && !(value === null && types.includes('null'))) ||
         (typeof value === 'string' &&
-          (/<parameter=|<\/parameter>|<\|im_end\|>|<\|endoftext\|>/u.test(value) ||
+          (/<parameter=|<\/parameter>/u.test(value) ||
+            messageBoundaryTokens.some((token) => value.includes(token)) ||
             value.endsWith('\r') ||
             (value.trim() === 'null' && values.includes(null)))),
     )
@@ -97,11 +147,76 @@ function parameterFormat(schema: JSONSchema) {
   }
 }
 
-function hasReference(value: unknown, seen = new WeakSet<object>()): boolean {
+function hasReference(value: unknown, seen = new WeakSet<object>(), schemaMap = false): boolean {
   if (!value || typeof value !== 'object') return false
   if (seen.has(value)) return false
   seen.add(value)
+  if (schemaMap) return Object.values(value).some((schema) => hasReference(schema, seen))
   return (
-    Object.hasOwn(value, '$ref') || Object.values(value).some((entry) => hasReference(entry, seen))
+    Object.hasOwn(value, '$ref') ||
+    Object.entries(value).some(
+      ([key, entry]) =>
+        !jsonValueKeywords.has(key) && hasReference(entry, seen, schemaMapKeywords.has(key)),
+    )
   )
+}
+
+function hasCycle(
+  value: unknown,
+  seen = new WeakSet<object>(),
+  active = new WeakSet<object>(),
+): boolean {
+  if (!value || typeof value !== 'object') return false
+  if (active.has(value)) return true
+  if (seen.has(value)) return false
+  seen.add(value)
+  active.add(value)
+  try {
+    return Object.values(value).some((entry) => hasCycle(entry, seen, active))
+  } finally {
+    active.delete(value)
+  }
+}
+
+function isJsonValue(value: unknown, active = new WeakSet<object>()): boolean {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true
+  if (typeof value === 'number') return Number.isFinite(value)
+  if (typeof value !== 'object' || active.has(value) || !hasJsonPrototype(value)) return false
+
+  const array = Array.isArray(value)
+  const keys = Reflect.ownKeys(value)
+  if (
+    (array &&
+      (keys.length !== value.length + 1 ||
+        Object.keys(value).length !== value.length ||
+        !Array.from({ length: value.length }, (_, index) => Object.hasOwn(value, index)).every(
+          Boolean,
+        ))) ||
+    (!array && keys.length !== Object.keys(value).length)
+  )
+    return false
+
+  active.add(value)
+  const valid = keys
+    .filter((key) => key !== 'length')
+    .every((key) => {
+      if (typeof key !== 'string') return false
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      return Boolean(
+        descriptor?.enumerable &&
+        Object.hasOwn(descriptor, 'value') &&
+        isJsonValue(descriptor.value, active),
+      )
+    })
+  active.delete(value)
+  return valid
+}
+
+function hasJsonPrototype(value: object) {
+  const prototype = Object.getPrototypeOf(value)
+  if (prototype === null) return true
+  const parent = Object.getPrototypeOf(prototype)
+  return Array.isArray(value)
+    ? parent !== null && Object.getPrototypeOf(parent) === null
+    : parent === null
 }

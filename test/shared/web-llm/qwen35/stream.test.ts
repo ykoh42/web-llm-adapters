@@ -1,8 +1,47 @@
-import type { JSONSchema, ToolSpec } from '@strands-agents/sdk'
+import type { JSONSchema, ToolSpec } from '../../../../shared/web-llm/types.js'
 import { expect, it } from 'vitest'
-import { chunk, chunks, collect } from '../../fixtures/engine.js'
+import { chunk, chunks, collect } from '../../../../fixtures/web-llm.js'
 import { qwen35Chunks } from '../../../../shared/web-llm/qwen35/stream.js'
 import { formatCall } from '../../../../shared/web-llm/qwen35/tools.js'
+
+it.each(['\n', '\r\n'])(
+  'preserves trailing carriage returns with %j line endings',
+  async (lineEnding) => {
+    const input = { text: 'value\r' }
+    const content = formatCall('lookup', input).replaceAll('\n', lineEnding)
+    const tools: ToolSpec[] = [
+      {
+        name: 'lookup',
+        description: 'Read a value.',
+        inputSchema: { type: 'object', properties: { text: { type: 'string' } } },
+      },
+    ]
+    const output = await collect(qwen35Chunks(chunks(chunk({ content }, 'stop')), tools))
+
+    expect(output.flatMap((item) => item.calls)).toMatchObject([{ input: JSON.stringify(input) }])
+  },
+)
+
+it.each(['<|im_start|>', '<|im_end|>', '<|endoftext|>'])(
+  'preserves a message-boundary token in generated tool arguments: %s',
+  async (token) => {
+    const content =
+      `<tool_call>\n<function=lookup>\n<parameter=text>\n${token}\n` +
+      '</parameter>\n</function>\n</tool_call>'
+    const tools: ToolSpec[] = [
+      {
+        name: 'lookup',
+        description: 'Read a value.',
+        inputSchema: { type: 'object', properties: { text: { type: 'string' } } },
+      },
+    ]
+
+    const output = await collect(qwen35Chunks(chunks(chunk({ content }, 'stop')), tools))
+    expect(output.flatMap((item) => item.calls)).toMatchObject([
+      { input: JSON.stringify({ text: token }) },
+    ])
+  },
+)
 
 it.each(['code', '', 'a<b', 'x\ny', '__proto__', 'constructor'])(
   'preserves a representable XML argument name: %j',
@@ -84,8 +123,8 @@ it.each([
   },
 )
 
-it.each(['{not JSON " remains', '[raw "value', 'literal "unterminated'])(
-  'preserves an ordinary string that resembles incomplete JSON: %s',
+it.each(['{not JSON " remains', '[raw "value', 'literal "unterminated', '"A7"'])(
+  'preserves a string that resembles JSON: %s',
   async (text) => {
     const tools: ToolSpec[] = [
       {

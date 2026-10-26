@@ -6,6 +6,7 @@ import type { WebLLMChunk } from '../types.js'
 import { toBrowserError } from './errors.js'
 import type { BrowserBridge, BrowserRequest, BrowserResult } from './types.js'
 import { browserStream, type BrowserPacket } from '../../../../shared/browser/stream.js'
+import { markChunkCallbackNonMutating } from '../../../../shared/web-llm/callback.js'
 
 /** Serve a loaded engine on a private browser page. The caller owns its lifetime. */
 export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
@@ -15,7 +16,7 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
     pending?: Promise<BrowserPacket<ModelStreamEvent, WebLLMChunk>>
     controller: AbortController
     closing?: Promise<void>
-    chunks: WebLLMChunk[]
+    takeChunks?: () => WebLLMChunk[]
   }
   const calls = new Map<string, Call>()
   const nativeCalls = new Set<Promise<unknown>>()
@@ -41,14 +42,11 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
       checkOpen()
       const id = crypto.randomUUID()
       const controller = new AbortController()
-      const chunks: WebLLMChunk[] = []
-      const output = includeChunks
-        ? browserStream<ModelStreamEvent, WebLLMChunk>(chunks)
-        : undefined
+      const output = includeChunks ? browserStream<ModelStreamEvent, WebLLMChunk>() : undefined
       const model = new WebLLMModel({
         engine,
         ...config,
-        ...(output && { onChunk: output.push }),
+        ...(output && { onChunk: markChunkCallbackNonMutating(output.push) }),
       })
       const stream = model.stream(messages.map(Message.fromJSON), {
         ...options,
@@ -57,7 +55,7 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
       calls.set(id, {
         stream,
         controller,
-        chunks,
+        ...(output && { takeChunks: output.takeChunks }),
         next: output ? () => output.next(stream) : () => stream.next(),
       })
       return id
@@ -75,8 +73,9 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
         return result
       } catch (error) {
         calls.delete(id)
+        const chunks = call?.takeChunks?.()
         const packet = {
-          ...(call?.chunks.length && { chunks: call.chunks.splice(0) }),
+          ...(chunks?.length && { chunks }),
           error: toBrowserError(error),
           get errorJSON(): string {
             return JSON.stringify(this.error)

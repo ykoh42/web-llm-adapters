@@ -30,7 +30,7 @@ export function qwen35Chunks(
         return -1
       },
       parse: (text, index) => parseCalls(text, tools, index, schemas),
-      get unclosedError() {
+      unclosedError() {
         return tags.inParameter
           ? 'Qwen3.5 returned a malformed tool parameter.'
           : 'Qwen3.5 ended inside a tool call.'
@@ -69,7 +69,7 @@ function parseCalls(
     if (tag.marker === '<function=') {
       if (tool || source.slice(offset, tag.index).trim())
         throw new ModelError('Qwen3.5 returned a malformed tool call.')
-      const header = /^<function=([^>\s]+)>/.exec(source.slice(tag.index))
+      const header = /^<function=([^>]+)>/.exec(source.slice(tag.index))
       if (!header) throw new ModelError('Qwen3.5 returned a malformed tool call.')
       const name = header[1]!
       tool = tools.find((tool) => tool.name === name)

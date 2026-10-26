@@ -5,7 +5,7 @@ export default defineConfig({
     watch: { ignored: ['**/.cache/**', '**/dist/**', '**/test-results/**', '**/coverage/**'] },
   },
   test: {
-    globalSetup: ['scripts/test-watch.ts'],
+    globalSetup: ['scripts/test-build.ts'],
     setupFiles: ['scripts/check-test-build.ts'],
     forceRerunTriggers: [
       ...configDefaults.forceRerunTriggers,

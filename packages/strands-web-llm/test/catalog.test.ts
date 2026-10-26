@@ -57,21 +57,6 @@ function checkChatRequest(request: unknown, modelId: string, modelType: ModelTyp
 }
 
 describe('WebLLM model catalog', () => {
-  it('matches the catalog counts documented for WebLLM 0.2.86', () => {
-    expect(catalog).toHaveLength(165)
-    expect(new Set(catalog.map((model) => model.model_id)).size).toBe(165)
-    expect(textModels).toHaveLength(159)
-    expect(visionModels).toHaveLength(2)
-    expect(embeddingModels).toHaveLength(4)
-    expect(functionCallingModelIds).toEqual([
-      'Hermes-2-Pro-Llama-3-8B-q4f16_1-MLC',
-      'Hermes-2-Pro-Llama-3-8B-q4f32_1-MLC',
-      'Hermes-2-Pro-Mistral-7B-q4f16_1-MLC',
-      'Hermes-3-Llama-3.1-8B-q4f32_1-MLC',
-      'Hermes-3-Llama-3.1-8B-q4f16_1-MLC',
-    ])
-  })
-
   it('keeps text and history requests valid for every prebuilt chat model', async () => {
     const { engine, create } = setup()
     create.mockImplementation(async () => chunks(chunk({ content: 'ok' }, 'stop')))

@@ -211,10 +211,12 @@ for (const client of ['strands', 'langchain']) {
               })()
         const cancelled =
           client === 'strands'
-            ? expect(pending).resolves.toContainEqual({
-                type: 'modelMessageStopEvent',
-                stopReason: 'cancelled',
-              })
+            ? expect(pending).resolves.toContainEqual(
+                expect.objectContaining({
+                  type: 'modelMessageStopEvent',
+                  stopReason: 'cancelled',
+                }),
+              )
             : expect(pending).rejects.toHaveProperty('name', 'AbortError')
         if (phase === 'waiting') {
           await waiting.wait

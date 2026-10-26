@@ -2,6 +2,7 @@ import { modelCheck } from '../../../../../scripts/release/support.js'
 import { sampling } from '../../../sampling.js'
 import { createDeepAgent } from 'deepagents'
 import { createAgent } from 'langchain'
+import { AIMessage, HumanMessage, ToolMessage } from '@langchain/core/messages'
 import { tool } from '@langchain/core/tools'
 import { z } from 'zod'
 import { BrowserChatWebLLM, type WebLLMChunk } from 'langchain-web-llm'
@@ -9,11 +10,12 @@ import { test, expect } from '../../../fixtures/browser.js'
 import type {} from '../../src/main.js'
 import { writeFile } from 'node:fs/promises'
 
+const gemmaModel = 'gemma-4-E2B-it-q4f16_1-MLC'
 const models = [
   'Qwen3.5-9B-q4f16_1-MLC',
   'Qwen3.5-4B-q4f16_1-MLC',
   'Qwen3-4B-q4f16_1-MLC',
-  'gemma-4-E2B-it-q4f16_1-MLC',
+  gemmaModel,
   'Qwen2.5-7B-Instruct-q4f16_1-MLC',
   'Qwen2.5-3B-Instruct-q4f16_1-MLC',
   'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
@@ -56,10 +58,19 @@ for (const { modelId, prompt } of selected) {
       await page.evaluate(() => {
         const engine = window.checks.engine()
         const create = engine.chat.completions.create.bind(engine.chat.completions)
-        Object.assign(window, { nativeRequests: [] })
+        const complete = engine.completions.create.bind(engine.completions)
+        Object.assign(window, { nativeRequests: [], nativePrompts: [] })
         engine.chat.completions.create = new Proxy(create, {
           apply(target, self, args) {
             ;(window as unknown as { nativeRequests: unknown[] }).nativeRequests.push(
+              structuredClone(args[0]),
+            )
+            return Reflect.apply(target, self, args)
+          },
+        })
+        engine.completions.create = new Proxy(complete, {
+          apply(target, self, args) {
+            ;(window as unknown as { nativePrompts: unknown[] }).nativePrompts.push(
               structuredClone(args[0]),
             )
             return Reflect.apply(target, self, args)
@@ -140,6 +151,46 @@ for (const { modelId, prompt } of selected) {
               ),
           ),
         ).toBe(true)
+
+      if (modelId === gemmaModel) {
+        const reasoning = 'Prior lookup reasoning should survive.'
+        const model = new BrowserChatWebLLM(page, {
+          modelId,
+          profile,
+          request: {
+            ...sampling(modelId, true),
+            max_tokens: 1024,
+            seed: 7,
+            extra_body: { enable_thinking: true, preserve_thinking: true },
+          },
+        })
+        const history = [
+          new HumanMessage('Look up A7.'),
+          new AIMessage({
+            content: [{ type: 'reasoning', reasoning }],
+            tool_calls: [
+              { id: 'lookup-1', name: 'lookup', args: { code: 'A7' }, type: 'tool_call' },
+            ],
+          }),
+          new ToolMessage({ tool_call_id: 'lookup-1', name: 'lookup', content: 'ORCHID-42' }),
+          new HumanMessage('What was the lookup result? Reply with only the value.'),
+        ]
+        const answer = await model.invoke(history, {
+          request: { extra_body: { enable_thinking: true, enable_latency_breakdown: true } },
+        })
+        const request = await page.evaluate(() =>
+          (window as unknown as { nativePrompts: unknown[] }).nativePrompts.at(-1),
+        )
+
+        expect(request).toMatchObject({
+          prompt: expect.stringContaining('<|think|>\n'),
+          extra_body: { enable_latency_breakdown: true },
+        })
+        expect(request).toMatchObject({ prompt: expect.stringContaining(reasoning) })
+        expect(request).not.toHaveProperty('extra_body.enable_thinking')
+        expect(request).not.toHaveProperty('extra_body.preserve_thinking')
+        expect(answer.text).toContain('ORCHID-42')
+      }
     },
   )
 }

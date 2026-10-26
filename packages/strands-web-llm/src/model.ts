@@ -10,13 +10,15 @@ import { modelError } from './engine/error.js'
 import { isGemma, usesGemmaProtocol } from './gemma/request.js'
 import { gemmaStream } from './gemma/model.js'
 import { trimThoughts } from './gemma/history.js'
-import { usesQwenProtocol } from './qwen/request.js'
+import { isQwen } from '../../../shared/web-llm/qwen/models.js'
 import { qwenStream } from './qwen/model.js'
-import { usesQwen35Protocol } from './qwen35/request.js'
+import { isQwen35 } from '../../../shared/web-llm/qwen35/models.js'
 import type { WebLLMChunk, WebLLMModelOptions } from './types.js'
 import { WebLLMModelBase } from './model-base.js'
 import { preserveThinking } from '../../../shared/web-llm/request.js'
 import { appendLogprobs, type WebLLMLogprobs } from '../../../shared/web-llm/logprobs.js'
+import { validateToolNames } from '../../../shared/web-llm/types.js'
+import { chunkCallbackMayMutate } from '../../../shared/web-llm/callback.js'
 
 /** Connects a loaded WebLLM engine to Strands. The caller owns the engine. */
 export class WebLLMModel extends WebLLMModelBase {
@@ -49,27 +51,43 @@ export class WebLLMModel extends WebLLMModelBase {
       options = { ...options, toolSpecs: [] }
     let stream = chatStream
     if (usesGemmaProtocol(config, messages, options)) stream = gemmaStream
-    else if (usesQwen35Protocol(config) || usesQwenProtocol(config)) stream = qwenStream
+    else if (isQwen35(config.modelId) || isQwen(config.modelId)) stream = qwenStream
     let logprobs: WebLLMLogprobs | undefined
+    let responseId: string | undefined
+    let responseModel: string | undefined
+    let responseCreated: number | undefined
     try {
-      const onChunk =
-        config.request?.logprobs === true
-          ? (chunk: WebLLMChunk) => {
-              this.onChunk?.(chunk)
-              logprobs = appendLogprobs(logprobs, chunk.choices[0]?.logprobs)
-            }
-          : this.onChunk
-      const chunks = stream(this.engine, config, messages, options, onChunk)
+      validateToolNames(options.toolSpecs ?? [])
+      const onChunk = (chunk: WebLLMChunk) => {
+        responseId ??= chunk.id
+        responseModel ??= chunk.model
+        responseCreated ??= chunk.created
+        if (config.request?.logprobs === true)
+          logprobs = appendLogprobs(logprobs, chunk.choices[0]?.logprobs)
+        return this.onChunk?.(chunk)
+      }
+      const chunks = stream(
+        this.engine,
+        config,
+        messages,
+        options,
+        onChunk,
+        chunkCallbackMayMutate(this.onChunk),
+      )
       for await (const event of chunks) {
-        if (event.type === 'modelMessageStopEvent' && logprobs) {
-          yield {
-            ...event,
-            additionalModelResponseFields: {
-              // Preserve the native fields, including non-finite log probabilities.
-              logprobs: jsonLogprobs(logprobs),
-            },
-          }
-        } else yield event
+        if (event.type !== 'modelMessageStopEvent') {
+          yield event
+          continue
+        }
+        const additionalModelResponseFields: JSONValue = {
+          ...(responseId !== undefined && { id: responseId }),
+          ...(responseModel !== undefined && { model: responseModel }),
+          ...(responseCreated !== undefined && { created: responseCreated }),
+          ...(logprobs && { logprobs: jsonLogprobs(logprobs) }),
+        }
+        yield Object.keys(additionalModelResponseFields).length
+          ? { ...event, additionalModelResponseFields }
+          : event
       }
     } catch (error) {
       if (signal?.aborted) throw error

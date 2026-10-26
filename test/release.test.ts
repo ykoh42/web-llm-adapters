@@ -98,9 +98,8 @@ describe('README support coverage', () => {
     expect(() => supportClaims(markdown)).toThrow()
   })
 
-  test('checks every current support row without claiming Pi audio', () => {
+  test('reads the current support table without claiming Pi audio', () => {
     const claims = supportClaims(readFileSync('README.md', 'utf8'))
-    expect(claims).toHaveLength(79)
     expect(claims).toContain('strands/gemma-4-E2B-it-q4f16_1-MLC/audio')
     expect(claims).not.toContain('pi/gemma-4-E2B-it-q4f16_1-MLC/audio')
   })

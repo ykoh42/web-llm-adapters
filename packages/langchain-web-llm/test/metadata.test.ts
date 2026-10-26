@@ -12,10 +12,14 @@ afterEach(() => vi.unstubAllGlobals())
 
 for (const browser of [false, true]) {
   it(`preserves native response identity and model metadata (browser: ${browser})`, async () => {
-    const native = [
-      { ...chunk({ content: 'Hello' }), id: 'native-response', model: 'served-model' },
-      { ...chunk({}, 'stop'), id: 'native-response', model: 'served-model' },
-    ]
+    const first = {
+      ...chunk({ content: 'Hello' }),
+      id: 'native-response',
+      model: 'served-model',
+      created: 1_761_484_800,
+    }
+    const last = { ...chunk({}, 'stop'), id: first.id, model: first.model, created: first.created }
+    const native = [first, last]
     const { engine } = setup(...native)
     const bridge = createBrowserBridge(engine)
     vi.stubGlobal('window', { webllmLangChainBridge: bridge })
@@ -37,6 +41,7 @@ for (const browser of [false, true]) {
       expect(result.response_metadata).toMatchObject({
         model: 'served-model',
         model_name: 'served-model',
+        created: 1_761_484_800,
         finish_reason: 'stop',
       })
       expect(onChunk.mock.calls.map(([value]) => value)).toEqual(native)
@@ -44,6 +49,10 @@ for (const browser of [false, true]) {
       for await (const event of model._streamChatModelEvents([new HumanMessage('Hello')], {}))
         events.push(event)
       expect(events[0]).toEqual({ event: 'message-start', id: 'native-response' })
+      expect(events.at(-1)).toMatchObject({
+        event: 'message-finish',
+        responseMetadata: { created: 1_761_484_800 },
+      })
     } finally {
       await bridge.close()
     }

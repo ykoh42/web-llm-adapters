@@ -8,13 +8,14 @@ const run = promisify(execFile)
 
 export default async function setup(project: TestProject): Promise<void> {
   project.provide('adapterBuildError', undefined)
-  if (!project.vitest.config.watch) return
+  const watch = project.vitest.config.watch
   const build = async () => {
     const root = project.config.root
     try {
       await run(process.execPath, ['--run', 'build:adapters'], { cwd: root })
       project.provide('adapterBuildError', undefined)
     } catch (error) {
+      if (!watch) throw error
       // Keep watching after build errors without testing stale code.
       project.provide('adapterBuildError', error instanceof Error ? error.message : String(error))
     }
@@ -37,5 +38,5 @@ export default async function setup(project: TestProject): Promise<void> {
     return building
   }
   await rebuild()
-  project.onTestsRerun(rebuild)
+  if (watch) project.onTestsRerun(rebuild)
 }

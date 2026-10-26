@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, expect, expectTypeOf, it, vi } from 'vitest'
 import type {
   ChatCompletionRequestBase,
   Completion,
@@ -20,6 +20,20 @@ import {
 } from 'strands-web-llm'
 import { chunk, setupEngine } from '../../fixtures/web-llm.js'
 
+type LangChainRequest = NonNullable<ConstructorParameters<typeof ChatWebLLM>[0]['request']>
+type BrowserLangChainRequest = NonNullable<
+  ConstructorParameters<typeof BrowserChatWebLLM>[1]['request']
+>
+type PiRequest = NonNullable<Parameters<typeof createWebLLMProvider>[0]['request']>
+type StrandsRequest = NonNullable<ConstructorParameters<typeof WebLLMModel>[0]['request']>
+type BrowserStrandsRequest = NonNullable<ConstructorParameters<typeof BrowserModel>[1]['request']>
+
+expectTypeOf<LangChainRequest['max_tokens']>().toEqualTypeOf<number | null | undefined>()
+expectTypeOf<BrowserLangChainRequest['max_tokens']>().toEqualTypeOf<number | null | undefined>()
+expectTypeOf<PiRequest['max_tokens']>().toEqualTypeOf<number | null | undefined>()
+expectTypeOf<StrandsRequest['max_tokens']>().toEqualTypeOf<number | null | undefined>()
+expectTypeOf<BrowserStrandsRequest['max_tokens']>().toEqualTypeOf<number | null | undefined>()
+
 // A new native option must have an explicit coverage decision.
 const request = {
   max_tokens: 64,
@@ -33,6 +47,7 @@ const request = {
   logprobs: true,
   top_logprobs: 2,
   seed: 7,
+  stream_options: { include_usage: true },
   response_format: { type: 'json_object', schema: '{"type":"object"}' },
   ignore_eos: false,
   extra_body: {
@@ -49,10 +64,7 @@ const request = {
     } satisfies Required<ResumableGenerationConfig>,
   } satisfies Required<NonNullable<ChatCompletionRequestBase['extra_body']>>,
 } satisfies Required<
-  Omit<
-    ChatCompletionRequestBase,
-    'messages' | 'model' | 'stream' | 'stream_options' | 'tools' | 'tool_choice' | 'n'
-  >
+  Omit<ChatCompletionRequestBase, 'messages' | 'model' | 'stream' | 'tools' | 'tool_choice' | 'n'>
 >
 
 afterEach(() => vi.unstubAllGlobals())

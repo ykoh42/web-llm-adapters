@@ -4,9 +4,10 @@ import { readArguments } from './value.js'
 import { splitThinking, type GemmaStreamOptions } from './thinking.js'
 import { toolStart } from './markers.js'
 import { textEnd } from '../stream/markers.js'
-import type { StreamChunk, ToolDelta } from '../stream/chunks.js'
+import { noToolCalls, type StreamChunk, type ToolDelta } from '../stream/chunks.js'
 
 const end = '<tool_call|>'
+const toolStartMarkers = [toolStart]
 
 export async function* gemmaChunks(
   chunks: AsyncIterable<Completion>,
@@ -23,15 +24,27 @@ export async function* gemmaChunks(
       if (signal?.aborted) return
       if (chunk.type === 'reasoning') {
         if (pending) {
-          yield { text: pending, reasoning: '', calls: [], stop: undefined, usage: undefined }
+          yield {
+            text: pending,
+            reasoning: '',
+            calls: noToolCalls,
+            stop: undefined,
+            usage: undefined,
+          }
           pending = ''
         }
         if (chunk.text || chunk.stop || chunk.usage)
-          yield { text: '', reasoning: chunk.text, calls: [], stop: chunk.stop, usage: chunk.usage }
+          yield {
+            text: '',
+            reasoning: chunk.text,
+            calls: noToolCalls,
+            stop: chunk.stop,
+            usage: chunk.usage,
+          }
         continue
       }
       let content = ''
-      let calls: ToolDelta[] = []
+      let calls: ToolDelta[] | undefined
       if (!parseTools) content = chunk.text
       else if (toolText) toolText += chunk.text
       else {
@@ -42,7 +55,7 @@ export async function* gemmaChunks(
           toolText = pending.slice(at)
           pending = ''
         } else {
-          const end = textEnd(pending, [toolStart])
+          const end = textEnd(pending, toolStartMarkers)
           content = pending.slice(0, end)
           pending = pending.slice(end)
         }
@@ -59,8 +72,8 @@ export async function* gemmaChunks(
       yield {
         text: content,
         reasoning: '',
-        calls,
-        stop: calls.length ? 'toolUse' : chunk.stop,
+        calls: calls ?? noToolCalls,
+        stop: calls?.length ? 'toolUse' : chunk.stop,
         usage: chunk.usage,
       }
     }
@@ -69,20 +82,30 @@ export async function* gemmaChunks(
   }
   if (signal?.aborted) return
   if (toolText || pending)
-    yield { text: toolText + pending, reasoning: '', calls: [], stop: undefined, usage: undefined }
+    yield {
+      text: toolText + pending,
+      reasoning: '',
+      calls: noToolCalls,
+      stop: undefined,
+      usage: undefined,
+    }
   if (failure && !signal?.aborted) throw failure.error
 }
 
 function readCalls(source: string, tools: ToolSpec[]) {
   const calls: ToolDelta[] = []
+  const names = tools.map((tool) => tool.name).sort((left, right) => right.length - left.length)
   let rest = source.trim()
   while (rest) {
-    const head = /^<\|tool_call>call:([^\s{]+)\s*/.exec(rest)
-    if (!head || !tools.some((tool) => tool.name === head[1]))
+    const name = names.find((name) => {
+      const prefix = `${toolStart}${name}`
+      return rest.startsWith(prefix) && /^\s*\{/.test(rest.slice(prefix.length))
+    })
+    if (name === undefined)
       throw new ModelError('Gemma returned an unknown or malformed tool call.')
-    const name = head[1]!
-    const args = readArguments(rest.slice(head[0].length))
-    rest = rest.slice(head[0].length + args.end).trimStart()
+    const prefix = `${toolStart}${name}`
+    const args = readArguments(rest.slice(prefix.length))
+    rest = rest.slice(prefix.length + args.end).trimStart()
     if (!rest.startsWith(end)) throw new ModelError('Gemma returned an incomplete tool call.')
     calls.push({
       index: calls.length,

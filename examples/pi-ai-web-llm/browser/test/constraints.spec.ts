@@ -11,7 +11,7 @@ for (const modelId of [
   const thinking = !modelId.startsWith('Qwen2.5-')
   test(
     `${modelId} constrains an Agent tool loop and preserves native output`,
-    thinking ? modelCheck(modelId, 'tools', 'thinking') : modelCheck(modelId, 'tools'),
+    modelCheck(modelId),
     async ({ page }, info) => {
       await page.goto('http://127.0.0.1:4173/pi/test/checks.html')
       await page.evaluate((id) => window.piChecks.load(id), modelId)

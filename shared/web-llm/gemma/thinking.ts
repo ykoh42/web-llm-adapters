@@ -1,8 +1,21 @@
 import { ModelError } from '../types.js'
 import type { Completion } from '@mlc-ai/web-llm'
-import { singleChoice, stopReason, type StreamChunk, type ChunkOptions } from '../stream/chunks.js'
+import {
+  singleChoice,
+  snapshotCompletion,
+  stopReason,
+  type StreamChunk,
+  type ChunkOptions,
+} from '../stream/chunks.js'
 import { toolStart } from './markers.js'
 import { textEnd } from '../stream/markers.js'
+import { callChunkCallback } from '../callback.js'
+
+const channelStart = '<|channel>'
+const channelEnd = '<channel|>'
+const channelStartMarkers = [channelStart]
+const channelAndToolMarkers = [channelStart, toolStart]
+const thoughtEndMarkers = [channelEnd]
 
 export interface GemmaStreamOptions extends ChunkOptions<Completion> {
   prefix?: string
@@ -19,6 +32,7 @@ export async function* splitThinking(
   chunks: AsyncIterable<Completion>,
   {
     onChunk,
+    onChunkMayMutate = true,
     signal,
     prefix = '',
     stopRequested = false,
@@ -41,30 +55,32 @@ export async function* splitThinking(
   try {
     for await (const chunk of chunks) {
       if (signal?.aborted) return
-      onChunk?.(chunk)
+      const parserChunk = onChunk && onChunkMayMutate ? snapshotCompletion(chunk) : chunk
+      const callbackResult = onChunk ? callChunkCallback(onChunk, chunk, signal) : undefined
+      if (callbackResult) await callbackResult
       if (signal?.aborted) return
-      const choice = singleChoice(chunk.choices)
+      const choice = singleChoice(parserChunk.choices)
       received ||= Boolean(choice?.text)
       if (!choice || tool || (!choice.text && !choice.finish_reason)) {
         yield {
           type: 'text',
           text: choice?.text ?? '',
           stop: stopReason(choice?.finish_reason),
-          usage: chunk.usage,
+          usage: parserChunk.usage,
         }
         continue
       }
       pending += choice.text
       while (pending) {
         if (signal?.aborted) return
-        let marker = '<|channel>'
+        let marker = channelStart
         if (mode === 'header') marker = '\n'
-        if (mode === 'thought') marker = '<channel|>'
+        else if (mode === 'thought') marker = channelEnd
         const at = pending.indexOf(marker)
         const call = parseTools && mode === 'text' ? pending.indexOf(toolStart) : -1
         if (call !== -1 && (at === -1 || call < at)) {
-          if (call) yield piece(pending.slice(0, call), chunk.usage)
-          yield piece(pending.slice(call), chunk.usage)
+          if (call) yield piece(pending.slice(0, call), parserChunk.usage)
+          yield piece(pending.slice(call), parserChunk.usage)
           pending = ''
           tool = true
           break
@@ -74,13 +90,14 @@ export async function* splitThinking(
           if (pending.slice(0, at) !== 'thought')
             throw new ModelError('Gemma returned an unknown thinking channel.')
         } else if (at !== -1) {
-          if (at) yield piece(pending.slice(0, at), chunk.usage)
+          if (at) yield piece(pending.slice(0, at), parserChunk.usage)
         } else {
-          const markers = parseTools && mode === 'text' ? [marker, toolStart] : [marker]
-          const end = textEnd(pending, markers)
+          const markers = mode === 'thought' ? thoughtEndMarkers : channelStartMarkers
+          const endMarkers = parseTools && mode === 'text' ? channelAndToolMarkers : markers
+          const end = textEnd(pending, endMarkers)
           const text = pending.slice(0, end)
           pending = pending.slice(end)
-          if (text) yield piece(text, chunk.usage)
+          if (text) yield piece(text, parserChunk.usage)
           break
         }
         pending = pending.slice(at + marker.length)
@@ -96,10 +113,15 @@ export async function* splitThinking(
         // A native stop string may end a thought before its closing marker.
         if (mode !== 'text' && choice.finish_reason === 'stop' && !stopRequested)
           throw new ModelError('Gemma ended inside a thinking block.')
-        if (pending || mode === 'header') yield piece(pending, chunk.usage)
+        if (pending || mode === 'header') yield piece(pending, parserChunk.usage)
         pending = ''
         mode = 'text'
-        yield { type: 'text', text: '', stop: stopReason(choice.finish_reason), usage: chunk.usage }
+        yield {
+          type: 'text',
+          text: '',
+          stop: stopReason(choice.finish_reason),
+          usage: parserChunk.usage,
+        }
       }
     }
   } catch (error) {

@@ -1,5 +1,6 @@
 import type { Message, ModelStreamEvent, StreamOptions } from '@strands-agents/sdk'
 import { fromBrowserError } from './errors.js'
+import { callChunkCallback } from '../../../../shared/web-llm/callback.js'
 import { stringifyJSON } from '../../../../shared/web-llm/json.js'
 import { WebLLMModelBase } from '../model-base.js'
 import type { WebLLMModelConfig } from '../types.js'
@@ -50,7 +51,8 @@ export class BrowserModel extends WebLLMModelBase {
         const result = await this.page.evaluate((id) => window.webllmBridge.next(id), id)
         for (const chunk of result.chunks ?? []) {
           cancelSignal?.throwIfAborted()
-          this.onChunk?.(chunk)
+          const pending = callChunkCallback(this.onChunk, chunk, cancelSignal)
+          if (pending) await pending
         }
         cancelSignal?.throwIfAborted()
         if ('error' in result) {

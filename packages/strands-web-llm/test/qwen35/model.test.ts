@@ -152,6 +152,32 @@ it('does not execute a Qwen3.5 tool call with an unclosed parameter', async () =
   expect(callback).not.toHaveBeenCalled()
 })
 
+it('does not run a valid tool before a later Qwen3.5 call fails validation', async () => {
+  const { model, create } = setup()
+  model.updateConfig({ modelId: 'Qwen3.5-4B-q4f16_1-MLC' })
+  const callback = vi.fn()
+  const lookup = new FunctionTool({
+    name: 'lookup',
+    description: 'Look up a city.',
+    inputSchema: {
+      type: 'object',
+      properties: { city: { type: 'string' } },
+    },
+    callback,
+  })
+  const valid =
+    '<tool_call><function=lookup><parameter=city>Seoul</parameter></function></tool_call>'
+  const invalid = valid.replace('<function=lookup>', '<function=missing>')
+  create.mockResolvedValueOnce(
+    chunks(chunk({ content: valid }), chunk({ content: invalid }, 'stop')),
+  )
+  const agent = new Agent({ model, tools: [lookup], printer: false })
+
+  await expect(agent.invoke('Look up Seoul.')).rejects.toThrow(/unknown tool/i)
+  expect(callback).not.toHaveBeenCalled()
+  expect(create).toHaveBeenCalledOnce()
+})
+
 it('preserves cancellation when a tool call is interrupted', async () => {
   const { model, create } = setup()
   model.updateConfig({ modelId: 'Qwen3.5-4B-q4f16_1-MLC' })
@@ -165,7 +191,9 @@ it('preserves cancellation when a tool call is interrupted', async () => {
     }),
   )
 
-  expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'cancelled' })
+  expect(events).toContainEqual(
+    expect.objectContaining({ type: 'modelMessageStopEvent', stopReason: 'cancelled' }),
+  )
   expect(events).not.toContainEqual({
     type: 'modelContentBlockDeltaEvent',
     delta: { type: 'textDelta', text: '<tool_call><function=lookup><parameter=city>Seoul' },
@@ -190,7 +218,9 @@ it('does not expose or run a truncated tool call', async () => {
     }),
   )
 
-  expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'maxTokens' })
+  expect(events).toContainEqual(
+    expect.objectContaining({ type: 'modelMessageStopEvent', stopReason: 'maxTokens' }),
+  )
   expect(events).not.toContainEqual({
     type: 'modelContentBlockDeltaEvent',
     delta: { type: 'textDelta', text: raw },

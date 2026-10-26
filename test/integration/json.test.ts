@@ -1,5 +1,21 @@
 import { expect, it } from 'vitest'
-import { parseJSON } from '../../shared/web-llm/json.js'
+import { parseJSON, sameJSON } from '../../shared/web-llm/json.js'
+
+it('compares JSON objects without depending on key order', () => {
+  expect(
+    sameJSON(
+      { nested: { first: 1, second: [true, null] } },
+      { nested: { second: [true, null], first: 1 } },
+    ),
+  ).toBe(true)
+  expect(sameJSON({ values: [1, 2] }, { values: [2, 1] })).toBe(false)
+  expect(sameJSON({ value: 1 }, { value: 2 })).toBe(false)
+})
+
+it('compares optional values as JSON serialization does', () => {
+  expect(sameJSON({ schema: undefined }, {})).toBe(true)
+  expect(sameJSON([undefined], [null])).toBe(true)
+})
 
 it.each([
   'null',

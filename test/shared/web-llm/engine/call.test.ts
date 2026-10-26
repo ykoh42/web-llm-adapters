@@ -1,11 +1,11 @@
 import { expect, it, vi } from 'vitest'
 import { startCall, streamCall } from '../../../../shared/web-llm/engine/call.js'
-import { setup, chunks, chunk, pause, collect } from '../../fixtures/engine.js'
+import { setupEngine, chunks, chunk, pause, collect } from '../../../../fixtures/web-llm.js'
 
 it.each(['throw', 'reject'] as const)(
   'closes the stream and releases the queue when interrupt fails (%s)',
   async (failure) => {
-    const { engine, stop } = setup()
+    const { engine, stop } = setupEngine()
     stop.mockImplementation(() => {
       if (failure === 'throw') throw new Error('Interrupt failed')
       return Promise.reject(new Error('Interrupt failed'))
@@ -28,7 +28,7 @@ it.each(['throw', 'reject'] as const)(
 )
 
 it('starts stream cleanup while an async interrupt is still pending', async () => {
-  const { engine, stop } = setup()
+  const { engine, stop } = setupEngine()
   const closing = pause()
   stop.mockImplementation(() => closing.wait)
   const returned = vi.fn(async () => {
@@ -46,7 +46,7 @@ it('starts stream cleanup while an async interrupt is still pending', async () =
 })
 
 it('keeps the original stream failure when cleanup also fails', async () => {
-  const { engine, stop } = setup()
+  const { engine, stop } = setupEngine()
   const failure = new Error('Read failed')
   stop.mockRejectedValueOnce(new Error('Cleanup failed'))
   let returned = false
@@ -75,7 +75,7 @@ it('keeps the original stream failure when cleanup also fails', async () => {
 })
 
 it('does not open a request cancelled while registering its active listener', async () => {
-  const { engine } = setup()
+  const { engine } = setupEngine()
   const controller = new AbortController()
   const listen = controller.signal.addEventListener.bind(controller.signal)
   let registrations = 0

@@ -29,7 +29,9 @@ describe('native WebLLM messages', () => {
     await waiting.wait
     controller.abort()
 
-    expect(await pending).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'cancelled' })
+    expect(await pending).toContainEqual(
+      expect.objectContaining({ type: 'modelMessageStopEvent', stopReason: 'cancelled' }),
+    )
     expect(onChunk).toHaveBeenCalledExactlyOnceWith(first)
   })
 
@@ -57,10 +59,9 @@ describe('native WebLLM messages', () => {
     if (finish === 'error') await expect(pending).rejects.toBe(failure)
     else await expect(pending).rejects.toThrow('without a stop reason')
     expect(output.join('')).toBe(raw)
-    expect(await collect(model.stream(messages))).toContainEqual({
-      type: 'modelMessageStopEvent',
-      stopReason: 'endTurn',
-    })
+    expect(await collect(model.stream(messages))).toContainEqual(
+      expect.objectContaining({ type: 'modelMessageStopEvent', stopReason: 'endTurn' }),
+    )
   })
 
   it('keeps Hermes tool arguments in the content WebLLM reads', async () => {
@@ -130,7 +131,7 @@ describe('native WebLLM messages', () => {
         name: 'weather',
         parameters: { properties: { city: { type: 'string', description: 'Original schema' } } },
       })
-      expect(events.at(-1)).toEqual({ type: 'modelMessageStopEvent', stopReason: 'toolUse' })
+      expect(events.at(-1)).toMatchObject({ type: 'modelMessageStopEvent', stopReason: 'toolUse' })
     } finally {
       hold.resume()
       await Promise.allSettled([active, pending])
@@ -189,7 +190,7 @@ describe('native WebLLM messages', () => {
       )
       .join('')
     expect(output).toBe(text)
-    expect(events.at(-1)).toEqual({ type: 'modelMessageStopEvent', stopReason: 'toolUse' })
+    expect(events.at(-1)).toMatchObject({ type: 'modelMessageStopEvent', stopReason: 'toolUse' })
   })
 
   it('keeps assistant commentary beside a native tool call', async () => {
@@ -222,6 +223,29 @@ describe('native WebLLM messages', () => {
       type: 'modelContentBlockDeltaEvent',
       delta: { type: 'toolUseInputDelta', input: '{"city":"Seoul"}' },
     })
+  })
+
+  it('closes text before a native tool call starts', async () => {
+    const { model } = setup(
+      chunk({ content: 'Checking the weather now.' }),
+      chunk({
+        tool_calls: [
+          { index: 0, id: 'call-1', function: { name: 'weather', arguments: '{"city":' } },
+        ],
+      }),
+      chunk({ tool_calls: [{ index: 0, function: { arguments: '"Seoul"}' } }] }, 'tool_calls'),
+    )
+
+    const events = await collect(model.stream(messages, { toolSpecs: tools }))
+    const textStop = events.findIndex((event) => event.type === 'modelContentBlockStopEvent')
+    const toolStart = events.findIndex(
+      (event) =>
+        event.type === 'modelContentBlockStartEvent' && event.start?.type === 'toolUseStart',
+    )
+
+    expect(textStop).toBeGreaterThan(-1)
+    expect(toolStart).toBeGreaterThan(textStop)
+    expect(events.at(-1)).toMatchObject({ type: 'modelMessageStopEvent', stopReason: 'toolUse' })
   })
 
   it.each(['1e999', '-1e999'])(
@@ -274,6 +298,8 @@ describe('native WebLLM messages', () => {
       type: 'modelContentBlockDeltaEvent',
       delta: { type: 'toolUseInputDelta', input },
     })
-    expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'toolUse' })
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'modelMessageStopEvent', stopReason: 'toolUse' }),
+    )
   })
 })

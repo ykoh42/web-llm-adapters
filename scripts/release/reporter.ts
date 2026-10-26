@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import type { FullResult, Reporter, TestCase, TestResult } from '@playwright/test/reporter'
 import { format, resolveConfig } from 'prettier'
 import { checkReport, modelReport, type ModelReport } from './report.ts'
@@ -9,7 +9,8 @@ export default class ModelReporter implements Reporter {
   private report?: ModelReport
   private error?: unknown
 
-  onBegin() {
+  onTestBegin() {
+    if (this.report || this.error) return
     try {
       this.report = {
         commit: git('rev-parse', 'HEAD'),
@@ -46,9 +47,9 @@ export default class ModelReporter implements Reporter {
     // A reporter error must fail the run; Playwright otherwise ignores reporter exceptions.
     try {
       if (this.error) throw this.error
+      if (result.status !== 'passed') throw new Error('Real-model run did not pass.')
       if (!this.report) return
       checkClean()
-      if (result.status !== 'passed') throw new Error('Real-model run did not pass.')
       checkReport(
         this.report,
         sourceHash(),
@@ -64,6 +65,11 @@ export default class ModelReporter implements Reporter {
       )
       return { status: 'passed' as const }
     } catch (error) {
+      try {
+        rmSync(reportPath, { force: true })
+      } catch (cleanupError) {
+        console.error(cleanupError)
+      }
       console.error(error)
       return { status: 'failed' as const }
     }

@@ -1,9 +1,15 @@
 const littleEndian = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1
+// Match WebLLM's WAV and PCM input limit.
+const maxSampleRate = 384_000
+
+export function checkSampleRate(sampleRate: number) {
+  if (!Number.isSafeInteger(sampleRate) || sampleRate <= 0 || sampleRate > maxSampleRate)
+    throw new RangeError(`Sample rate must be a positive integer no higher than ${maxSampleRate}.`)
+}
 
 /** Encode mono Float32 PCM as WAV without changing samples or sample rate. */
 export function pcmWav(samples: Float32Array, sampleRate: number): Uint8Array {
-  if (!Number.isInteger(sampleRate) || sampleRate <= 0 || sampleRate > 0x3fffffff)
-    throw new RangeError('Sample rate must be a positive integer that fits a WAV header.')
+  checkSampleRate(sampleRate)
   const count = samples.length
   if (!count) throw new RangeError('Audio must contain finite samples.')
   for (let index = 0; index < count; index++) {

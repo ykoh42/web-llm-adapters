@@ -76,7 +76,8 @@ export function formatMessages(messages: BaseMessage[]): ProtocolMessage[] {
     if (role !== 'ai') throw new Error(`WebLLM cannot use a ${role} message.`)
     if (!AIMessage.isInstance(message)) throw new Error('WebLLM needs an AI message.')
     const calls = assistantCalls(message)
-    if (message.invalid_tool_calls?.length)
+    const truncated = message.response_metadata.finish_reason === 'length'
+    if (message.invalid_tool_calls?.length && !truncated)
       throw new Error('WebLLM cannot replay invalid tool calls.')
     const toolCalls = calls.map((call) => {
       if (!call.id) throw new Error('A tool call needs an ID before it can be replayed.')
@@ -88,7 +89,11 @@ export function formatMessages(messages: BaseMessage[]): ProtocolMessage[] {
       }
     })
     const reasoning = reasoningContent(message)
-    const content = textContent(message.content, true)
+    const blocks =
+      truncated && Array.isArray(message.content)
+        ? message.content.filter((block) => block.type !== 'invalid_tool_call')
+        : message.content
+    const content = textContent(blocks, true)
     output.push({
       role: 'assistant',
       content,

@@ -42,6 +42,19 @@ it.each([0, -1, 1.5, NaN, Infinity, 0x40000000])('rejects invalid sample rate %s
   expect(() => pcmAudio(new Float32Array([0]), rate)).toThrow('Sample rate')
 })
 
+it('accepts WebLLM’s maximum sample rate', () => {
+  const audio = pcmAudio(new Float32Array([0]), 384_000)
+  if (audio.source.type !== 'audioSourceBytes') throw new Error('Expected audio bytes')
+
+  const bytes = audio.source.bytes
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  expect(view.getUint32(24, true)).toBe(384_000)
+})
+
+it('rejects sample rates above WebLLM’s maximum', () => {
+  expect(() => pcmAudio(new Float32Array([0]), 384_001)).toThrow('384000')
+})
+
 it.each([[], [NaN], [Infinity], [-Infinity]].map((samples) => ({ samples })))(
   'rejects invalid samples $samples',
   ({ samples }) => {

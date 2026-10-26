@@ -1,4 +1,4 @@
-import { checkToolChoice } from '../../../../shared/web-llm/stream/choice.js'
+import { checkToolCallIds, checkToolChoice } from '../../../../shared/web-llm/stream/choice.js'
 import { parseJSON } from '../../../../shared/web-llm/json.js'
 import { ModelError as ProtocolError, type ToolChoice } from '../../../../shared/web-llm/types.js'
 import { ModelError, type ModelStreamEvent } from '@strands-agents/sdk'
@@ -8,11 +8,16 @@ import type { StreamChunk } from '../../../../shared/web-llm/stream/chunks.js'
 type ToolCall = {
   id?: string
   name: string
-  input: string
-  sentInput: number
+  input: string[]
+  sentParts: number
   started: boolean
   closed: boolean
 }
+
+const contentFields = [
+  ['reasoningContentDelta', 'reasoning'],
+  ['textDelta', 'text'],
+] as const
 
 export async function* readStream(
   chunks: AsyncIterable<StreamChunk>,
@@ -37,10 +42,8 @@ export async function* readStream(
         throw new ModelError('WebLLM returned content after its stop reason.')
       if (chunk.usage) usage = chunk.usage
 
-      for (const [type, value] of [
-        ['reasoningContentDelta', chunk.reasoning],
-        ['textDelta', chunk.text],
-      ] as const) {
+      for (const [type, field] of contentFields) {
+        const value = chunk[field]
         if (!value) continue
         if (block !== type) {
           if (block) {
@@ -59,8 +62,8 @@ export async function* readStream(
       for (const delta of chunk.calls) {
         const call = calls.get(delta.index) ?? {
           name: '',
-          input: '',
-          sentInput: 0,
+          input: [],
+          sentParts: 0,
           started: false,
           closed: false,
         }
@@ -68,7 +71,7 @@ export async function* readStream(
           throw new ModelError('WebLLM changed a tool name after streaming began.')
         if (delta.id && !call.started) call.id = delta.id
         if (delta.name) call.name += delta.name
-        if (delta.input) call.input += delta.input
+        if (delta.input) call.input.push(delta.input)
         calls.set(delta.index, call)
       }
 
@@ -97,9 +100,8 @@ export async function* readStream(
           signal?.throwIfAborted()
         }
 
-        if (firstCall?.started && firstCall.input.length > firstCall.sentInput) {
-          const input = firstCall.input.slice(firstCall.sentInput)
-          firstCall.sentInput = firstCall.input.length
+        if (firstCall?.started && firstCall.sentParts < firstCall.input.length) {
+          const input = takeInput(firstCall)
           yield {
             type: 'modelContentBlockDeltaEvent',
             delta: {
@@ -124,12 +126,8 @@ export async function* readStream(
     const orderedCalls = [...calls.entries()]
       .sort(([left], [right]) => left - right)
       .map(([, call]) => call)
-    checkToolChoice(
-      orderedCalls.map((call) => call.name),
-      choice,
-      stopReason,
-      toolNames,
-    )
+    checkToolChoice(orderedCalls, choice, stopReason, toolNames)
+    if (stopReason !== 'maxTokens' && stopReason !== 'cancelled') checkToolCallIds(orderedCalls)
     const useTools = stopReason !== 'maxTokens' && stopReason !== 'cancelled' && calls.size > 0
     if (useTools) {
       for (const call of orderedCalls) {
@@ -175,8 +173,9 @@ export async function* readStream(
 function* finishTool(call: ToolCall, signal?: AbortSignal): Generator<ModelStreamEvent> {
   if (!call.name) throw new ModelError('WebLLM returned a tool call without a name.')
   let input: ReturnType<typeof parseJSON>
+  const inputText = call.input.join('')
   try {
-    input = parseJSON(call.input)
+    input = parseJSON(inputText)
   } catch (cause) {
     if (call.started) yield* closeTool(call, true)
     if (cause instanceof ProtocolError) throw cause
@@ -195,9 +194,8 @@ function* finishTool(call: ToolCall, signal?: AbortSignal): Generator<ModelStrea
     }
     signal?.throwIfAborted()
   }
-  if (call.input.length > call.sentInput) {
-    const input = call.input.slice(call.sentInput)
-    call.sentInput = call.input.length
+  if (call.sentParts < call.input.length) {
+    const input = takeInput(call)
     yield {
       type: 'modelContentBlockDeltaEvent',
       delta: { type: 'toolUseInputDelta', input },
@@ -216,14 +214,19 @@ function* closeStartedTools(
   }
 }
 
+function takeInput(call: ToolCall): string {
+  const input = call.input.slice(call.sentParts).join('')
+  call.sentParts = call.input.length
+  return input
+}
+
 function* closeTool(call: ToolCall, flushInput = false): Generator<ModelStreamEvent> {
   if (!call.started || call.closed) return
-  if (flushInput && call.input.length > call.sentInput) {
+  if (flushInput && call.sentParts < call.input.length) {
     yield {
       type: 'modelContentBlockDeltaEvent',
-      delta: { type: 'toolUseInputDelta', input: call.input.slice(call.sentInput) },
+      delta: { type: 'toolUseInputDelta', input: takeInput(call) },
     }
-    call.sentInput = call.input.length
   }
   call.closed = true
   yield { type: 'modelContentBlockStopEvent' }

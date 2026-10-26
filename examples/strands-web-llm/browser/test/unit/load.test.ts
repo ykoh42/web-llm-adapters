@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   register: vi.fn(),
   reload: vi.fn(),
   unload: vi.fn(),
+  workerConstructorFails: false,
 }))
 
 vi.mock('../../src/engine/service-worker.ts?worker&url', () => ({
@@ -15,9 +16,15 @@ vi.mock('@mlc-ai/web-llm', () => {
     reload = mocks.reload
     unload = mocks.unload
   }
+  class WebWorkerEngine extends Engine {
+    constructor() {
+      if (mocks.workerConstructorFails) throw new Error('Web Worker engine failed to start.')
+      super()
+    }
+  }
   return {
     MLCEngine: Engine,
-    WebWorkerMLCEngine: Engine,
+    WebWorkerMLCEngine: WebWorkerEngine,
     ServiceWorkerMLCEngine: Engine,
     ExtensionServiceWorkerMLCEngine: class {},
   }
@@ -31,6 +38,7 @@ const scriptURL = 'http://localhost/new-service-worker.js'
 
 beforeEach(() => {
   vi.resetAllMocks()
+  mocks.workerConstructorFails = false
   workers = Object.assign(new EventTarget(), { controller: null, register: mocks.register })
   vi.stubGlobal('navigator', { serviceWorker: workers })
   vi.stubGlobal('location', { href: 'http://localhost/' })
@@ -105,4 +113,61 @@ it('applies Qwen3.5 framing only to the matching model in a multi-model engine',
   } finally {
     await loaded.close()
   }
+})
+
+it('terminates the worker if WebLLM engine construction fails', async () => {
+  const terminate = vi.fn()
+  vi.stubGlobal(
+    'Worker',
+    class {
+      terminate = terminate
+    },
+  )
+  mocks.workerConstructorFails = true
+
+  await expect(
+    openEngine('worker', 'loaded-model', undefined, { model_list: [] }, () => {}),
+  ).rejects.toThrow('Web Worker engine failed to start.')
+
+  expect(terminate).toHaveBeenCalledOnce()
+  expect(mocks.unload).not.toHaveBeenCalled()
+})
+
+it('terminates the worker and preserves the load error if cleanup fails', async () => {
+  const terminate = vi.fn()
+  const loadError = new Error('Model loading failed.')
+  const cleanupError = new Error('Engine cleanup failed.')
+  vi.stubGlobal(
+    'Worker',
+    class {
+      terminate = terminate
+    },
+  )
+  mocks.reload.mockRejectedValueOnce(loadError)
+  mocks.unload.mockRejectedValueOnce(cleanupError)
+  const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+  await expect(
+    openEngine('worker', 'loaded-model', undefined, { model_list: [] }, () => {}),
+  ).rejects.toBe(loadError)
+
+  expect(mocks.unload).toHaveBeenCalledOnce()
+  expect(terminate).toHaveBeenCalledOnce()
+  expect(log).toHaveBeenCalledExactlyOnceWith(cleanupError)
+})
+
+it('closes the engine and worker only once when close is repeated', async () => {
+  const terminate = vi.fn()
+  vi.stubGlobal(
+    'Worker',
+    class {
+      terminate = terminate
+    },
+  )
+  const loaded = await openEngine('worker', 'loaded-model', undefined, { model_list: [] }, () => {})
+
+  await Promise.all([loaded.close(), loaded.close()])
+
+  expect(mocks.unload).toHaveBeenCalledOnce()
+  expect(terminate).toHaveBeenCalledOnce()
 })

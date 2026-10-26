@@ -24,6 +24,7 @@ await checkInstall({
   source: `
 import assert from 'node:assert/strict'
 import { MLCEngine } from '@mlc-ai/web-llm'
+import { Type } from '@earendil-works/pi-ai'
 import { createModels } from '@earendil-works/pi-ai/models'
 import { Agent } from '@earendil-works/pi-agent-core'
 import { createWebLLMProvider, withEngine } from 'pi-ai-web-llm'
@@ -46,6 +47,58 @@ assert.deepEqual(response.content,[{type:'text',text:'Hello'}])
 const agent = new Agent({initialState:{model},streamFn:models.streamSimple.bind(models)})
 await agent.prompt('Hello')
 assert.equal(agent.state.messages.at(-1)?.role,'assistant')
+
+const toolContext = {
+  messages: [{ role: 'user' as const, content: 'Look up A7', timestamp: 0 }],
+  tools: [
+    {
+      name: 'lookup',
+      description: 'Look up a code',
+      parameters: Type.Object({ code: Type.String() }),
+    },
+  ],
+}
+const toolChunk = (finishReason: string) => ({
+  id: 'test',
+  object: 'chat.completion.chunk',
+  created: 0,
+  model: 'test',
+  choices: [
+    {
+      index: 0,
+      delta: {
+        tool_calls: [
+          {
+            index: 0,
+            id: 'call-1',
+            type: 'function',
+            function: { name: 'lookup', arguments: '{"code":"A7"}' },
+          },
+        ],
+      },
+      finish_reason: finishReason,
+    },
+  ],
+})
+const streamToolCall = (finishReason: string) =>
+  (async function* () {
+    yield toolChunk(finishReason)
+  })()
+engine.chat.completions.create = (async () =>
+  streamToolCall('tool_calls')) as unknown as typeof engine.chat.completions.create
+const toolStream = models.stream(model, toolContext)
+const toolEvents: string[] = []
+for await (const event of toolStream) toolEvents.push(event.type)
+assert.deepEqual(toolEvents, ['start', 'toolcall_start', 'toolcall_delta', 'toolcall_end', 'done'])
+assert.equal((await toolStream.result()).stopReason, 'toolUse')
+
+engine.chat.completions.create = (async () =>
+  streamToolCall('length')) as unknown as typeof engine.chat.completions.create
+const truncatedStream = models.stream(model, toolContext)
+const truncatedEvents: string[] = []
+for await (const event of truncatedStream) truncatedEvents.push(event.type)
+assert.deepEqual(truncatedEvents, ['start', 'toolcall_start', 'toolcall_delta', 'done'])
+assert.equal((await truncatedStream.result()).stopReason, 'length')
 
 `,
 })

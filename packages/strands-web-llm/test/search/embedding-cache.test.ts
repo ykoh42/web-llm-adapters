@@ -45,6 +45,26 @@ describe('WebLLMEmbeddingSearchStrategy', () => {
     },
   )
 
+  it('keeps duplicate results after other documents are deleted', async () => {
+    const strategy = new WebLLMEmbeddingSearchStrategy({
+      embed: async (texts) => texts.map(() => [1, 0]),
+      includeData: false,
+    })
+    const storage = new InMemoryStorage({ searchStrategy: strategy })
+    for (let index = 0; index < 10; index++)
+      await storage.write(`old-${index}`, encoder.encode(`old ${index}`))
+    await storage.write('current-a', encoder.encode('shared'))
+    await storage.write('current-b', encoder.encode('shared'))
+    await storage.search('query')
+
+    for (let index = 0; index < 10; index++) await storage.delete(`old-${index}`)
+
+    expect(await storage.search('query')).toEqual([
+      { key: 'current-a', score: 1 },
+      { key: 'current-b', score: 1 },
+    ])
+  })
+
   it('reuses vectors for duplicate text until its last key is removed', async () => {
     const embed = vi.fn<EmbedTexts>(async (texts, type) =>
       texts.map((text) => (type === 'query' || text === 'shared' ? [1, 0] : [0, 1])),

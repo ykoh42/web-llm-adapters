@@ -8,6 +8,7 @@ npm install langchain-web-llm
 
 - Yarn: also install `@mlc-ai/web-llm` and `@langchain/core`. Check compatible versions with `yarn explain peer-requirements`.
 - pnpm: if dependency scripts are blocked, run [`pnpm approve-builds`](https://pnpm.io/cli/approve-builds) to allow or deny them, then rerun `pnpm install`.
+- TypeScript: use `moduleResolution: "bundler"` for full WebLLM option checking; its declarations lose type information under `NodeNext`.
 
 ## Use
 
@@ -61,7 +62,9 @@ try {
 The first load fetches WebLLM's runtime and model files; the browser caches them for later use.
 Inference runs locally.
 
-Use LangChain's usual `bindTools`, `stream`, `batch`, and `withStructuredOutput` APIs. For `strict: true`, use `method: 'jsonSchema'`. Call `streamEvents(input)` without a version for typed text, reasoning, tool-call, and usage streams. Thinking is returned as standard `reasoning` content blocks; `.text` contains the answer. Enable it with `request.extra_body.enable_thinking` on a model that supports it.
+Use LangChain's usual `bindTools`, `stream`, `batch`, and `withStructuredOutput` APIs. For `strict: true`, use `method: 'jsonSchema'`. Call `streamEvents(input)` without a version for typed text, reasoning, tool-call, and usage streams. `stream()` yields partial tool-call chunks; IDs appear after validation. `streamEvents(input).toolCalls` returns validated calls. Thinking is returned as standard `reasoning` content blocks; `.text` contains the answer. Enable it with `request.extra_body.enable_thinking` on a model that supports it.
+
+Long tool arguments can stream slowly with `@langchain/core` before 1.2.18; [1.2.18 fixes upstream quadratic chunk aggregation](https://github.com/langchain-ai/langchainjs/pull/11150).
 
 ## Deep Agents
 
@@ -120,7 +123,7 @@ Load the browser engine with `context_window_size: 32768` and the Qwen3.5 `conv_
 | Embeddings                           | `WebLLMEmbeddings` and `BrowserWebLLMEmbeddings` for LangGraph memory                                          |
 | Strict tool schemas                  | No                                                                                                             |
 
-Keep text blocks together in media messages. Browser transport carries PCM as float WAV without changing samples or sample rate.
+A media message accepts one text segment; text on both sides of media blocks is rejected. Browser transport carries PCM as float WAV without changing samples or sample rate.
 
 Tested with LangChain Core **1.2.8** and **1.3.0**, and WebLLM **0.2.79** and **0.2.86**.
 
@@ -137,7 +140,7 @@ See the [verified models](https://github.com/ykoh42/web-llm-adapters#models) for
 
 Install WebLLM `0.2.79` or later in the `0.2.x` series. Gemma 4 E2B was verified with WebLLM `0.2.86` and needs the bundled [runtime setup and protocol limits](https://github.com/ykoh42/web-llm-adapters/blob/main/shared/runtime/README.md). Audio works in ordinary chat; the default profile keeps it disabled for Deep Agents. Tools and thinking accept text and tool results only. Model-selected tools and arguments still need validation.
 
-For Qwen3.5, declare object/array types to preserve XML in JSON. History cannot preserve `>` in top-level argument names or `<parameter=` / `</parameter>` in raw strings.
+Qwen3.5 preserves object/array arguments, type-less non-string `enum`/`const` values, and `anyOf`/`oneOf` unions without string branches as JSON. History rejects `<|im_start|>`, `<|im_end|>`, or `<|endoftext|>` in tool arguments, `>` in top-level argument names, and `<parameter=` / `</parameter>` in raw strings.
 
 ## Embeddings
 
@@ -155,11 +158,11 @@ const vector = await embeddings.embedQuery('a flower')
 
 Arctic Embed M returns 768 dimensions; S returns 384. Both have a 512-token input limit.
 Snowflake's query prefix is applied automatically; documents stay unprefixed. Use `BrowserWebLLMEmbeddings(page, options)` for Node.js and LangGraph semantic memory.
-Document inputs are sent in batches of 32 by default; lower `batchSize` to reduce temporary memory use. With `maxRetries`, only the failed batch is retried.
+WebLLM splits each request to the loaded artifact's GPU batch limit. Lower `batchSize` to reduce temporary host memory and retry scope; choose a lower-batch artifact to reduce GPU memory. `maxRetries` retries only the failed request batch.
 
 ## Native options
 
-Set generation options with `request` at construction or per call. For probabilities, set `logprobs: true` and `top_logprobs: 2`; read `response_metadata.logprobs`. `onChunk` exposes unchanged native chunks and timing; `BrowserChatWebLLM` sends them across the page bridge.
+Set generation options with `request` at construction or per call. Per-call `extra_body` replaces the configured WebLLM fields; `preserve_thinking` is retained unless overridden. WebLLM's `created` timestamp is available as `response_metadata.created` in Unix seconds. For probabilities, set `logprobs: true` and `top_logprobs: 2`; read `response_metadata.logprobs`. `onChunk` exposes unchanged native chunks and timing; async handlers are awaited in order. Do not await work on the same engine from a handler.
 
 For Gemma 4, `request.extra_body.preserve_thinking: true` also keeps earlier tool-call reasoning; the default keeps only the current user turn.
 
@@ -172,3 +175,5 @@ Chat retries default to 0 and apply only while opening a stream. Context-limit e
 For custom vision models in Deep Agents, set `profile.imageInputs` and `profile.imageToolMessage` to `true`. Tool images are sent in the next user turn.
 
 Use `withEngine(model.engine, callback)` for native APIs, or `window.webllmLangChainBridge.withEngine(callback)` inside the browser page. Finish all work and consume streams inside the callback. Calls on one engine run in order. You own model loading, the engine, workers, and page; cancellation does not unload them.
+
+With WebLLM 0.2.86, set `request.extra_body.resumable` to checkpoint chat, then call `resumeChatCompletion()` through `withEngine()`. WebLLM only resumes text-only requests without structured output or a custom logit processor; this does not restore LangChain or agent state. Gemma tool and thinking requests use raw completions and cannot resume.

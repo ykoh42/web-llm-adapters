@@ -59,15 +59,11 @@ export function formatContext(context: TranscriptContext, model: Model<Api>) {
       if (calls.pending.get(message.toolCallId) !== message.toolName)
         throw new Error('A tool result needs a matching tool call ID and name.')
       calls.pending.delete(message.toolCallId)
-      const text = message.content
-        .filter((part) => part.type === 'text')
-        .map((part) => part.text)
-        .join('')
-      toolImages.push(
-        ...message.content
-          .filter((part) => part.type === 'image')
-          .map((part) => imagePart(part, model)),
-      )
+      let text = ''
+      for (const part of message.content) {
+        if (part.type === 'text') text += part.text
+        else if (part.type === 'image') toolImages.push(imagePart(part, model))
+      }
       history.push({
         role: 'tool',
         tool_call_id: message.toolCallId,

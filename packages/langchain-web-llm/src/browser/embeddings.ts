@@ -5,7 +5,7 @@ import type { WebLLMEmbeddingsOptions } from '../embeddings/model.js'
 import {
   defaultEmbeddingBatchSize,
   validateEmbeddingBatchSize,
-  validateEmbeddingTexts,
+  copyEmbeddingTexts,
 } from '../embeddings/input.js'
 import type { BrowserPage } from './types.js'
 
@@ -42,9 +42,8 @@ export class BrowserWebLLMEmbeddings extends Embeddings {
     return vector!
   }
   private async embed(texts: string[], type: 'query' | 'document'): Promise<number[][]> {
-    const input = [...texts]
+    const input = copyEmbeddingTexts(texts)
     if (!input.length) return []
-    validateEmbeddingTexts(input)
     const vectors: number[][] = []
     for (let offset = 0; offset < input.length; offset += this.config.batchSize) {
       const request = {

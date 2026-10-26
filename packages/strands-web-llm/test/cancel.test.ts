@@ -93,7 +93,7 @@ describe('cancellation', () => {
       expect(after).not.toContainEqual(
         expect.objectContaining({ type: 'modelContentBlockDeltaEvent' }),
       )
-      expect(after.at(-1)).toEqual({ type: 'modelMessageStopEvent', stopReason: 'cancelled' })
+      expect(after.at(-1)).toMatchObject({ type: 'modelMessageStopEvent', stopReason: 'cancelled' })
       expect((await aggregate(model)).message.content).toEqual([new TextBlock('Recovered')])
     },
   )
@@ -131,7 +131,10 @@ describe('cancellation', () => {
       const events = await rest
 
       expect(events).toContainEqual({ type: 'modelContentBlockStopEvent' })
-      expect(events.at(-1)).toEqual({ type: 'modelMessageStopEvent', stopReason: 'cancelled' })
+      expect(events.at(-1)).toMatchObject({
+        type: 'modelMessageStopEvent',
+        stopReason: 'cancelled',
+      })
     } finally {
       hold.resume()
       await stream.return(undefined)
@@ -178,7 +181,9 @@ describe('cancellation', () => {
     try {
       expect(stop).toHaveBeenCalledTimes(1)
       const events = await rest
-      expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'cancelled' })
+      expect(events).toContainEqual(
+        expect.objectContaining({ type: 'modelMessageStopEvent', stopReason: 'cancelled' }),
+      )
       expect(closed).toBe(true)
     } finally {
       hold.resume()
@@ -280,7 +285,10 @@ describe('cancellation', () => {
     await stream.next()
     controller.abort()
     expect(await collect(stream)).toEqual([
-      { type: 'modelMessageStopEvent', stopReason: 'cancelled' },
+      {
+        type: 'modelMessageStopEvent',
+        stopReason: 'cancelled',
+      },
     ])
     expect(stop).toHaveBeenCalledTimes(1)
   })

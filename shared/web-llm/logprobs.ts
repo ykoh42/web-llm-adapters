@@ -7,10 +7,11 @@ export function appendLogprobs(
   next: WebLLMLogprobs | null | undefined,
 ): WebLLMLogprobs | undefined {
   if (!next) return current
-  if (!current) return { content: next.content ? [...next.content] : null }
-  if (next.content) {
+  const content = next.content ? structuredClone(next.content) : next.content
+  if (!current) return { content }
+  if (content) {
     current.content ??= []
-    current.content.push(...next.content)
+    current.content.push(...content)
   }
   return current
 }

@@ -89,6 +89,48 @@ for (const client of ['strands', 'langchain'] as const) {
     }
   })
 
+  it(`${client} retains a proxy error cause across browser transport`, async () => {
+    const cause = new Proxy(new RangeError('Inner failure'), {
+      getPrototypeOf() {
+        throw new Error('Cannot inspect provider prototype')
+      },
+    })
+    const { bridge, invoke } = open(client, new Error('Native failure', { cause }))
+    try {
+      const failure = await invoke().catch((error: unknown) => error)
+      expect(failure).toMatchObject({
+        message: 'Native failure',
+        cause: { name: 'RangeError', message: 'Inner failure' },
+      })
+      expect(JSON.stringify(await invoke())).toContain('Recovered')
+    } finally {
+      await bridge.close()
+    }
+  })
+
+  it(`${client} restores a proxied context overflow as its framework error`, async () => {
+    const native = Object.assign(new Error('ContextWindowSizeExceededError: input is too long.'), {
+      name: 'ContextWindowSizeExceededError',
+    })
+    const error = new Proxy(native, {
+      getPrototypeOf() {
+        throw new Error('Cannot inspect provider prototype')
+      },
+    })
+    const { bridge, invoke } = open(client, error)
+    const ErrorClass = client === 'strands' ? ContextWindowOverflowError : ContextOverflowError
+    try {
+      const failure = await invoke().catch((error: unknown) => error)
+      expect(failure).toBeInstanceOf(ErrorClass)
+      expect(failure).toHaveProperty('cause.name', native.name)
+      expect(failure).toHaveProperty('cause.message', native.message)
+      if (client === 'langchain') expect(getRetryable(failure)).toBe(false)
+      expect(JSON.stringify(await invoke())).toContain('Recovered')
+    } finally {
+      await bridge.close()
+    }
+  })
+
   it.each(values.flatMap((cause) => [false, true].map((nested) => ({ cause, nested }))))(
     `${client} preserves cause values through JSON transport (cause=$cause, nested=$nested)`,
     async ({ cause, nested }) => {

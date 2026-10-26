@@ -27,10 +27,7 @@ import { WebLLMModelBase } from '../src/model-base.js'
 
 // Derived from WebLLM so a new native option requires an explicit coverage decision.
 type NativeOptions = Required<
-  Omit<
-    ChatCompletionRequestBase,
-    'messages' | 'model' | 'stream' | 'stream_options' | 'tools' | 'n'
-  >
+  Omit<ChatCompletionRequestBase, 'messages' | 'model' | 'stream' | 'tools' | 'n'>
 >
 
 const options = {
@@ -45,6 +42,7 @@ const options = {
   logprobs: true,
   top_logprobs: 2,
   seed: 7,
+  stream_options: { include_usage: true },
   tool_choice: 'none',
   response_format: { type: 'json_object', schema: '{"type":"object"}' },
   ignore_eos: false,
@@ -189,6 +187,20 @@ it('keeps prototype config readers observable', async () => {
 })
 
 const gemmaId = 'gemma-4-E2B-it-q4f16_1-MLC'
+
+it.each([false, true])(
+  'forwards stream_options.include_usage=false (browser: %s)',
+  async (browser) => {
+    const { model, create, bridge } = open(browser)
+    model.updateConfig({ request: { stream_options: { include_usage: false } } })
+    try {
+      await new Agent({ model, printer: false }).invoke('Hello')
+      expect(create.mock.calls[0]?.[0].stream_options).toEqual({ include_usage: false })
+    } finally {
+      await bridge.close()
+    }
+  },
+)
 
 it.each(
   [false, true].flatMap((browser) =>

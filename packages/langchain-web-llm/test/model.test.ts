@@ -42,6 +42,22 @@ function qwenModel(...items: ReturnType<typeof chunk>[]) {
 }
 
 describe('LangChain model', () => {
+  it('forwards content stream events to handlers that request them', async () => {
+    const { model } = setup(chunk({ content: 'Answer' }, 'stop'))
+    const onEvent = vi.fn()
+    const callbacks = CallbackManager.fromHandlers({ handleChatModelStreamEvent: onEvent })
+    const [handler] = callbacks.handlers
+    if (!handler) throw new Error('Missing callback handler.')
+    Object.assign(handler, { lc_prefer_chat_model_stream_events: true })
+
+    const result = await model.invoke('Hi', { callbacks })
+
+    expect(result.text).toBe('Answer')
+    expect(onEvent.mock.calls.map(([event]) => event.event)).toEqual(
+      expect.arrayContaining(['message-start', 'content-block-delta', 'message-finish']),
+    )
+  })
+
   it.each(['message-start', 'content-block-start', 'content-block-finish'])(
     'stops content events when its consumer cancels at %s',
     async (phase) => {
@@ -111,11 +127,10 @@ describe('LangChain model', () => {
     )
     const controller = new AbortController()
     const pending = model._streamResponseChunks([new HumanMessage('Find both codes.')], {
+      tools: [lookup],
       signal: controller.signal,
     })
-    expect((await pending.next()).value?.message).toMatchObject({
-      tool_calls: [expect.objectContaining({ name: 'lookup', args: { code: 'A7' } })],
-    })
+    expect((await pending.next()).value?.message).toMatchObject({ tool_calls: [] })
     controller.abort()
     await expect(pending.next()).rejects.toHaveProperty('name', 'AbortError')
     expect((await model.invoke('Next')).text).toBe('Recovered')
@@ -129,7 +144,7 @@ describe('LangChain model', () => {
         'tool_calls',
       ),
     )
-    const result = await model.invoke('Look up the code.')
+    const result = await model.bindTools([lookup]).invoke('Look up the code.')
     expect(result.tool_call_chunks?.[0]?.args).toBe(input)
     expect(result.tool_calls?.[0]?.args).toEqual(JSON.parse(input))
   })
@@ -184,6 +199,66 @@ describe('LangChain model', () => {
       expect((await model.invoke('Next')).text).toBe('Done')
     },
   )
+
+  it('does not run a native tool when its arguments are malformed', async () => {
+    const { model, create } = setup()
+    create.mockResolvedValueOnce(
+      chunks(
+        chunk({
+          tool_calls: [
+            {
+              index: 0,
+              id: 'call-1',
+              type: 'function',
+              function: { name: 'lookup', arguments: '{' },
+            },
+          ],
+        }),
+        chunk(
+          { tool_calls: [{ index: 0, type: 'function', function: { arguments: 'invalid' } }] },
+          'tool_calls',
+        ),
+      ),
+    )
+    const callback = vi.fn(() => 'Done')
+    const lookup = tool(callback, {
+      name: 'lookup',
+      description: 'Look up the answer for a code.',
+      schema: z.object({ code: z.unknown() }),
+    })
+    const agent = createAgent({ model, tools: [lookup] })
+
+    await expect(
+      agent.invoke({ messages: [new HumanMessage('Look up the code.')] }),
+    ).rejects.toThrow()
+    expect(callback).not.toHaveBeenCalled()
+    expect(create).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not run a valid Qwen tool before a later invalid call fails the stream', async () => {
+    const missingToolOutput = toolOutput.replace('<function=lookup>', '<function=missing>')
+    const { model, create } = qwenModel(
+      chunk({ content: toolOutput }),
+      chunk({ content: missingToolOutput }, 'stop'),
+    )
+    const callback = vi.fn(() => 'Done')
+    const agent = createAgent({
+      model,
+      tools: [
+        tool(callback, {
+          name: 'lookup',
+          description: 'Look up the answer for a code.',
+          schema: z.object({ code: z.string() }),
+        }),
+      ],
+    })
+
+    await expect(
+      agent.invoke({ messages: [new HumanMessage('Look up the code.')] }),
+    ).rejects.toThrow(/unknown tool/i)
+    expect(callback).not.toHaveBeenCalled()
+    expect(create).toHaveBeenCalledTimes(1)
+  })
 
   it('can cancel from a reasoning callback and use the engine again', async () => {
     const { model, create, stop } = qwenModel(chunk({ content: 'Recovered' }, 'stop'))
@@ -240,7 +315,7 @@ describe('LangChain model', () => {
     ])
     expect(
       seen.flatMap((message) => message.tool_call_chunks ?? []).map((call) => call.index),
-    ).toEqual([0])
+    ).toEqual([0, 0])
     expect(seen.at(-1)?.response_metadata.finish_reason).toBe('tool_calls')
   })
 
@@ -427,14 +502,14 @@ describe('LangChain model', () => {
         'tool_calls',
       ),
     )
-    const stream = model.streamEvents('Look up A7')
+    const stream = model.streamEvents('Look up A7', { tools: [lookup] })
 
     expect(await collect(stream.toolCalls)).toMatchObject([
       { name: 'lookup', args: { code: 'A7' } },
     ])
   })
 
-  it('streams tool arguments with LangChain Core tool-call deltas', async () => {
+  it('streams tool arguments with LangChain Core block deltas', async () => {
     const { model } = setup(
       chunk(
         {
@@ -449,27 +524,21 @@ describe('LangChain model', () => {
         'tool_calls',
       ),
     )
-    const stream = model.streamEvents('Look up A7')
+    const stream = model.streamEvents('Look up A7', { tools: [lookup] })
     const [events, toolCalls] = await Promise.all([collect(stream), stream.toolCalls])
     const start = events.find(
       (event) => event.event === 'content-block-start' && event.content.type === 'tool_call_chunk',
     )
     expect(start).toMatchObject({
       event: 'content-block-start',
-      content: { type: 'tool_call_chunk', id: 'call-1', name: 'lookup' },
+      content: { type: 'tool_call_chunk', name: 'lookup' },
     })
     if (start?.event !== 'content-block-start') throw new Error('Missing tool-call start event.')
     expect(events).toContainEqual({
       event: 'content-block-delta',
       index: start.index,
-      delta: { type: 'tool-call-delta', args: '{"code":"A7"}' },
+      delta: { type: 'block-delta', fields: { type: 'tool_call_chunk', args: '{"code":"A7"}' } },
     })
-    expect(events).not.toContainEqual(
-      expect.objectContaining({
-        event: 'content-block-delta',
-        delta: expect.objectContaining({ type: 'block-delta' }),
-      }),
-    )
     expect(events).toContainEqual({
       event: 'content-block-finish',
       index: start.index,
@@ -840,6 +909,39 @@ describe('LangChain model', () => {
     expect(result.response_metadata.finish_reason).toBe('length')
   })
 
+  it('marks a truncated native call as invalid in content streams', async () => {
+    const { model } = setup(
+      chunk(
+        {
+          tool_calls: [
+            {
+              index: 0,
+              id: 'call',
+              type: 'function',
+              function: { name: 'lookup', arguments: '{"code":"A7"}' },
+            },
+          ],
+        },
+        'length',
+      ),
+    )
+    const stream = model.streamEvents('Look up A7.', { tools: [lookup] })
+    const [events, calls] = await Promise.all([collect(stream), stream.toolCalls])
+
+    expect(calls).toEqual([])
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: 'content-block-finish',
+        content: expect.objectContaining({ type: 'invalid_tool_call' }),
+      }),
+    )
+    expect(
+      events.some(
+        (event) => event.event === 'content-block-finish' && event.content.type === 'tool_call',
+      ),
+    ).toBe(false)
+  })
+
   it.each([
     ['Qwen2.5-3B-Instruct-q4f16_1-MLC', '<tool_call>{"name":"lookup","arguments":{"code":"A'],
     ['Qwen3.5-0.8B-q4f16_1-MLC', '<tool_call><function=lookup><parameter=code>A'],
@@ -865,6 +967,46 @@ describe('LangChain model', () => {
     expect(result.tool_calls).toEqual([])
     expect(result.response_metadata.finish_reason).toBe('length')
   })
+
+  it.each(['lc_prefer_streaming', 'lc_prefer_chat_model_stream_events'] as const)(
+    'does not run a truncated Qwen tool call with %s',
+    async (preference) => {
+      const complete =
+        '<tool_call><function=lookup><parameter=code>A7</parameter></function></tool_call>'
+      const partial = '<tool_call><function=lookup><parameter=code>A8'
+      const { engine, create } = setup()
+      create.mockResolvedValueOnce(
+        chunks(chunk({ content: 'Checking.' + complete + partial }), chunk({}, 'length')),
+      )
+      create.mockResolvedValueOnce(chunks(chunk({ content: 'Done.' }, 'stop')))
+      const model = new ChatWebLLM({ engine, modelId: qwen })
+      const execute = vi.fn(() => 'Done')
+      const lookup = tool(execute, { name: 'lookup', schema: z.object({ code: z.string() }) })
+      const callbacks = CallbackManager.fromHandlers({
+        handleLLMNewToken: () => {},
+        handleChatModelStreamEvent: () => {},
+      })
+      const [handler] = callbacks.handlers
+      if (!handler) throw new Error('Missing callback handler.')
+      Object.assign(handler, { [preference]: true })
+
+      const result = await createAgent({ model, tools: [lookup] }).invoke(
+        { messages: [new HumanMessage('Look up codes A7 and A8.')] },
+        { callbacks },
+      )
+
+      expect(execute).not.toHaveBeenCalled()
+      expect(result.messages.at(-1)?.text).toBe('Checking.')
+      expect(result.messages.at(-1)?.response_metadata.finish_reason).toBe('length')
+      expect((await model.invoke([...result.messages, new HumanMessage('Try again.')])).text).toBe(
+        'Done.',
+      )
+      expect(create.mock.calls[1]?.[0].messages).toContainEqual({
+        role: 'assistant',
+        content: 'Checking.',
+      })
+    },
+  )
 
   it.each([
     ['Qwen2.5-3B-Instruct-q4f16_1-MLC', '<tool_call>{"name":"lookup","arguments":{"code":"A'],

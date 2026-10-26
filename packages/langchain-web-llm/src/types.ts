@@ -5,6 +5,7 @@ import type {
   BindToolsInput,
 } from '@langchain/core/language_models/chat_models'
 import type { MLCEngineInterface, ChatCompletionChunk, Completion } from '@mlc-ai/web-llm'
+import type { ChunkCallback } from '../../../shared/web-llm/callback.js'
 import type { WebLLMRequest } from '../../../shared/web-llm/request.js'
 
 export type WebLLMChunk = ChatCompletionChunk | Completion
@@ -25,7 +26,8 @@ export interface WebLLMModelOptions extends BaseChatModelParams {
 
 export interface ChatWebLLMOptions extends WebLLMModelOptions {
   engine: MLCEngineInterface
-  onChunk?: (chunk: WebLLMChunk) => void
+  /** Receives native chunks during inference; don't await work on the same engine. */
+  onChunk?: ChunkCallback<WebLLMChunk>
 }
 
 export interface WebLLMCallOptions extends BaseChatModelCallOptions {

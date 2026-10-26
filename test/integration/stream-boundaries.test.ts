@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { Completion } from '@mlc-ai/web-llm'
+import type { ChatCompletionChunk, Completion } from '@mlc-ai/web-llm'
 import { AIMessageChunk } from '@langchain/core/messages'
 import { gemmaChunks } from '../../shared/web-llm/gemma/stream.js'
+import { nativeChunks } from '../../shared/web-llm/native.js'
 import { qwenChunks } from '../../shared/web-llm/qwen/stream.js'
 import { qwen35Chunks } from '../../shared/web-llm/qwen35/stream.js'
 import type { StreamChunk } from '../../shared/web-llm/stream/chunks.js'
@@ -22,6 +23,8 @@ interface Protocol {
   source: string
   text: string
   calls: Call[]
+  frameworks?: Framework[]
+  toolNames?: string[]
   parse: (parts: string[], finish: Finish, failure?: Error) => AsyncIterable<StreamChunk>
 }
 interface Result {
@@ -51,6 +54,17 @@ const text = '서울 😀 \\ "quoted"\nline <think> {nested}'
 const gemmaCall = `<|tool_call>call:lookup{count:7,text:<|"|>${text}<|"|>}<tool_call|>`
 const jsonCall = String.raw`<tool_call>{"name":"lookup","arguments":{"text":"literal </tool_call>, <tool_call>, and \\\"quote\"","count":3}}</tool_call>`
 const xmlCall = `<tool_call><function=lookup><parameter=text>\n${text}\n</parameter><parameter=count>\n7\n</parameter></function></tool_call>`
+const spacedNameTools: ToolSpec[] = [
+  {
+    name: 'read file',
+    description: 'Read a file.',
+    inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
+  },
+]
+const spacedNameCall =
+  '<tool_call><function=read file><parameter=path>/answer.txt</parameter></function></tool_call>'
+const gemmaAngleNameTools: ToolSpec[] = [{ name: 'read <file>', description: 'Read a file.' }]
+const gemmaAngleNameCall = '<|tool_call>call:read <file>{path:<|"|>/answer.txt<|"|>}<tool_call|>'
 const xmlEndText = 'literal </tool_call>, then more'
 const xmlEndPayload = { nested: ['</tool_call>', { '</tool_call>': 'keep' }] }
 const xmlEndCall =
@@ -87,6 +101,16 @@ const protocols: Protocol[] = [
       gemmaChunks(raw(parts, finish, failure), tools, { prefix: '<|channel>thought\n' }),
   },
   {
+    name: 'Gemma function name with spaces',
+    source: `Before<|channel>thought\nPlan 서울 😀<channel|>Answer${gemmaAngleNameCall}`,
+    text: 'BeforeAnswer',
+    calls: [{ name: 'read <file>', input: JSON.stringify({ path: '/answer.txt' }) }],
+    frameworks: ['LangChain', 'Pi'],
+    toolNames: ['read <file>'],
+    parse: (parts, finish, failure) =>
+      gemmaChunks(raw(parts, finish, failure), gemmaAngleNameTools),
+  },
+  {
     name: 'Qwen JSON',
     source: `Before<think>Plan 서울 😀</think>Answer${jsonCall}${jsonCall}After<tool_`,
     text: 'BeforeAnswerAfter<tool_',
@@ -105,6 +129,15 @@ const protocols: Protocol[] = [
       input: JSON.stringify({ text, count: 7 }),
     })),
     parse: (parts, finish, failure) => qwen35Chunks(chat(parts, finish, failure), tools),
+  },
+  {
+    name: 'Qwen XML function name with spaces',
+    source: `Before<think>Plan 서울 😀</think>Answer${spacedNameCall}`,
+    text: 'BeforeAnswer',
+    calls: [{ name: 'read file', input: JSON.stringify({ path: '/answer.txt' }) }],
+    frameworks: ['LangChain', 'Pi'],
+    toolNames: ['read file'],
+    parse: (parts, finish, failure) => qwen35Chunks(chat(parts, finish, failure), spacedNameTools),
   },
   {
     name: 'Qwen XML literal closing tags',
@@ -143,43 +176,149 @@ const scenarios = (['stop', 'length', 'abort', null] as const).flatMap((finish) 
   [false, true].map((partial) => ({ finish, partial })),
 )
 
-describe.each(protocols)('$name chunk boundaries', (protocol) => {
-  describe.each(['Strands', 'LangChain', 'Pi'] as const)('%s reader', (framework) => {
-    it.each(scenarios)(
-      'preserves output on $finish, partial=$partial',
-      async ({ finish, partial }) => {
-        const source = partial
-          ? protocol.source.slice(0, Math.floor(protocol.source.length * 0.6))
-          : protocol.source
-        const failure = finish === null ? new Error('Native stream failed.') : undefined
-        const expected = await read(framework, protocol.parse([source], finish, failure))
-        if (finish === 'stop' && !partial) {
-          expect(expected).toEqual({
-            text: protocol.text,
-            reasoning: 'Plan 서울 😀',
-            calls: protocol.calls,
-            stop: framework === 'LangChain' ? 'tool_calls' : 'toolUse',
-            error: undefined,
-          })
-        } else expect(expected.calls).toEqual([])
-        if (failure) {
-          expect(expected.error).toHaveProperty('message', failure.message)
-          if (framework !== 'Pi') expect(expected.error).toBe(failure)
-        }
-        if (finish === 'stop' && partial) expect(expected.error).toBeInstanceOf(Error)
+describe.each(['native', 'Qwen JSON', 'Qwen XML'] as const)('%s chunk observer', (protocol) => {
+  it('cannot mutate parsed text', async () => {
+    const input = chunk({ content: 'Original' }, 'stop')
+    input.usage = usage()
+    const source = (async function* () {
+      yield input
+    })()
+    const onChunk = (observed: ChatCompletionChunk) => {
+      observed.choices[0]!.delta.content = 'Changed'
+      observed.usage!.prompt_tokens = 99
+    }
+    const chunks =
+      protocol === 'native'
+        ? nativeChunks(source, false, { onChunk })
+        : protocol === 'Qwen JSON'
+          ? qwenChunks(source, [], { onChunk })
+          : qwen35Chunks(source, [], { onChunk })
+    const output: StreamChunk[] = []
+    for await (const part of chunks) output.push(part)
 
-        for (const parts of partitions(source)) {
-          const actual = await read(framework, protocol.parse(parts, finish, failure))
-          expect(actual, `chunk lengths: ${parts.map((part) => part.length).join(',')}`).toEqual(
-            expected,
-          )
-          if (expected.error instanceof Error)
-            expect(actual.error).toHaveProperty('name', expected.error.name)
-          if (failure && framework !== 'Pi') expect(actual.error).toBe(failure)
-        }
-      },
-    )
+    expect(input.choices[0]?.delta.content).toBe('Changed')
+    expect(input.usage?.prompt_tokens).toBe(99)
+    expect(output.map((part) => part.text).join('')).toBe('Original')
+    expect(output.find((part) => part.usage)?.usage?.prompt_tokens).toBe(1)
   })
+})
+
+it('native chunk observers cannot mutate parsed tool calls', async () => {
+  const input = chunk(
+    {
+      tool_calls: [
+        {
+          index: 0,
+          id: 'call-1',
+          type: 'function',
+          function: { name: 'lookup', arguments: '{"code":"A7"}' },
+        },
+      ],
+    },
+    'tool_calls',
+  )
+  const source = (async function* () {
+    yield input
+  })()
+  const output: StreamChunk[] = []
+  for await (const part of nativeChunks(source, true, {
+    onChunk: (observed) => {
+      observed.choices[0]!.delta.tool_calls![0]!.function!.name = 'search'
+      observed.choices[0]!.delta.tool_calls![0]!.function!.arguments = 'invalid'
+    },
+  }))
+    output.push(part)
+
+  expect(input.choices[0]?.delta.tool_calls?.[0]?.function).toMatchObject({
+    name: 'search',
+    arguments: 'invalid',
+  })
+  expect(output.flatMap((part) => part.calls)).toEqual([
+    { index: 0, id: 'call-1', name: 'lookup', input: '{"code":"A7"}' },
+  ])
+})
+
+it('Gemma chunk observers cannot mutate parsed text', async () => {
+  const input: Completion = {
+    id: 'test',
+    object: 'text_completion',
+    created: 0,
+    model: 'test-model',
+    choices: [{ index: 0, text: 'Original', finish_reason: 'stop' }],
+    usage: usage(),
+  }
+  const source = (async function* () {
+    yield input
+  })()
+  const output: StreamChunk[] = []
+  for await (const part of gemmaChunks(source, [], {
+    onChunk: (observed) => {
+      observed.choices[0]!.text = 'Changed'
+      observed.usage!.prompt_tokens = 99
+    },
+  }))
+    output.push(part)
+
+  expect(input.choices[0]?.text).toBe('Changed')
+  expect(input.usage?.prompt_tokens).toBe(99)
+  expect(output.map((part) => part.text).join('')).toBe('Original')
+  expect(output.find((part) => part.usage)?.usage?.prompt_tokens).toBe(1)
+})
+
+describe.each(protocols)('$name chunk boundaries', (protocol) => {
+  describe.each(protocol.frameworks ?? (['Strands', 'LangChain', 'Pi'] as const))(
+    '%s reader',
+    (framework) => {
+      it.each(scenarios)(
+        'preserves output on $finish, partial=$partial',
+        async ({ finish, partial }) => {
+          const source = partial
+            ? protocol.source.slice(0, Math.floor(protocol.source.length * 0.6))
+            : protocol.source
+          const failure = finish === null ? new Error('Native stream failed.') : undefined
+          const expected = await read(
+            framework,
+            protocol.parse([source], finish, failure),
+            protocol.toolNames,
+          )
+          if (finish === 'stop' && !partial) {
+            expect(expected).toEqual({
+              text: protocol.text,
+              reasoning: 'Plan 서울 😀',
+              calls: protocol.calls,
+              stop: framework === 'LangChain' ? 'tool_calls' : 'toolUse',
+              error: undefined,
+            })
+          } else if (framework === 'LangChain') expectCallPrefix(expected.calls, protocol.calls)
+          else expect(expected.calls).toEqual([])
+          if (failure) {
+            expect(expected.error).toHaveProperty('message', failure.message)
+            if (framework !== 'Pi') expect(expected.error).toBe(failure)
+          }
+          if (finish === 'stop' && partial) expect(expected.error).toBeInstanceOf(Error)
+
+          for (const parts of partitions(source)) {
+            const actual = await read(
+              framework,
+              protocol.parse(parts, finish, failure),
+              protocol.toolNames,
+            )
+            const chunkLengths = parts.map((part) => part.length).join(',')
+            if (framework === 'LangChain' && (finish !== 'stop' || partial)) {
+              expectCallPrefix(actual.calls, protocol.calls)
+              expect({ ...actual, calls: [] }, `chunk lengths: ${chunkLengths}`).toEqual({
+                ...expected,
+                calls: [],
+              })
+            } else expect(actual, `chunk lengths: ${chunkLengths}`).toEqual(expected)
+            if (expected.error instanceof Error)
+              expect(actual.error).toHaveProperty('name', expected.error.name)
+            if (failure && framework !== 'Pi') expect(actual.error).toBe(failure)
+          }
+        },
+      )
+    },
+  )
 })
 
 describe.each([
@@ -206,12 +345,17 @@ describe.each([
   },
 ])('$name invalid second tool call', ({ name, thought, call, invalid, parse }) => {
   it.each(['Strands', 'LangChain', 'Pi'] as const)(
-    'keeps received output without publishing tools through %s',
+    'does not publish an invalid tool through %s',
     async (framework) => {
       const source = `Before${thought}Answer${call}${invalid}`
+      const calls = framework === 'LangChain' ? await parsedCalls(parse([call])) : []
       for (const parts of partitions(source)) {
         const result = await read(framework, parse(parts))
-        expect(result, `chunk lengths: ${parts.map((part) => part.length).join(',')}`).toEqual({
+        expectCallPrefix(result.calls, calls)
+        expect(
+          { ...result, calls: [] },
+          `chunk lengths: ${parts.map((part) => part.length).join(',')}`,
+        ).toEqual({
           text: name === 'Gemma' ? `BeforeAnswer${call}${invalid}` : 'BeforeAnswer',
           reasoning: 'Plan 서울 😀',
           calls: [],
@@ -330,6 +474,21 @@ async function* chat(parts: string[], finish: Finish, failure?: Error) {
   if (failure) throw failure
 }
 
+function usage() {
+  return {
+    prompt_tokens: 1,
+    completion_tokens: 1,
+    total_tokens: 2,
+    extra: {
+      e2e_latency_s: 0,
+      prefill_tokens_per_s: 0,
+      decode_tokens_per_s: 0,
+      time_to_first_token_s: 0,
+      time_per_output_token_s: 0,
+    },
+  }
+}
+
 describe.each(['Strands', 'LangChain', 'Pi'] as const)('%s stream completion', (framework) => {
   it.each([
     { name: 'text', value: { text: 'Late' } },
@@ -362,7 +521,11 @@ describe.each(['Strands', 'LangChain', 'Pi'] as const)('%s stream completion', (
   })
 })
 
-async function read(framework: Framework, chunks: AsyncIterable<StreamChunk>): Promise<Result> {
+async function read(
+  framework: Framework,
+  chunks: AsyncIterable<StreamChunk>,
+  toolNames = ['lookup'],
+): Promise<Result> {
   const result: Result = { text: '', reasoning: '', calls: [], stop: undefined, error: undefined }
   try {
     if (framework === 'Strands') {
@@ -387,7 +550,8 @@ async function read(framework: Framework, chunks: AsyncIterable<StreamChunk>): P
             if (block.type === 'reasoning' && typeof block.reasoning === 'string')
               result.reasoning += block.reasoning
         for (const call of part.message.tool_call_chunks ?? [])
-          result.calls.push({ name: call.name!, input: call.args! })
+          if (call.name !== undefined || call.args !== undefined)
+            result.calls.push({ name: call.name!, input: call.args! })
         const finish = part.message.response_metadata.finish_reason
         if (typeof finish === 'string') result.stop = finish
       }
@@ -405,7 +569,7 @@ async function read(framework: Framework, chunks: AsyncIterable<StreamChunk>): P
           maxTokens: 4096,
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         },
-        () => ({ chunks, toolNames: ['lookup'] }),
+        () => ({ chunks, toolPolicy: { choice: undefined, toolNames } }),
       )
       for await (const event of stream) {
         if (event.type === 'text_delta') result.text += event.delta
@@ -426,4 +590,20 @@ async function read(framework: Framework, chunks: AsyncIterable<StreamChunk>): P
     result.error = error
   }
   return result
+}
+
+async function parsedCalls(chunks: AsyncIterable<StreamChunk>): Promise<Call[]> {
+  const calls: Call[] = []
+  try {
+    for await (const chunk of chunks)
+      calls.push(...chunk.calls.map((call) => ({ name: call.name ?? '', input: call.input ?? '' })))
+  } catch {
+    // LangChain exposes complete tool-call deltas before the stream is validated.
+  }
+  return calls
+}
+
+function expectCallPrefix(actual: Call[], valid: Call[]) {
+  expect(actual.length).toBeLessThanOrEqual(valid.length)
+  expect(actual).toEqual(valid.slice(0, actual.length))
 }

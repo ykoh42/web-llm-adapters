@@ -4,8 +4,16 @@ import type {
   ChatCompletionTool,
 } from '@mlc-ai/web-llm'
 import { ModelError, type ToolSpec } from './types.js'
-import { stringifyJSON } from './json.js'
-import { singleChoice, stopReason, type StreamChunk, type ChunkOptions } from './stream/chunks.js'
+import { sameJSON, stringifyJSON } from './json.js'
+import { callChunkCallback } from './callback.js'
+import {
+  singleChoice,
+  snapshotChatChunk,
+  stopReason,
+  noToolCalls,
+  type StreamChunk,
+  type ChunkOptions,
+} from './stream/chunks.js'
 
 interface NativeCall {
   id?: string
@@ -17,31 +25,35 @@ interface NativeCall {
 export async function* nativeChunks(
   chunks: AsyncIterable<ChatCompletionChunk>,
   hasTools: boolean,
-  { onChunk, signal }: ChunkOptions<ChatCompletionChunk> = {},
+  { onChunk, onChunkMayMutate = true, signal }: ChunkOptions<ChatCompletionChunk> = {},
 ): AsyncGenerator<StreamChunk> {
-  const calls = new Map<number, NativeCall>()
-  const ids = new Map<string, number>()
+  let calls: Map<number, NativeCall> | undefined
+  let ids: Map<string, number> | undefined
   let pending = ''
   let mode: 'start' | 'json' | 'text' = hasTools ? 'start' : 'text'
 
-  function decode(chunk: ChatCompletionChunk): StreamChunk {
+  function decode(chunk: Pick<ChatCompletionChunk, 'choices' | 'usage'>): StreamChunk {
     const choice = singleChoice(chunk.choices)
 
-    const deltas = choice?.delta.tool_calls ?? []
-    for (const delta of deltas) {
-      const call: NativeCall = calls.get(delta.index) ?? { name: '', input: '' }
-      if (call.id && delta.id && call.id !== delta.id)
-        throw new ModelError('WebLLM changed a tool call ID while streaming.')
-      if (delta.id) {
-        const index = ids.get(delta.id)
-        if (index !== undefined && index !== delta.index)
-          throw new ModelError('WebLLM returned duplicate tool call IDs.')
-        ids.set(delta.id, delta.index)
-        call.id = delta.id
+    const deltas = choice?.delta.tool_calls
+    if (deltas?.length) {
+      calls ??= new Map()
+      ids ??= new Map()
+      for (const delta of deltas) {
+        const call: NativeCall = calls.get(delta.index) ?? { name: '', input: '' }
+        if (call.id && delta.id && call.id !== delta.id)
+          throw new ModelError('WebLLM changed a tool call ID while streaming.')
+        if (delta.id) {
+          const index = ids.get(delta.id)
+          if (index !== undefined && index !== delta.index)
+            throw new ModelError('WebLLM returned duplicate tool call IDs.')
+          ids.set(delta.id, delta.index)
+          call.id = delta.id
+        }
+        call.name += delta.function?.name ?? ''
+        call.input += delta.function?.arguments ?? ''
+        calls.set(delta.index, call)
       }
-      call.name += delta.function?.name ?? ''
-      call.input += delta.function?.arguments ?? ''
-      calls.set(delta.index, call)
     }
 
     const stop = stopReason(choice?.finish_reason)
@@ -49,18 +61,20 @@ export async function* nativeChunks(
     if (mode !== 'text') {
       pending += text
       if (mode === 'start') {
-        const first = pending.trimStart()[0]
+        const first = text.trimStart()[0]
         if (first) mode = first === '[' ? 'json' : 'text'
       }
       text = ''
       if (mode === 'text' || stop) {
-        const ordered = [...calls.entries()].sort(([left], [right]) => left - right)
         const duplicate =
+          stop !== undefined &&
           stop !== 'maxTokens' &&
           stop !== 'cancelled' &&
+          calls?.size &&
+          pending.trimStart()[0] === '[' &&
           matchesToolText(
             pending,
-            ordered.map(([, call]) => call),
+            [...calls.entries()].sort(([left], [right]) => left - right).map(([, call]) => call),
           )
         text = duplicate ? '' : pending
         pending = ''
@@ -70,12 +84,14 @@ export async function* nativeChunks(
     return {
       text,
       reasoning: '',
-      calls: deltas.map((call) => ({
-        index: call.index,
-        id: call.id,
-        name: call.function?.name,
-        input: call.function?.arguments,
-      })),
+      calls: deltas?.length
+        ? deltas.map((call) => ({
+            index: call.index,
+            id: call.id,
+            name: call.function?.name,
+            input: call.function?.arguments,
+          }))
+        : noToolCalls,
       stop,
       usage: chunk.usage,
     }
@@ -85,16 +101,19 @@ export async function* nativeChunks(
   try {
     for await (const chunk of chunks) {
       if (signal?.aborted) return
-      onChunk?.(chunk)
+      const parserChunk = onChunk && onChunkMayMutate ? snapshotChatChunk(chunk) : chunk
+      const callbackResult = onChunk ? callChunkCallback(onChunk, chunk, signal) : undefined
+      if (callbackResult) await callbackResult
       if (signal?.aborted) return
-      yield decode(chunk)
+      yield decode(parserChunk)
     }
   } catch (error) {
     failure = { error }
   }
   // Keep received bytes without inventing a finish reason or executing partial calls.
   if (signal?.aborted) return
-  if (pending) yield { text: pending, reasoning: '', calls: [], stop: undefined, usage: undefined }
+  if (pending)
+    yield { text: pending, reasoning: '', calls: noToolCalls, stop: undefined, usage: undefined }
   if (failure && !signal?.aborted) throw failure.error
 }
 
@@ -123,28 +142,6 @@ function matchesToolText(
     if (cause instanceof TypeError) throw cause
     return false
   }
-}
-
-function sameJSON(left: unknown, right: unknown): boolean {
-  const pending: [unknown, unknown][] = [[left, right]]
-  while (pending.length) {
-    const [left, right] = pending.pop()!
-    if (left === right) continue
-    if (Array.isArray(left)) {
-      if (!Array.isArray(right) || left.length !== right.length) return false
-      for (let index = 0; index < left.length; index++)
-        if (left[index] !== right[index]) pending.push([left[index], right[index]])
-      continue
-    }
-    if (!isRecord(left) || !isRecord(right)) return false
-    const keys = Object.keys(left)
-    if (keys.length !== Object.keys(right).length) return false
-    for (const key of keys) {
-      if (!Object.hasOwn(right, key)) return false
-      if (left[key] !== right[key]) pending.push([left[key], right[key]])
-    }
-  }
-  return true
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

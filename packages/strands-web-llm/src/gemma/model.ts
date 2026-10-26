@@ -13,6 +13,7 @@ export function gemmaStream(
   messages: Message[],
   options: StreamOptions,
   onChunk?: WebLLMModelOptions['onChunk'],
+  onChunkMayMutate = true,
 ) {
   const { request, prefix } = gemmaRequest(config, messages, options)
   return streamCall(
@@ -22,6 +23,7 @@ export function gemmaStream(
       readStream(
         gemmaChunks(chunks, options.toolSpecs ?? [], {
           onChunk,
+          onChunkMayMutate,
           prefix,
           stopRequested: Boolean(request.stop?.length),
           signal: options.cancelSignal,

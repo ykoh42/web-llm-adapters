@@ -14,7 +14,7 @@ for (const modelId of [
   const thinking = !modelId.startsWith('Qwen2.5-')
   test(
     `${modelId} constrains an Agent tool loop and preserves native output`,
-    thinking ? modelCheck(modelId, 'tools', 'thinking') : modelCheck(modelId, 'tools'),
+    modelCheck(modelId),
     async ({ page }, info) => {
       await page.evaluate((id) => window.checks.load(id), modelId)
       for (const constrainedToolCalls of [false, true]) {
@@ -95,3 +95,144 @@ for (const modelId of [
     },
   )
 }
+
+test('Qwen3.5 calls a constrained tool whose name contains spaces', async ({ page }, info) => {
+  const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
+  await page.evaluate((id) => window.checks.load(id), modelId)
+  const model = new BrowserChatWebLLM(page, {
+    modelId,
+    thinkingPrefilled: true,
+    request: { ...sampling(modelId, true), constrainedToolCalls: true, max_tokens: 4096, seed: 7 },
+  })
+  const result = await model
+    .bindTools(
+      [
+        {
+          type: 'function',
+          function: {
+            name: 'read file',
+            description: 'Read a file by its code.',
+            parameters: {
+              type: 'object',
+              properties: { code: { type: 'string' } },
+              required: ['code'],
+              additionalProperties: false,
+            },
+          },
+        },
+      ],
+      { tool_choice: 'read file' },
+    )
+    .invoke('Call read file with code A7.')
+
+  await info.attach('spaced-tool-name', {
+    body: JSON.stringify(result),
+    contentType: 'application/json',
+  })
+  expect(result.tool_calls?.map(({ name, args }) => ({ name, args }))).toEqual([
+    { name: 'read file', args: { code: 'A7' } },
+  ])
+})
+
+test(
+  'Qwen3.5 constrains type-less string and numeric enums',
+  modelCheck('Qwen3.5-4B-q4f16_1-MLC'),
+  async ({ page }, info) => {
+    const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
+    await page.evaluate((id) => window.checks.load(id), modelId)
+    const model = new BrowserChatWebLLM(page, {
+      modelId,
+      thinkingPrefilled: true,
+      request: {
+        ...sampling(modelId, true),
+        constrainedToolCalls: true,
+        max_tokens: 4096,
+        seed: 7,
+      },
+    })
+    const result = await model
+      .bindTools(
+        [
+          {
+            type: 'function',
+            function: {
+              name: 'lookup',
+              description: 'Look up a code.',
+              parameters: {
+                type: 'object',
+                properties: {
+                  code: { enum: ['001', '010'] },
+                  count: { enum: [7, 9] },
+                  payload: { const: { $ref: 'literal' } },
+                },
+                required: ['code', 'count', 'payload'],
+                additionalProperties: false,
+              },
+            },
+          },
+        ],
+        { tool_choice: 'required' },
+      )
+      .invoke('Call lookup with code 001, count 7, and payload {"$ref":"literal"}.')
+
+    await info.attach('type-less-enums', {
+      body: JSON.stringify(result),
+      contentType: 'application/json',
+    })
+    expect(result.tool_calls).toHaveLength(1)
+    expect(result.tool_calls?.[0]).toMatchObject({ name: 'lookup', args: { code: '001' } })
+    expect([7, 9]).toContain(result.tool_calls?.[0]?.args.count)
+    expect(result.tool_calls?.[0]?.args.payload).toEqual({ $ref: 'literal' })
+  },
+)
+
+test(
+  'Qwen3.5 constrains a type-less array-or-null tool argument',
+  modelCheck('Qwen3.5-4B-q4f16_1-MLC'),
+  async ({ page }, info) => {
+    const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
+    await page.evaluate((id) => window.checks.load(id), modelId)
+    const model = new BrowserChatWebLLM(page, {
+      modelId,
+      thinkingPrefilled: true,
+      request: {
+        ...sampling(modelId, true),
+        constrainedToolCalls: true,
+        max_tokens: 4096,
+        seed: 7,
+      },
+    })
+    const result = await model
+      .bindTools(
+        [
+          {
+            type: 'function',
+            function: {
+              name: 'lookup',
+              description: 'Look up a code.',
+              parameters: {
+                type: 'object',
+                properties: {
+                  payload: {
+                    oneOf: [{ type: 'array', items: { type: 'string' } }, { type: 'null' }],
+                  },
+                },
+                required: ['payload'],
+                additionalProperties: false,
+              },
+            },
+          },
+        ],
+        { tool_choice: 'required' },
+      )
+      .invoke('Call lookup with payload as an array containing only A7.')
+
+    await info.attach('type-less-array-or-null', {
+      body: JSON.stringify(result),
+      contentType: 'application/json',
+    })
+    expect(result.tool_calls?.map(({ name, args }) => ({ name, args }))).toEqual([
+      { name: 'lookup', args: { payload: ['A7'] } },
+    ])
+  },
+)

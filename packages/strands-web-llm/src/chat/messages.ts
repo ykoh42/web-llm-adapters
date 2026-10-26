@@ -1,11 +1,19 @@
-import { ModelError, type Message, type SystemPrompt, type ToolChoice } from '@strands-agents/sdk'
-import type { ContentBlock, ToolResultBlock, ToolResultContent } from '@strands-agents/sdk'
+import {
+  ModelError,
+  type Message,
+  type SystemPrompt,
+  type ToolChoice,
+  type ContentBlock,
+  type ToolResultBlock,
+  type ToolResultContent,
+} from '@strands-agents/sdk'
 import type {
   ChatCompletionContentPart,
   ChatCompletionAssistantMessageParam,
   ChatCompletionMessageParam,
   ChatCompletionToolChoiceOption,
 } from '@mlc-ai/web-llm'
+import { base64Data } from '../../../../shared/web-llm/base64.js'
 import { formatUserContent } from '../../../../shared/web-llm/content.js'
 import { stringifyJSON } from '../../../../shared/web-llm/json.js'
 
@@ -132,40 +140,38 @@ function isToolReply(content: readonly ContentBlock[]): boolean {
 }
 
 export function formatText(blocks: readonly (ContentBlock | ToolResultContent)[]): string {
-  return blocks
-    .map((block) => {
-      if (block.type === 'textBlock') return block.text
-      if (block.type === 'jsonBlock') return stringifyJSON(block.json)
-      if (block.type === 'cachePointBlock') return ''
-      if (block.type === 'reasoningBlock') {
-        if (block.signature !== undefined || block.redactedContent !== undefined)
-          throw new ModelError('WebLLM cannot use signed or redacted reasoning blocks.')
-        return block.text ?? ''
-      }
-      throw new ModelError(`WebLLM cannot use ${block.type} here.`)
-    })
-    .join('')
+  return blocks.map(textBlock).join('')
+}
+
+function textBlock(block: ContentBlock | ToolResultContent): string {
+  if (block.type === 'textBlock') return block.text
+  if (block.type === 'jsonBlock') return stringifyJSON(block.json)
+  if (block.type === 'cachePointBlock') return ''
+  if (block.type === 'reasoningBlock') {
+    if (block.signature !== undefined || block.redactedContent !== undefined)
+      throw new ModelError('WebLLM cannot use signed or redacted reasoning blocks.')
+    return block.text ?? ''
+  }
+  throw new ModelError(`WebLLM cannot use ${block.type} here.`)
 }
 
 function formatPart(block: ContentBlock): ChatCompletionContentPart {
   if (block.type === 'textBlock') return { type: 'text', text: block.text }
   if (block.type === 'imageBlock') {
-    const source = block.toJSON().image.source
-    if ('url' in source) {
-      return { type: 'image_url', image_url: { url: source.url } }
+    if (block.source.type === 'imageSourceUrl') {
+      return { type: 'image_url', image_url: { url: block.source.url } }
     }
-    if ('bytes' in source) {
+    if (block.source.type === 'imageSourceBytes') {
       const format = block.format === 'jpg' ? 'jpeg' : block.format
-      const url = `data:image/${format};base64,${source.bytes}`
+      const url = `data:image/${format};base64,${base64Data(block.source.bytes)}`
       return { type: 'image_url', image_url: { url } }
     }
   }
   if (block.type === 'audioBlock' && block.format === 'wav') {
-    const source = block.toJSON().audio.source
-    if ('bytes' in source) {
+    if (block.source.type === 'audioSourceBytes') {
       return {
         type: 'input_audio',
-        input_audio: { format: 'wav', data: source.bytes },
+        input_audio: { format: 'wav', data: base64Data(block.source.bytes) },
       }
     }
   }

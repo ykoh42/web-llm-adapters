@@ -41,7 +41,6 @@ jobs:
         with:
           cache: true
           require-lockfile: true
-      - run: pnpm build:adapters
       - run: pnpm test:install:manager ${{ matrix.manager }}
 
   runtime-compatibility:

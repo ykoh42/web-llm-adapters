@@ -76,7 +76,6 @@ export async function vision() {
         engine,
         modelId,
         contextWindow: 8192,
-        imageInputs: true,
         request,
         onChunk: (chunk) => {
           const choice = chunk.choices[0]

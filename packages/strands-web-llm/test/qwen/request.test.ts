@@ -8,15 +8,11 @@ import {
 } from '@strands-agents/sdk'
 import { expect, it } from 'vitest'
 import { qwenRequest } from '../../src/qwen/request.js'
-import { qwen35Request } from '../../src/qwen35/request.js'
 import { ModelType, postInitAndCheckFieldsChatCompletion } from '@mlc-ai/web-llm'
 
-it.each([
-  { modelId: 'Qwen3-4B-q4f16_1-MLC', request: qwenRequest },
-  { modelId: 'Qwen3.5-4B-q4f16_1-MLC', request: qwen35Request },
-])(
-  '$modelId keeps validation order when history has several invalid blocks',
-  ({ modelId, request }) => {
+it.each(['Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC'])(
+  '%s keeps validation order when history has several invalid blocks',
+  (modelId) => {
     const image = new ImageBlock({
       format: 'png',
       source: { url: 'https://example.com/image.png' },
@@ -34,9 +30,9 @@ it.each([
       { content: [image, thought, call], error: 'signed or redacted reasoning' },
       { content: [image, thought, signed], error: 'tool calls with reasoning signatures' },
     ])
-      expect(() => request({ modelId }, [new Message({ role: 'assistant', content })], {})).toThrow(
-        error,
-      )
+      expect(() =>
+        qwenRequest({ modelId }, [new Message({ role: 'assistant', content })], {}),
+      ).toThrow(error)
   },
 )
 
@@ -54,11 +50,48 @@ it('allows automatic Qwen3 1.7B chat when no tools are registered', () => {
 })
 
 it.each([
-  { modelId: 'Qwen3-4B-q4f16_1-MLC', request: qwenRequest },
-  { modelId: 'Qwen3.5-4B-q4f16_1-MLC', request: qwen35Request },
-])(
-  '$modelId keeps thoughts for Harness context but drops them after a user question',
-  ({ modelId, request }) => {
+  'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
+  'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
+  'Qwen2.5-3B-Instruct-q4f16_1-MLC',
+  'Qwen2.5-7B-Instruct-q4f16_1-MLC',
+])('%s keeps its system prompt', (modelId) => {
+  const request = qwenRequest(
+    { modelId },
+    [new Message({ role: 'user', content: [new TextBlock('Hi')] })],
+    {},
+  )
+
+  expect(request.messages[0]).toEqual({
+    role: 'system',
+    content: 'You are Qwen, created by Alibaba Cloud. You are a helpful assistant.',
+  })
+})
+
+it.each(['Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC'])(
+  '%s adds no default system text to the tool protocol',
+  (modelId) => {
+    const request = qwenRequest(
+      { modelId },
+      [new Message({ role: 'user', content: [new TextBlock('Find the code.')] })],
+      {
+        toolSpecs: [
+          {
+            name: 'lookup',
+            description: 'Return the code for a city.',
+            inputSchema: { type: 'object', properties: { city: { type: 'string' } } },
+          },
+        ],
+      },
+    )
+
+    expect(request.messages[0]?.role).toBe('system')
+    expect(request.messages[0]?.content).not.toContain('You are a helpful assistant.')
+  },
+)
+
+it.each(['Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC'])(
+  '%s keeps thoughts for Harness context but drops them after a user question',
+  (modelId) => {
     const messages = [
       new Message({ role: 'user', content: [new TextBlock('Find the code.')] }),
       new Message({
@@ -82,8 +115,8 @@ it.each([
     ]
     const original = JSON.stringify(messages)
 
-    const context = request({ modelId }, messages, { dynamicTrailingBlocks: 1 })
-    const followup = request({ modelId }, messages, {})
+    const context = qwenRequest({ modelId }, messages, { dynamicTrailingBlocks: 1 })
+    const followup = qwenRequest({ modelId }, messages, {})
 
     expect(context.messages[1]?.content).toContain('<think>\nCheck the code.\n</think>')
     expect(context.messages.at(-1)?.content).toBe('Current task context.')

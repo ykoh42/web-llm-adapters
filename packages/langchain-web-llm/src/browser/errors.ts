@@ -1,5 +1,10 @@
 import { getRetryable, stampRetryable } from '@langchain/core/errors'
-import { restoreError, serializeError, type ErrorInfo } from '../../../../shared/web-llm/errors.js'
+import {
+  isError,
+  restoreError,
+  serializeError,
+  type ErrorInfo,
+} from '../../../../shared/web-llm/errors.js'
 import { modelError } from '../error.js'
 
 export interface BrowserError extends ErrorInfo {
@@ -12,18 +17,31 @@ const reserved = new Set(['name', 'message', 'stack', 'cause'])
 /** Keep serializable provider fields without reading own getters or losing the failure. */
 export function serializeBrowserError(error: unknown): BrowserError {
   const info = serializeError(error)
-  if (!(error instanceof Error)) return info
-  const fields = Object.create(null) as Record<string, unknown>
-  for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(error))) {
-    if (reserved.has(key) || !Object.hasOwn(descriptor, 'value')) continue
-    try {
-      const value = JSON.stringify(descriptor.value)
-      if (value !== undefined) fields[key] = JSON.parse(value)
-    } catch {
-      // A provider field may contain cycles, BigInt, or a throwing toJSON method.
-    }
+  try {
+    if (!(error instanceof Error) && !isError(error)) return info
+  } catch {
+    // A proxy may refuse prototype inspection while exposing Error fields.
   }
-  const retryable = getRetryable(error)
+  const fields = Object.create(null) as Record<string, unknown>
+  try {
+    for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(error))) {
+      if (reserved.has(key) || !Object.hasOwn(descriptor, 'value')) continue
+      try {
+        const value = JSON.stringify(descriptor.value)
+        if (value !== undefined) fields[key] = JSON.parse(value)
+      } catch {
+        // A provider field may contain cycles, BigInt, or a throwing toJSON method.
+      }
+    }
+  } catch {
+    // A proxy may refuse property inspection; keep the original failure and retry marker.
+  }
+  let retryable: boolean | undefined
+  try {
+    retryable = getRetryable(error)
+  } catch {
+    // A proxy may refuse the retry marker lookup.
+  }
   return {
     ...info,
     ...(Object.keys(fields).length && { fields }),
@@ -32,7 +50,7 @@ export function serializeBrowserError(error: unknown): BrowserError {
 }
 
 export function restoreBrowserError(snapshot: BrowserError): Error {
-  const error = modelError(restoreError(snapshot)) as Error
+  const error = modelError(restoreError(snapshot))
   applyBrowserError(error, snapshot)
   return error
 }

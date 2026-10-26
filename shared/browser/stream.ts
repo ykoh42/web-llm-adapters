@@ -3,11 +3,17 @@ export type BrowserPacket<T, C> = (
 ) & { chunks?: C[] }
 
 /** Native callbacks can run while a protocol parser is still waiting for a complete call. */
-export function browserStream<T, C>(chunks: C[]) {
+export function browserStream<T, C>(initialChunks: C[] = []) {
+  let chunks = initialChunks
   let pending: Promise<IteratorResult<T, undefined>> | undefined
   let ready = false
   let notified = false
   let wake: (() => void) | undefined
+  const takeChunks = () => {
+    const batch = chunks
+    chunks = []
+    return batch
+  }
   function settle() {
     ready = true
     wake?.()
@@ -23,6 +29,7 @@ export function browserStream<T, C>(chunks: C[]) {
         void scheduler.yield().then(notify, notify)
       else notify()
     },
+    takeChunks,
     async next(stream: AsyncGenerator<T>): Promise<BrowserPacket<T, C>> {
       notified = false
       const changed = new Promise<void>((resolve) => {
@@ -34,11 +41,11 @@ export function browserStream<T, C>(chunks: C[]) {
           void pending.then(settle, settle)
         }
         if (!ready && !chunks.length) await changed
-        if (!ready) return { native: true, done: false, chunks: chunks.splice(0) }
+        if (!ready) return { native: true, done: false, chunks: takeChunks() }
         const result = await pending
         pending = undefined
         ready = false
-        return { ...result, ...(chunks.length && { chunks: chunks.splice(0) }) }
+        return { ...result, ...(chunks.length && { chunks: takeChunks() }) }
       } finally {
         wake = undefined
       }

@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { MLCEngine } from '@mlc-ai/web-llm'
+import { MLCEngine, WebWorkerMLCEngine } from '@mlc-ai/web-llm'
 
 afterEach(async () => {
   await window.webllmLangChainBridge?.close()
@@ -42,3 +42,26 @@ it.each([false, true])(
     expect(logged.mock.calls).toEqual(cleanupFails ? [[cleanup]] : [])
   },
 )
+
+it('terminates a worker when WebLLM worker model loading fails', async () => {
+  const worker = { terminate: vi.fn(), postMessage: vi.fn() }
+  vi.stubGlobal('window', {})
+  vi.stubGlobal('location', { href: 'http://localhost/' })
+  vi.stubGlobal('document', { querySelector: () => ({}) })
+  vi.stubGlobal(
+    'Worker',
+    class {
+      constructor() {
+        return worker
+      }
+    },
+  )
+  const failure = new Error('Model loading failed')
+  const reload = vi.spyOn(WebWorkerMLCEngine.prototype, 'reload').mockRejectedValueOnce(failure)
+  const { checks } = await import('../../src/main.js')
+
+  await expect(checks.load('Qwen3.5-4B-q4f16_1-MLC')).rejects.toBe(failure)
+  expect(reload).toHaveBeenCalledOnce()
+  expect(worker.terminate).toHaveBeenCalledOnce()
+  expect(() => checks.engine()).toThrow('Load a model first.')
+})

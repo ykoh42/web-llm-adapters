@@ -5,7 +5,7 @@ import {
 } from '@earendil-works/pi-ai/api/simple-options'
 import { clampThinkingLevel } from '@earendil-works/pi-ai/models'
 import { normalizeResponseFormat } from '../../../shared/web-llm/response.js'
-import { checkRequest } from '../../../shared/web-llm/request.js'
+import { checkRequest, preserveThinkingRequest } from '../../../shared/web-llm/request.js'
 import type { WebLLMRequest, WebLLMStreamOptions } from './types.js'
 
 export function requestOptions(
@@ -15,8 +15,16 @@ export function requestOptions(
   simple: boolean,
   context: TranscriptContext,
 ): WebLLMRequest {
-  if (call.toolChoice !== undefined && call.toolChoice !== 'auto' && call.toolChoice !== 'none')
-    throw new Error('toolChoice must be auto or none.')
+  if (
+    call.toolChoice !== undefined &&
+    call.toolChoice !== 'auto' &&
+    call.toolChoice !== 'none' &&
+    (!call.toolChoice ||
+      call.toolChoice.type !== 'function' ||
+      typeof call.toolChoice.function?.name !== 'string' ||
+      !call.toolChoice.function.name)
+  )
+    throw new Error('toolChoice must be auto, none, or a function choice.')
   if (call.deferred) throw new Error('WebLLM does not support deferred requests.')
   if (Object.values(call.thinkingBudgets ?? {}).some((budget) => budget !== undefined))
     throw new Error('WebLLM does not support thinking token budgets.')
@@ -34,6 +42,12 @@ export function requestOptions(
     max_tokens: maxTokens,
     ...sampling,
   })
+  preserveThinkingRequest(
+    request,
+    sampling?.extra_body,
+    call.request?.extra_body,
+    defaults.extra_body,
+  )
   checkRequest(request)
   if (request.max_tokens != null) positiveInteger(request.max_tokens, 'maxTokens')
   if (call.reasoning !== undefined && !model.reasoning)

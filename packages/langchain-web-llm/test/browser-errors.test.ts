@@ -1,3 +1,4 @@
+import { runInNewContext } from 'node:vm'
 import { describe, expect, it, vi } from 'vitest'
 import { ContextOverflowError, getRetryable, stampRetryable } from '@langchain/core/errors'
 import {
@@ -11,6 +12,25 @@ function transfer(error: unknown) {
 }
 
 describe('browser retry errors', () => {
+  it('preserves native error types and causes from another realm', () => {
+    const error = Object.assign(
+      runInNewContext(
+        'new TypeError("Native failure", { cause: new RangeError("Invalid input") })',
+      ) as Error,
+      { code: 'FOREIGN_ERROR' },
+    )
+    stampRetryable(error, true)
+
+    const restored = transfer(error)
+
+    expect(restored).toBeInstanceOf(TypeError)
+    expect(restored.message).toBe('Native failure')
+    expect(restored.cause).toBeInstanceOf(RangeError)
+    expect((restored.cause as Error).message).toBe('Invalid input')
+    expect(restored).toHaveProperty('code', 'FOREIGN_ERROR')
+    expect(getRetryable(restored)).toBe(true)
+  })
+
   it('preserves native error types, causes, retry hints, and provider fields', () => {
     const error = Object.assign(new TypeError('Failed to fetch', { cause: new Error('Offline') }), {
       code: 'GPU_RETRY',
@@ -72,6 +92,51 @@ describe('browser retry errors', () => {
       fields: { code: 'KEEP' },
     })
     expect(getter).not.toHaveBeenCalled()
+  })
+
+  it('keeps the original failure and retry marker when provider fields cannot be inspected', () => {
+    const native = stampRetryable(new TypeError('Native failure'), false)
+    const error = new Proxy(native, {
+      ownKeys() {
+        throw new Error('Cannot inspect provider fields')
+      },
+    })
+
+    expect(serializeBrowserError(error)).toEqual({
+      name: 'TypeError',
+      message: 'Native failure',
+      retryable: false,
+    })
+  })
+
+  it('keeps the original failure when retryability metadata cannot be inspected', () => {
+    const native = stampRetryable(new TypeError('Native failure'), false)
+    const error = new Proxy(native, {
+      getOwnPropertyDescriptor(target, key) {
+        if (typeof key === 'symbol') throw new Error('Cannot inspect retry metadata')
+        return Reflect.getOwnPropertyDescriptor(target, key)
+      },
+    })
+
+    expect(serializeBrowserError(error)).toEqual({
+      name: 'TypeError',
+      message: 'Native failure',
+    })
+  })
+
+  it('keeps the original failure when a proxy rejects prototype inspection', () => {
+    const native = stampRetryable(new TypeError('Native failure'), false)
+    const error = new Proxy(native, {
+      getPrototypeOf() {
+        throw new Error('Cannot inspect provider prototype')
+      },
+    })
+
+    expect(serializeBrowserError(error)).toEqual({
+      name: 'TypeError',
+      message: 'Native failure',
+      retryable: false,
+    })
   })
 
   it('applies callback changes and deletions while keeping original unencodable fields', () => {

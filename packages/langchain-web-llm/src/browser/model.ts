@@ -6,7 +6,7 @@ import {
 import { ChatGenerationChunk, type ChatResult } from '@langchain/core/outputs'
 import type { CallbackManagerForLLMRun } from '@langchain/core/callbacks/manager'
 import { convertToOpenAITool } from '@langchain/core/utils/function_calling'
-import { waitForCallback } from '../../../../shared/web-llm/callback.js'
+import { callChunkCallback, waitForCallback } from '../../../../shared/web-llm/callback.js'
 import { restoreBrowserError, serializeBrowserError } from './errors.js'
 import { browserMessages } from './messages.js'
 import { stringifyJSON } from '../../../../shared/web-llm/json.js'
@@ -51,7 +51,7 @@ export class BrowserChatWebLLM extends WebLLMChatModel {
     for await (const chunk of this.readResponseChunks(messages, options, runManager, batchSize))
       result = result ? result.concat(chunk) : chunk
     if (!result) throw new Error('WebLLM returned no response.')
-    return { generations: [result] }
+    return this.finishResult(result)
   }
 
   private async *readResponseChunks(
@@ -61,7 +61,6 @@ export class BrowserChatWebLLM extends WebLLMChatModel {
     batchSize: number,
   ): AsyncGenerator<ChatGenerationChunk> {
     const signal = options.signal
-    const notifyTokenCallbacks = hasTokenCallbacks(runManager)
     signal?.throwIfAborted()
     const { tool_choice, maxRetries } = options
     const input: BrowserRequest = {
@@ -123,12 +122,13 @@ export class BrowserChatWebLLM extends WebLLMChatModel {
             }
             return results
           },
-          { id, batchSize },
+          { id, batchSize: hasTokenCallbacks(runManager) ? 1 : batchSize },
         )
         for (const result of results) {
           for (const chunk of result.chunks ?? []) {
             signal?.throwIfAborted()
-            this.onChunk?.(chunk)
+            const pending = callChunkCallback(this.onChunk, chunk, signal)
+            if (pending) await pending
           }
           signal?.throwIfAborted()
           if ('error' in result) {
@@ -163,11 +163,16 @@ export class BrowserChatWebLLM extends WebLLMChatModel {
             return
           }
           if ('native' in result) continue
+          const message = new AIMessageChunk<StandardMessageStructure>(result.value.message)
+          if (result.value.message.tool_calls?.length) {
+            message.tool_calls = result.value.message.tool_calls
+            message.lc_kwargs.tool_calls = message.tool_calls
+          }
           const chunk = new ChatGenerationChunk({
             ...result.value,
-            message: new AIMessageChunk<StandardMessageStructure>(result.value.message),
+            message,
           })
-          if (runManager && notifyTokenCallbacks)
+          if (runManager && hasTokenCallbacks(runManager))
             await waitForCallback(
               runManager.handleLLMNewToken(chunk.text, undefined, undefined, undefined, undefined, {
                 chunk,

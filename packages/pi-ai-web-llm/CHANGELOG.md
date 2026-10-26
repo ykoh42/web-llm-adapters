@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Stream partial tool arguments and withhold `toolcall_end` for incomplete calls.
+- Accept Qwen3.5 string enums and string `const` values without an explicit type.
+- Constrain type-less Qwen3.5 non-string `enum`/`const` values and JSON-only unions.
+- Allow explicit text format with constrained Qwen tool calls.
+- Reject incomplete or malformed Qwen tool calls instead of repairing their output.
+- Stream array text without buffering when `onPayload` removes native tools.
+- Await async `onChunk` handlers and propagate their errors.
+- Detect built-in Phi-3.5 Vision models for Pi image input.
+- Classify `AbortError` failures from other realms as cancellations.
+- Reject Gemma payload edits that change an open protocol prefix.
+- Reject Qwen3.5 tool names that cannot be represented in XML.
+- Support WebLLM's named function choice in Pi API calls.
+- Keep `preserve_thinking` when Pi sampling parameters set WebLLM options.
 - Exclude runtime build tools from the npm package.
 - Avoid empty image-buffer allocations while converting text-only turns.
 
