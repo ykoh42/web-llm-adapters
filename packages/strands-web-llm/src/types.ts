@@ -14,6 +14,8 @@ export type WebLLMRequest = NativeRequest & {
 
 export interface WebLLMModelConfig extends BaseModelConfig {
   modelId: string
+  /** The original WebLLM model ID when modelId is a custom alias for the same artifact. */
+  sourceModelId?: string | undefined
   /** The loaded Qwen template already supplies the opening thinking tag. */
   thinkingPrefilled?: boolean
   request?: WebLLMRequest

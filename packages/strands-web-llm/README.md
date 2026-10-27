@@ -118,6 +118,8 @@ The [Harness example](https://github.com/ykoh42/web-llm-adapters/blob/main/examp
 
 ## Models and memory
 
+For an alias of the same Qwen or Gemma artifact, set [`sourceModelId`](https://github.com/ykoh42/web-llm-adapters#custom-model-ids).
+
 See the [verified models](https://github.com/ykoh42/web-llm-adapters#models) for exact IDs and features.
 Qwen3.5 preserves object/array arguments, type-less non-string `enum`/`const` values, and `anyOf`/`oneOf` unions without string branches as JSON. History rejects `<|im_start|>`, `<|im_end|>`, or `<|endoftext|>` in tool arguments, `>` in top-level argument names, and `<parameter=` / `</parameter>` in raw strings.
 Install WebLLM `0.2.79` or later in the `0.2.x` series. Gemma 4 E2B was verified with WebLLM `0.2.86` and needs the bundled [runtime setup and protocol limits](https://github.com/ykoh42/web-llm-adapters/blob/main/shared/runtime/README.md). Audio works in ordinary chat, without tools or thinking.
@@ -204,7 +206,7 @@ inside the callback. Direct engine calls bypass the queue. Stop callers before r
 
 With WebLLM 0.2.86, set `request.extra_body.resumable` to checkpoint chat, then call `resumeChatCompletion()` through `withEngine()`. WebLLM only resumes text-only requests without structured output or a custom logit processor. Gemma tool and thinking requests use raw completions and cannot resume.
 
-`updateConfig()` merges top-level settings; `modelId` selects an already loaded model.
+`updateConfig()` merges top-level settings; `modelId` selects an already loaded model. When changing a custom `modelId`, also set or clear `sourceModelId`.
 Use model-card sampling settings. WebLLM does not expose `top_k` or `min_p`.
 Async `onChunk` callbacks are awaited in order; don't await work on the same engine from one.
 Rejections fail the call.

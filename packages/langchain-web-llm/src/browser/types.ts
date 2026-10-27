@@ -17,7 +17,10 @@ export interface BrowserPage {
 export interface BrowserRequest {
   includeChunks?: boolean
   includeFailedAttempts?: boolean
-  config: Pick<WebLLMModelOptions, 'modelId' | 'thinkingPrefilled' | 'request' | 'maxRetries'>
+  config: Pick<
+    WebLLMModelOptions,
+    'modelId' | 'sourceModelId' | 'thinkingPrefilled' | 'request' | 'maxRetries'
+  >
   messages: MessageFieldWithRole[]
   options: Pick<WebLLMCallOptions, 'tools' | 'tool_choice' | 'maxRetries'>
 }

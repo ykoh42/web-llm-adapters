@@ -3,7 +3,7 @@ import type { ChatCompletionChunk } from '@mlc-ai/web-llm'
 import type { ToolDelta, ChunkOptions } from '../stream/chunks.js'
 import { parseJSON } from '../json.js'
 import { qwenFrames } from './frames.js'
-import { isQwen35 } from '../qwen35/models.js'
+import { isQwen35 } from '../models.js'
 import { qwen35Chunks } from '../qwen35/stream.js'
 
 const callEnd = '</tool_call>'

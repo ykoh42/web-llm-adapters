@@ -191,6 +191,8 @@ Qwen tools cannot be combined with native JSON output. For optional [Qwen tool-c
 
 ## Verified models
 
+For an alias of the same Qwen or Gemma artifact, set [`sourceModelId`](https://github.com/ykoh42/web-llm-adapters#custom-model-ids).
+
 See the [verified models](https://github.com/ykoh42/web-llm-adapters#models) for exact IDs, features, and verified adapters.
 
 Tested with Pi AI and Pi Agent Core **1.0.2** and **1.4.0**, and WebLLM **0.2.79** and **0.2.86**. Model availability depends on the installed WebLLM version.

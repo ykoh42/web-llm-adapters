@@ -1,6 +1,5 @@
 import type { ModelProfile } from '@langchain/core/language_models/profile'
-import { isQwen } from '../../../../shared/web-llm/qwen/models.js'
-import { isQwen35 } from '../../../../shared/web-llm/qwen35/models.js'
+import { isGemma, isQwen, isQwen35, isVisionModel } from '../../../../shared/web-llm/models.js'
 import type { WebLLMRequest } from '../types.js'
 
 const nativeToolModels = new Set([
@@ -10,11 +9,6 @@ const nativeToolModels = new Set([
   'Hermes-3-Llama-3.1-8B-q4f32_1-MLC',
   'Hermes-3-Llama-3.1-8B-q4f16_1-MLC',
 ])
-const visionModels = new Set([
-  'Phi-3.5-vision-instruct-q4f16_1-MLC',
-  'Phi-3.5-vision-instruct-q4f32_1-MLC',
-])
-
 export function modelProfile(
   modelId: string,
   profile: ModelProfile = {},
@@ -27,9 +21,9 @@ export function modelProfile(
   if (profile.midConversationSystemMessages)
     throw new Error('WebLLM cannot send mid-conversation system messages.')
   if (profile.midConversationTools) throw new Error('WebLLM cannot add tools mid-conversation.')
-  const gemma = /^gemma-4-/i.test(modelId)
+  const gemma = isGemma(modelId)
   const qwen = isQwen(modelId) || isQwen35(modelId)
-  const vision = visionModels.has(modelId)
+  const vision = isVisionModel(modelId)
   const nativeTools = nativeToolModels.has(modelId)
   const toolCalling = profile.toolCalling ?? (nativeTools || qwen || gemma)
   const toolChoice = profile.toolChoice ?? toolCalling

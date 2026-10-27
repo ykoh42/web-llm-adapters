@@ -13,17 +13,14 @@ import { preserveThinking } from '../../../../shared/web-llm/request.js'
 import { singleToolChoice } from '../../../../shared/web-llm/stream/choice.js'
 import { qwenToolResponseFormat } from '../../../../shared/web-llm/qwen/constraints.js'
 import { gemmaCompletion } from '../../../../shared/web-llm/gemma/request.js'
-
-export function isGemma(modelId: string) {
-  return /^gemma-4-/i.test(modelId)
-}
+import { isGemma, protocolModelId } from '../../../../shared/web-llm/models.js'
 
 export function usesGemmaProtocol(
   config: WebLLMModelConfig,
   messages: Message[],
   options: StreamOptions,
 ) {
-  if (!isGemma(config.modelId)) return false
+  if (!isGemma(protocolModelId(config.modelId, config.sourceModelId))) return false
   if (options.toolSpecs?.length || config.request?.extra_body?.enable_thinking === true) return true
   return messages.some((message) =>
     message.content.some(
@@ -50,9 +47,10 @@ export function gemmaRequest(
     )
   }
   const thinking = extra_body?.enable_thinking === true
-  const preserve = preserveThinking(config.modelId, config.request ?? {})
+  const source = protocolModelId(config.modelId, config.sourceModelId)
+  const preserve = preserveThinking(source, config.request ?? {})
   const tools = options.toolSpecs ?? []
-  qwenToolResponseFormat(config.modelId, config.request ?? {}, tools, options.toolChoice)
+  qwenToolResponseFormat(source, config.request ?? {}, tools, options.toolChoice)
   const prefix = toolPrefix(tools, options.toolChoice)
   const prompt = toolPrompt(messages, tools, options, thinking, preserve)
   const completion = gemmaCompletion(sampling, prompt, prefix)

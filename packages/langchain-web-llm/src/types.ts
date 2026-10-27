@@ -13,6 +13,8 @@ export type { WebLLMRequest }
 
 export interface WebLLMModelOptions extends BaseChatModelParams {
   modelId: string
+  /** The original WebLLM model ID when modelId is a custom alias for the same artifact. */
+  sourceModelId?: string
   /** The loaded Qwen template already supplies the opening thinking tag. */
   thinkingPrefilled?: boolean
   /** Set maxInputTokens to the context window used when loading the engine. */

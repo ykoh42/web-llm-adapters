@@ -42,6 +42,7 @@ export class ChatWebLLM extends WebLLMChatModel {
       engine: this.engine,
       caller: options.signal ? this.createCaller(options.signal) : this.caller,
       modelId: this.modelId,
+      ...(this.sourceModelId !== undefined && { sourceModelId: this.sourceModelId }),
       thinkingPrefilled: this.thinkingPrefilled,
       history,
       tools,

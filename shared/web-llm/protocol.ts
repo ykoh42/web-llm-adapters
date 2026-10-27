@@ -11,8 +11,7 @@ import type {
 import { gemmaRequest, checkGemmaRequest } from './gemma/request.js'
 import { gemmaChunks } from './gemma/stream.js'
 import { qwenModelChunks } from './qwen/stream.js'
-import { isQwen } from './qwen/models.js'
-import { isQwen35 } from './qwen35/models.js'
+import { isGemma, isQwen, isQwen35, protocolModelId } from './models.js'
 import { isTextFormat } from './response.js'
 import { streamCall } from './engine/call.js'
 import type { StreamChunk } from './stream/chunks.js'
@@ -39,6 +38,7 @@ export interface ProtocolInput {
   open?: <T>(run: () => Promise<AsyncIterable<T>>) => Promise<AsyncIterable<T>>
   engine: MLCEngineInterface
   modelId: string
+  sourceModelId?: string
   thinkingPrefilled?: boolean
   history: ProtocolMessage[]
   tools: ToolSpec[]
@@ -56,6 +56,7 @@ export function protocolStream({
   prepare = keepRequest,
   onPrepared,
   modelId,
+  sourceModelId,
   thinkingPrefilled = false,
   history,
   tools,
@@ -65,13 +66,14 @@ export function protocolStream({
   onChunkMayMutate = true,
   signal,
 }: ProtocolInput): AsyncIterable<StreamChunk> {
-  const gemma = /^gemma-4-/i.test(modelId)
-  const preserve = preserveThinking(modelId, request)
+  const source = protocolModelId(modelId, sourceModelId)
+  const gemma = isGemma(source)
+  const preserve = preserveThinking(source, request)
   const structured = !isTextFormat(request.response_format)
   if (choice === 'none') tools = []
   validateToolNames(tools)
   const toolResponseFormat = qwenToolResponseFormat(
-    modelId,
+    source,
     request,
     tools,
     choice,
@@ -89,7 +91,7 @@ export function protocolStream({
           (message.role === 'assistant' && (message.tool_calls?.length || message.reasoning)),
       ))
   const sampling = {
-    ...nativeRequest(request, modelId),
+    ...nativeRequest(request, source),
     model: modelId,
     stream: true as const,
     stream_options: streamOptions(request),
@@ -118,12 +120,12 @@ export function protocolStream({
         }),
     )
   }
-  if (isQwen(modelId) || isQwen35(modelId)) {
+  if (isQwen(source) || isQwen35(source)) {
     if (tools.length && structured)
       throw new Error('Qwen tool calls cannot use a structured response format.')
-    const xml = isQwen35(modelId)
+    const xml = isQwen35(source)
     const messages = qwenHistory(
-      modelId,
+      source,
       history,
       tools,
       choice === 'none' ? undefined : choice,
@@ -158,7 +160,7 @@ export function protocolStream({
         return engine.chat.completions.create(prepared)
       },
       (chunks) =>
-        qwenModelChunks(modelId, chunks, tools, {
+        qwenModelChunks(source, chunks, tools, {
           onChunk,
           onChunkMayMutate,
           parseProtocol,
@@ -179,7 +181,7 @@ export function protocolStream({
     throw new Error('The chosen WebLLM tool is not registered.')
   const native: ChatCompletionRequestStreaming = {
     ...sampling,
-    messages: nativeHistory(nativeMessages(history), modelId, Boolean(tools.length)),
+    messages: nativeHistory(nativeMessages(history), source, Boolean(tools.length)),
   }
   if (tools.length) native.tools = nativeTools(tools)
   if (choice === 'none') native.tool_choice = 'none'

@@ -1,4 +1,4 @@
-import { isQwen35 } from '../../../../shared/web-llm/qwen35/models.js'
+import { isQwen35, protocolModelId } from '../../../../shared/web-llm/models.js'
 import { toolPrompt } from '../../../../shared/web-llm/qwen/tools.js'
 import { systemPrompt as xmlSystem } from '../../../../shared/web-llm/qwen35/tools.js'
 import { ModelError, type Message, type StreamOptions } from '@strands-agents/sdk'
@@ -15,10 +15,11 @@ export function qwenRequest(
   messages: Message[],
   options: StreamOptions,
 ): ChatCompletionRequestStreaming {
-  const xml = isQwen35(config.modelId)
+  const source = protocolModelId(config.modelId, config.sourceModelId)
+  const xml = isQwen35(source)
   const tools = options.toolSpecs ?? []
   const responseFormat = qwenToolResponseFormat(
-    config.modelId,
+    source,
     config.request ?? {},
     tools,
     options.toolChoice,
@@ -35,7 +36,7 @@ export function qwenRequest(
     ...request,
     messages: xml
       ? qwen35Messages(messages, options)
-      : qwenMessages(config.modelId.startsWith('Qwen3-'), messages, options),
+      : qwenMessages(source.startsWith('Qwen3-'), messages, options),
   }
 }
 

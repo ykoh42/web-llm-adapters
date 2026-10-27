@@ -7,12 +7,11 @@ import {
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
 import { chatStream } from './chat/model.js'
 import { modelError } from './engine/error.js'
-import { isGemma, usesGemmaProtocol } from './gemma/request.js'
+import { usesGemmaProtocol } from './gemma/request.js'
 import { gemmaStream } from './gemma/model.js'
 import { trimThoughts } from './gemma/history.js'
-import { isQwen } from '../../../shared/web-llm/qwen/models.js'
+import { isGemma, isQwen, isQwen35, protocolModelId } from '../../../shared/web-llm/models.js'
 import { qwenStream } from './qwen/model.js'
-import { isQwen35 } from '../../../shared/web-llm/qwen35/models.js'
 import type { WebLLMChunk, WebLLMModelOptions } from './types.js'
 import { WebLLMModelBase } from './model-base.js'
 import { preserveThinking } from '../../../shared/web-llm/request.js'
@@ -38,20 +37,20 @@ export class WebLLMModel extends WebLLMModelBase {
     const signal = options.cancelSignal
     signal?.throwIfAborted()
     const config = this.getConfig()
-    const preserve = preserveThinking(config.modelId, config.request ?? {})
+    const source = protocolModelId(config.modelId, config.sourceModelId)
+    const preserve = preserveThinking(source, config.request ?? {})
     options = {
       ...options,
       ...(options.toolSpecs && { toolSpecs: structuredClone(options.toolSpecs) }),
       ...(options.toolChoice && { toolChoice: structuredClone(options.toolChoice) }),
     }
     // Past-turn thoughts must not force later JSON or audio requests onto raw completions.
-    if (isGemma(config.modelId))
-      messages = trimThoughts(messages, options.dynamicTrailingBlocks, preserve)
+    if (isGemma(source)) messages = trimThoughts(messages, options.dynamicTrailingBlocks, preserve)
     if (config.request?.tool_choice === 'none' && !options.toolChoice)
       options = { ...options, toolSpecs: [] }
     let stream = chatStream
     if (usesGemmaProtocol(config, messages, options)) stream = gemmaStream
-    else if (isQwen35(config.modelId) || isQwen(config.modelId)) stream = qwenStream
+    else if (isQwen35(source) || isQwen(source)) stream = qwenStream
     let logprobs: WebLLMLogprobs | undefined
     let responseId: string | undefined
     let responseModel: string | undefined

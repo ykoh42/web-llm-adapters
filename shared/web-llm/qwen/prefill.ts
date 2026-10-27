@@ -1,5 +1,4 @@
-import { isQwen } from './models.js'
-import { isQwen35 } from '../qwen35/models.js'
+import { isQwen, isQwen35 } from '../models.js'
 
 export function checkThinkingPrefill(modelId: string, prefilled?: boolean) {
   if (prefilled !== undefined && typeof prefilled !== 'boolean')

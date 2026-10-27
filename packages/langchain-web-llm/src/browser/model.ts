@@ -68,6 +68,7 @@ export class BrowserChatWebLLM extends WebLLMChatModel {
       ...(this.onFailedAttempt && { includeFailedAttempts: true }),
       config: {
         modelId: this.modelId,
+        ...(this.sourceModelId !== undefined && { sourceModelId: this.sourceModelId }),
         ...(this.thinkingPrefilled && { thinkingPrefilled: true }),
         request: this.formatRequest(options),
         maxRetries: this.retries,

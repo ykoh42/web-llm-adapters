@@ -62,6 +62,16 @@ Embedding inputs are limited to 512 tokens. No listed model is verified for both
 
 Runnable examples use model-card sampling settings supported by WebLLM, except where they demonstrate custom sampling. `top_k` and `min_p` are not exposed by its API.
 
+### Custom model IDs
+
+When a [WebLLM model record](https://github.com/mlc-ai/web-llm#custom-models) gives a known Qwen or Gemma 4 E2B model a different `model_id`, pass both IDs to the adapter:
+
+```ts
+{ modelId: 'my-qwen', sourceModelId: 'Qwen3.5-4B-q4f16_1-MLC' }
+```
+
+Use the same model artifact, tokenizer, template, and compatible runtime as the source. The adapter cannot verify what the engine loaded. WebLLM's native tool API still checks its own model IDs.
+
 ## Tool-call constraints
 
 WebLLM uses XGrammar for structured `response_format`; `structural_tag` is one format type, not a

@@ -13,6 +13,7 @@ export default defineConfig({
       testMatch: '**/*.spec.ts',
     },
     { name: 'pi', testDir: './examples/pi-ai-web-llm/browser/test', testMatch: '**/*.spec.ts' },
+    { name: 'integration', testDir: './test/browser', testMatch: '**/*.browser.ts' },
   ],
   grep: /@release/,
   globalSetup: './scripts/release/setup.ts',
