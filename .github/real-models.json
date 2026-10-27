@@ -1,8 +1,8 @@
 {
-  "commit": "7257284216870d27b0f1a459a0b3ce83c1700aae",
-  "source": "c8ad0e1457a005cb6390992265e5f7cbedcf6b12375cba2bbde1c62b9a5637fe",
+  "commit": "5e0999e09ff2affe1c790c985a83c29b5cf2efed",
+  "source": "8d44b28d7c9985c9cf96f935b1dcf55174d7ab370c4899a35968a755baca74eb",
   "webllm": "0.2.86",
-  "checkedAt": "2026-10-27T08:36:12.692Z",
+  "checkedAt": "2026-10-27T10:59:36.989Z",
   "environment": {
     "platform": "darwin",
     "arch": "arm64",
@@ -91,19 +91,19 @@
     },
     {
       "adapter": "strands",
-      "name": "examples/strands-web-llm/harness/test/browser/qwen25.browser.ts > Qwen2.5-0.5B-Instruct-q4f16_1-MLC calls Harness read and answers from its result with recorded tool history",
+      "name": "examples/strands-web-llm/harness/test/browser/qwen25.browser.ts > Qwen2.5-0.5B-Instruct-q4f16_1-MLC calls Harness read and preserves the native answer with recorded input q25-76746.txt",
       "status": "passed",
       "checks": ["Qwen2.5-0.5B-Instruct-q4f16_1-MLC/tools"]
     },
     {
       "adapter": "strands",
-      "name": "examples/strands-web-llm/harness/test/browser/qwen25.browser.ts > Qwen2.5-1.5B-Instruct-q4f16_1-MLC calls Harness read and answers from its result",
+      "name": "examples/strands-web-llm/harness/test/browser/qwen25.browser.ts > Qwen2.5-1.5B-Instruct-q4f16_1-MLC calls Harness read and preserves the native answer",
       "status": "passed",
       "checks": ["Qwen2.5-1.5B-Instruct-q4f16_1-MLC/tools"]
     },
     {
       "adapter": "strands",
-      "name": "examples/strands-web-llm/harness/test/browser/qwen25.browser.ts > Qwen2.5-3B-Instruct-q4f16_1-MLC calls Harness read and answers from its result",
+      "name": "examples/strands-web-llm/harness/test/browser/qwen25.browser.ts > Qwen2.5-3B-Instruct-q4f16_1-MLC calls Harness read and preserves the native answer",
       "status": "passed",
       "checks": ["Qwen2.5-3B-Instruct-q4f16_1-MLC/tools"]
     },
@@ -115,27 +115,45 @@
     },
     {
       "adapter": "strands",
-      "name": "examples/strands-web-llm/harness/test/browser/qwen25.browser.ts > Qwen2.5-7B-Instruct-q4f16_1-MLC calls Harness read and answers from its result with constraints",
+      "name": "examples/strands-web-llm/harness/test/browser/qwen25.browser.ts > Qwen2.5-7B-Instruct-q4f16_1-MLC calls Harness read and preserves the native answer with constraints",
       "status": "passed",
       "checks": ["Qwen2.5-7B-Instruct-q4f16_1-MLC/constrained-tools"]
     },
     {
       "adapter": "strands",
-      "name": "examples/strands-web-llm/harness/test/browser/qwen3.browser.ts > Qwen3-1.7B-q4f16_1-MLC thinking calls a Harness tool, uses its result, and answers",
+      "name": "examples/strands-web-llm/harness/test/browser/qwen25.browser.ts > Qwen2.5-3B-Instruct-q4f16_1-MLC calls Harness read and preserves the native answer with recorded input q25-62169.txt",
       "status": "passed",
-      "checks": ["Qwen3-1.7B-q4f16_1-MLC/tools", "Qwen3-1.7B-q4f16_1-MLC/thinking"]
+      "checks": ["Qwen2.5-3B-Instruct-q4f16_1-MLC/tools"]
     },
     {
       "adapter": "strands",
-      "name": "examples/strands-web-llm/harness/test/browser/qwen3.browser.ts > Qwen3-4B-q4f16_1-MLC thinking calls a Harness tool, uses its result, and answers",
+      "name": "examples/strands-web-llm/harness/test/browser/qwen3.browser.ts > Qwen3-1.7B-q4f16_1-MLC preserves native output within a Harness turn limit",
+      "status": "passed",
+      "checks": ["Qwen3-1.7B-q4f16_1-MLC/tool-protocol", "Qwen3-1.7B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/qwen3.browser.ts > Qwen3-4B-q4f16_1-MLC calls a Harness tool and preserves native thinking and answer",
       "status": "passed",
       "checks": ["Qwen3-4B-q4f16_1-MLC/tools", "Qwen3-4B-q4f16_1-MLC/thinking"]
     },
     {
       "adapter": "strands",
-      "name": "examples/strands-web-llm/harness/test/browser/qwen3.browser.ts > Qwen3-8B-q4f16_1-MLC thinking calls a Harness tool, uses its result, and answers",
+      "name": "examples/strands-web-llm/harness/test/browser/qwen3.browser.ts > Qwen3-8B-q4f16_1-MLC calls a Harness tool and preserves native thinking and answer",
       "status": "passed",
       "checks": ["Qwen3-8B-q4f16_1-MLC/tools", "Qwen3-8B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/qwen3.browser.ts > Qwen3-1.7B-q4f16_1-MLC calls a Harness tool and preserves native thinking and answer with recorded input q3-91241.txt",
+      "status": "passed",
+      "checks": ["Qwen3-1.7B-q4f16_1-MLC/tools", "Qwen3-1.7B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/qwen3.browser.ts > Qwen3-1.7B-q4f16_1-MLC preserves native output within a Harness turn limit with recorded input q3-36203.txt",
+      "status": "passed",
+      "checks": ["Qwen3-1.7B-q4f16_1-MLC/tool-protocol", "Qwen3-1.7B-q4f16_1-MLC/thinking"]
     },
     {
       "adapter": "strands",
