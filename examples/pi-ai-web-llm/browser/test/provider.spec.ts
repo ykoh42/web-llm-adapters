@@ -4,6 +4,8 @@ import type { AssistantMessage, SimpleStreamOptions } from '@earendil-works/pi-a
 import { test, expect } from './browser.js'
 import type {} from './checks.js'
 import type { ChatCompletionChunk, ChatCompletionRequestStreaming } from '@mlc-ai/web-llm'
+import type { WebLLMChunk } from 'pi-ai-web-llm'
+import { nativeOutput } from '../../../../test/support/native-output.js'
 
 test('Pi rejects invalid tool choices before inference and keeps auto and none usable', async ({
   page,
@@ -345,7 +347,7 @@ for (const { modelId, constrainedToolCalls } of checks) {
         async ({ modelId, constrainedToolCalls }) => {
           const agent = await window.piChecks.createAgent(true, { constrainedToolCalls })
           const requests: ChatCompletionRequestStreaming[] = []
-          const native: ChatCompletionChunk[] = []
+          const native: WebLLMChunk[] = []
           let toolCalls = 0
           agent.subscribe((event) => {
             if (event.type === 'tool_execution_start') toolCalls++
@@ -354,7 +356,7 @@ for (const { modelId, constrainedToolCalls } of checks) {
             requests.push(structuredClone(payload) as ChatCompletionRequestStreaming)
           }
           agent.onProviderStreamEvent = (event) => {
-            native.push(structuredClone(event) as ChatCompletionChunk)
+            native.push(structuredClone(event) as WebLLMChunk)
           }
           const error = await agent
             .prompt(
@@ -399,7 +401,11 @@ for (const { modelId, constrainedToolCalls } of checks) {
         expect(evidence.requests).toHaveLength(1)
         expect(evidence.requests[0]).not.toHaveProperty('response_format')
         const raw = evidence.native
-          .flatMap((chunk) => chunk.choices.map((choice) => choice.delta.content ?? ''))
+          .flatMap((chunk) =>
+            chunk.choices.map((choice) =>
+              'delta' in choice ? (choice.delta.content ?? '') : choice.text,
+            ),
+          )
           .join('')
         expect(evidence.direct?.startsWith(raw)).toBe(true)
         expect(raw.match(/<tool_call>/g)).toHaveLength(1)
@@ -431,22 +437,30 @@ for (const { modelId, constrainedToolCalls } of checks) {
       const final = messages.at(-1)
       expect(final).toMatchObject({ role: 'assistant', stopReason: 'stop' })
       if (final?.role === 'assistant') {
-        expect(
-          final.content
-            .filter((part) => part.type === 'text')
-            .map((part) => part.text)
-            .join(''),
-        ).toContain('ORCHID-42')
+        const text = final.content
+          .filter((part) => part.type === 'text')
+          .map((part) => part.text)
+          .join('')
+        const thinking = messages
+          .filter((message) => message.role === 'assistant')
+          .map((message) =>
+            message.content
+              .filter((part) => part.type === 'thinking')
+              .map((part) => part.thinking)
+              .join(''),
+          )
+        const prefix = modelId.startsWith('Qwen3.5-')
+          ? '<think>'
+          : evidence.requests.map((request) => {
+              const prompt = 'prompt' in request ? request.prompt : undefined
+              return typeof prompt === 'string' && prompt.endsWith('<|channel>thought\n')
+                ? '<|channel>thought\n'
+                : ''
+            })
+        expect(text.trim()).not.toBe('')
+        expect({ text, thinking }).toEqual(nativeOutput(evidence.native, modelId, prefix))
         expect(final.usage.totalTokens).toBeGreaterThan(0)
       }
-      if (!modelId.startsWith('Qwen2.5-'))
-        expect(
-          messages.some(
-            (message) =>
-              message.role === 'assistant' &&
-              message.content.some((part) => part.type === 'thinking' && part.thinking.length > 0),
-          ),
-        ).toBe(true)
       const recovery = await page.evaluate(() => window.piChecks.cancelAndRecover())
       await info.attach('cancellation', {
         body: JSON.stringify(recovery, null, 2),

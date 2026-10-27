@@ -10,30 +10,41 @@ import type { ChatCompletionRequestStreaming } from '@mlc-ai/web-llm'
 import type { Page } from '@playwright/test'
 import { recordNative, replayNative } from '../../fixtures/native.js'
 import { sampling } from '../../../sampling.js'
+import { nativeOutput } from '../../../../../test/support/native-output.js'
 
-for (const modelId of [
-  'Qwen3-1.7B-q4f16_1-MLC',
-  'Qwen3-0.6B-q4f16_1-MLC',
-  'Qwen3-4B-q4f16_1-MLC',
-  'Qwen3-8B-q4f16_1-MLC',
-]) {
+const cases = [
+  ...[
+    'Qwen3-1.7B-q4f16_1-MLC',
+    'Qwen3-0.6B-q4f16_1-MLC',
+    'Qwen3-4B-q4f16_1-MLC',
+    'Qwen3-8B-q4f16_1-MLC',
+  ].map((modelId) => ({ modelId, sample: undefined })),
+  {
+    modelId: 'Qwen3-1.7B-q4f16_1-MLC',
+    sample: { file: 'q3-91241.txt', code: 'code-999dca88' },
+  },
+]
+
+for (const { modelId, sample } of cases) {
   const behavior =
     modelId === 'Qwen3-0.6B-q4f16_1-MLC'
       ? 'matches native thinking and tool output'
-      : 'thinking calls a Harness tool, uses its result, and answers'
+      : 'calls a Harness tool and preserves native thinking and answer'
   test(
-    `${modelId} ${behavior}`,
+    `${modelId} ${behavior}` + (sample ? ` with recorded input ${sample.file}` : ''),
     modelId === 'Qwen3-0.6B-q4f16_1-MLC' ? {} : modelCheck(modelId, 'tools', 'thinking'),
     async ({ page }, info) => {
       const directory = process.platform === 'win32' ? tmpdir() : '/tmp'
-      const path = join(directory, `q3-${process.pid}.txt`)
-      const code = 'code-' + crypto.randomUUID().slice(0, 8)
+      const path = join(directory, sample?.file ?? `q3-${process.pid}.txt`)
+      const code = sample?.code ?? 'code-' + crypto.randomUUID().slice(0, 8)
       const settings = sampling(modelId, true)
       const chunks: WebLLMChunk[][] = []
       let agent: Awaited<ReturnType<typeof createHarness>> | undefined
+      let created = false
 
       try {
-        await writeFile(path, `The secret code is ${code}.`)
+        await writeFile(path, `The secret code is ${code}.`, { flag: 'wx' })
+        created = true
         await page.goto('http://127.0.0.1:4173/harness.html')
         await page.waitForFunction(() => Boolean(window.harness))
         await page.evaluate((id) => window.harness.open(id), modelId)
@@ -113,22 +124,31 @@ for (const modelId of [
         const toolResults = agent.messages
           .flatMap((message) => message.content)
           .filter((block) => block.type === 'toolResultBlock')
-        expect(result.lastMessage.content).toContainEqual(
-          expect.objectContaining({ type: 'textBlock', text: expect.stringContaining(code) }),
-        )
-        expect(
-          agent.messages
-            .flatMap((message) => message.content)
-            .some((block) => block.type === 'reasoningBlock' && block.text),
-        ).toBe(true)
+        const content = result.lastMessage.content
+        const text = content
+          .filter((block) => block.type === 'textBlock')
+          .map((block) => block.text)
+          .join('')
+        const thinking = agent.messages
+          .filter((message) => message.role === 'assistant')
+          .map((message) =>
+            message.content
+              .filter((block) => block.type === 'reasoningBlock')
+              .map((block) => block.text ?? '')
+              .join(''),
+          )
+        expect(text.trim()).not.toBe('')
+        expect({ text, thinking }).toEqual(nativeOutput(chunks.flat(), modelId))
         expect(toolResults.length).toBeGreaterThan(0)
+        expect(toolResults.some((block) => block.status === 'success')).toBe(true)
         expect(JSON.stringify(toolResults)).toContain(code)
+        expect(JSON.stringify(comparison.requests.at(-1))).toContain(code)
       } finally {
         try {
           await agent?.shutdown()
           await page.evaluate(() => window.harness?.close())
         } finally {
-          await rm(path, { force: true })
+          if (created) await rm(path, { force: true })
         }
       }
     },

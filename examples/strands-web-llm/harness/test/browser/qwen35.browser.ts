@@ -5,9 +5,11 @@ import { join } from 'node:path'
 import { createHarness } from '@strands-agents/harness'
 import { Agent, BeforeModelCallEvent, FunctionTool, type JSONSchema } from '@strands-agents/sdk'
 import { expect, test } from '../../../fixtures/browser.js'
-import { BrowserModel } from 'strands-web-llm'
+import { BrowserModel, type WebLLMChunk } from 'strands-web-llm'
 import { sampling } from '../../../sampling.js'
 import { sharedSchema } from '../../../../../test/support/schema.js'
+import { nativeOutput } from '../../../../../test/support/native-output.js'
+import { recordNative } from '../../fixtures/native.js'
 
 function lookupSchema(code: JSONSchema, key = 'code') {
   return { type: 'object', properties: { [key]: code }, required: [key] } satisfies JSONSchema
@@ -132,10 +134,11 @@ for (const [modelId, fileName] of [
   test(
     `${modelId} thinking calls Harness read and answers${note}`,
     fileName === 'q35-40625.txt' ? {} : modelCheck(modelId, 'tools', 'thinking'),
-    async ({ page }) => {
+    async ({ page }, info) => {
       const directory = process.platform === 'win32' ? tmpdir() : '/tmp'
       const path = join(directory, fileName)
       const code = 'code-' + crypto.randomUUID().slice(0, 8)
+      const chunks: WebLLMChunk[] = []
       let agent: Awaited<ReturnType<typeof createHarness>> | undefined
 
       await writeFile(path, `The secret code is ${code}.`, { flag: 'wx' })
@@ -150,6 +153,7 @@ for (const [modelId, fileName] of [
             thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
             temperature: 0,
             request: { extra_body: { enable_thinking: true } },
+            onChunk: (chunk) => chunks.push(chunk),
           }),
           builtinTools: ['read'],
           builtinPlugins: [],
@@ -173,14 +177,27 @@ for (const [modelId, fileName] of [
 
         expect(modelCalls).toBe(2)
         expect(result.stopReason).toBe('endTurn')
-        expect(result.lastMessage.content).toContainEqual(
-          expect.objectContaining({ type: 'textBlock', text: expect.stringContaining(code) }),
-        )
-        expect(
-          agent.messages
-            .flatMap((message) => message.content)
-            .some((block) => block.type === 'reasoningBlock' && block.text),
-        ).toBe(true)
+        await recordNative(info, 'native-output', {
+          code,
+          path,
+          chunks,
+          messages: agent.messages.map((message) => message.toJSON()),
+        })
+        const content = result.lastMessage.content
+        const text = content
+          .filter((block) => block.type === 'textBlock')
+          .map((block) => block.text)
+          .join('')
+        const thinking = agent.messages
+          .filter((message) => message.role === 'assistant')
+          .map((message) =>
+            message.content
+              .filter((block) => block.type === 'reasoningBlock')
+              .map((block) => block.text ?? '')
+              .join(''),
+          )
+        expect(text.trim()).not.toBe('')
+        expect({ text, thinking }).toEqual(nativeOutput(chunks, modelId, '<think>'))
         const toolCalls = agent.messages
           .flatMap((message) => message.content)
           .filter((block) => block.type === 'toolUseBlock')

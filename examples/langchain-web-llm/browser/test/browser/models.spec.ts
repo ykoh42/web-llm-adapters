@@ -7,9 +7,13 @@ import { tool } from '@langchain/core/tools'
 import { z } from 'zod'
 import { BrowserChatWebLLM, type WebLLMChunk } from 'langchain-web-llm'
 import { test, expect } from '../../../fixtures/browser.js'
-import type { ChatCompletionRequestStreaming } from '@mlc-ai/web-llm'
+import type {
+  ChatCompletionRequestStreaming,
+  CompletionCreateParamsStreaming,
+} from '@mlc-ai/web-llm'
 import type {} from '../../src/main.js'
 import { writeFile } from 'node:fs/promises'
+import { nativeOutput } from '../../../../../test/support/native-output.js'
 
 const gemmaModel = 'gemma-4-E2B-it-q4f16_1-MLC'
 const models = [
@@ -189,13 +193,14 @@ for (const { modelId, prompt, constrainedToolCalls } of checks) {
         expect(() => JSON.parse(source!)).toThrow(SyntaxError)
         return
       }
-      const firstRequest = await page.evaluate(() => {
+      const nativeRequests = await page.evaluate(() => {
         const records = window as unknown as {
-          nativeRequests: unknown[]
-          nativePrompts: unknown[]
+          nativeRequests: ChatCompletionRequestStreaming[]
+          nativePrompts: CompletionCreateParamsStreaming[]
         }
-        return records.nativeRequests[0] ?? records.nativePrompts[0]
+        return records.nativeRequests.length ? records.nativeRequests : records.nativePrompts
       })
+      const firstRequest = nativeRequests[0]
       if (constrainedToolCalls)
         expect(firstRequest).toHaveProperty('response_format.type', 'structural_tag')
       else expect(firstRequest).not.toHaveProperty('response_format')
@@ -215,26 +220,36 @@ for (const { modelId, prompt, constrainedToolCalls } of checks) {
         result.some((message) => message.type === 'tool' && message.text.includes('ORCHID-42')),
       ).toBe(true)
       expect(result.at(-1)?.type).toBe('ai')
-      expect(result.at(-1)?.text).toContain('ORCHID-42')
+      const answer = result.at(-1)!
+      const thoughts = result
+        .filter((message) => message.type === 'ai')
+        .map((message) =>
+          Array.isArray(message.content)
+            ? message.content
+                .flatMap((block) =>
+                  block.type === 'reasoning' && typeof block.reasoning === 'string'
+                    ? [block.reasoning]
+                    : [],
+                )
+                .join('')
+            : '',
+        )
+      const prefix = modelId.startsWith('Qwen3.5-')
+        ? '<think>'
+        : nativeRequests.map((request) =>
+            'prompt' in request && request.prompt.endsWith('<|channel>thought\n')
+              ? '<|channel>thought\n'
+              : '',
+          )
+      expect(answer.text.trim()).not.toBe('')
+      expect({ text: answer.text, thinking: thoughts }).toEqual(
+        nativeOutput(native, modelId, prefix),
+      )
       const finishes = native
         .flatMap((chunk) => chunk.choices.map((choice) => choice.finish_reason))
         .filter(Boolean)
       expect(finishes.at(-1)).toBe('stop')
       expect(finishes).not.toContain('length')
-      if (!modelId.startsWith('Qwen2.5-'))
-        expect(
-          result.some(
-            (message) =>
-              Array.isArray(message.content) &&
-              message.content.some(
-                (block) =>
-                  block.type === 'reasoning' &&
-                  typeof block.reasoning === 'string' &&
-                  block.reasoning.length > 0,
-              ),
-          ),
-        ).toBe(true)
-
       if (modelId === gemmaModel) {
         const reasoning = 'Prior lookup reasoning should survive.'
         const model = new BrowserChatWebLLM(page, {
