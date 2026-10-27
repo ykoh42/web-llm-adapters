@@ -5,9 +5,7 @@ import { streamCall } from '../../../../shared/web-llm/engine/call.js'
 import { readStream } from '../stream/read.js'
 import { hasStructuredResponse } from '../request.js'
 import { qwenRequest } from './request.js'
-import { qwenChunks } from '../../../../shared/web-llm/qwen/stream.js'
-import { isQwen35 } from '../../../../shared/web-llm/qwen35/models.js'
-import { qwen35Chunks } from '../../../../shared/web-llm/qwen35/stream.js'
+import { qwenModelChunks } from '../../../../shared/web-llm/qwen/stream.js'
 
 /** Qwen uses its documented tool tags because WebLLM exposes no tool API for these IDs. */
 export function qwenStream(
@@ -18,22 +16,19 @@ export function qwenStream(
   onChunk?: WebLLMModelOptions['onChunk'],
   onChunkMayMutate = true,
 ) {
-  const xml = isQwen35(config.modelId)
-  const parseChunks = xml ? qwen35Chunks : qwenChunks
   const request = qwenRequest(config, messages, options)
   return streamCall(
     engine,
     () => engine.chat.completions.create(request),
     (chunks) =>
       readStream(
-        parseChunks(chunks, options.toolSpecs ?? [], {
+        qwenModelChunks(config.modelId, chunks, options.toolSpecs ?? [], {
           onChunk,
           onChunkMayMutate,
           parseProtocol: !hasStructuredResponse(config),
           thinkingDisabled: request.extra_body?.enable_thinking === false,
           thinkingPrefilled:
             config.thinkingPrefilled === true && request.extra_body?.enable_thinking !== false,
-          ...(!xml && { parseThinking: config.modelId.startsWith('Qwen3-') }),
           stopRequested: Boolean(request.stop?.length),
           signal: options.cancelSignal,
         }),

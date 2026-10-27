@@ -13,9 +13,7 @@ export function gemmaRequest(
   if (choice && choice !== 'none') choice = singleToolChoice(choice, tools)
   const thinking = sampling.extra_body?.enable_thinking === true
   checkGemmaRequest(sampling)
-  const { extra_body, ...raw } = sampling
-  delete raw.response_format
-  let prompt = gemmaPrompt(history, tools, thinking)
+  const prompt = gemmaPrompt(history, tools, thinking)
   let prefix = ''
   if (choice && choice !== 'none' && 'any' in choice)
     throw new Error('Gemma required tool choice needs exactly one tool.')
@@ -24,7 +22,18 @@ export function gemmaRequest(
       throw new Error('The chosen Gemma tool is not registered.')
     prefix = '<|tool_call>call:' + choice.tool.name + '{'
   }
-  if (thinking && !prefix && prompt.endsWith('<tool_response|>')) prefix = '<|channel>thought\n'
+  return gemmaCompletion(sampling, prompt, prefix)
+}
+
+export function gemmaCompletion(
+  sampling: Omit<ChatCompletionRequestStreaming, 'messages'>,
+  prompt: string,
+  prefix: string,
+) {
+  const { extra_body, ...raw } = sampling
+  delete raw.response_format
+  if (extra_body?.enable_thinking === true && !prefix && prompt.endsWith('<tool_response|>'))
+    prefix = '<|channel>thought\n'
   prompt += prefix
   return {
     prefix,

@@ -5,7 +5,6 @@ import {
   type ToolChoice,
   type ToolSpec,
 } from '@strands-agents/sdk'
-import type { CompletionCreateParamsStreaming } from '@mlc-ai/web-llm'
 import { isTextFormat } from '../../../../shared/web-llm/response.js'
 import type { WebLLMModelConfig } from '../types.js'
 import { generationOptions } from '../request.js'
@@ -13,6 +12,7 @@ import { toolPrompt } from './prompt.js'
 import { preserveThinking } from '../../../../shared/web-llm/request.js'
 import { singleToolChoice } from '../../../../shared/web-llm/stream/choice.js'
 import { qwenToolResponseFormat } from '../../../../shared/web-llm/qwen/constraints.js'
+import { gemmaCompletion } from '../../../../shared/web-llm/gemma/request.js'
 
 export function isGemma(modelId: string) {
   return /^gemma-4-/i.test(modelId)
@@ -40,7 +40,8 @@ export function gemmaRequest(
   messages: Message[],
   options: StreamOptions,
 ) {
-  const { response_format, extra_body, ...sampling } = generationOptions(config)
+  const sampling = generationOptions(config)
+  const { response_format, extra_body } = sampling
   // Tool choice is handled by the adapter; raw completions have no tool field.
   delete sampling.tool_choice
   if (!isTextFormat(response_format) || extra_body?.resumable?.enabled || sampling.ignore_eos) {
@@ -52,17 +53,10 @@ export function gemmaRequest(
   const preserve = preserveThinking(config.modelId, config.request ?? {})
   const tools = options.toolSpecs ?? []
   qwenToolResponseFormat(config.modelId, config.request ?? {}, tools, options.toolChoice)
-  let prefix = toolPrefix(tools, options.toolChoice)
+  const prefix = toolPrefix(tools, options.toolChoice)
   const prompt = toolPrompt(messages, tools, options, thinking, preserve)
-  if (thinking && !prefix && prompt.endsWith('<tool_response|>')) prefix = '<|channel>thought\n'
-  const request: CompletionCreateParamsStreaming = {
-    ...sampling,
-    prompt: prompt + prefix,
-    ...(extra_body?.enable_latency_breakdown !== undefined && {
-      extra_body: { enable_latency_breakdown: extra_body.enable_latency_breakdown },
-    }),
-  }
-  return { request, prefix }
+  const completion = gemmaCompletion(sampling, prompt, prefix)
+  return { request: completion.createRequest(), prefix: completion.prefix }
 }
 
 function toolPrefix(tools: ToolSpec[], choice?: ToolChoice) {

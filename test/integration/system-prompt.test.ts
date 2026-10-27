@@ -82,6 +82,34 @@ for (const client of ['strands', 'langchain']) {
     },
   )
 
+  it.each([undefined, '', ' ', 'Use these rules.'])(
+    `${client} preserves the Qwen3.5 system prompt with tools: %j`,
+    async (prompt) => {
+      const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
+      const base = await request(client, modelId, undefined, true)
+      const value = await request(client, modelId, prompt, true)
+      const declarations = base.messages[0]!.content as string
+
+      expect(declarations).toContain('<tools>')
+      expect(value.messages[0]).toEqual({
+        role: 'system',
+        content: prompt ? `${declarations}\n\n${prompt}` : declarations,
+      })
+    },
+  )
+
+  it(`${client} keeps its Qwen3 empty system prompt behavior with tools`, async () => {
+    const modelId = 'Qwen3-4B-q4f16_1-MLC'
+    const base = await request(client, modelId, undefined, true)
+    const value = await request(client, modelId, '', true)
+    const declarations = base.messages[0]!.content as string
+
+    expect(value.messages[0]).toEqual({
+      role: 'system',
+      content: client === 'strands' ? `\n\n${declarations}` : declarations,
+    })
+  })
+
   it.each([undefined, ''])(
     `${client} allows Hermes to supply its native tool prompt: %j`,
     async (prompt) => {

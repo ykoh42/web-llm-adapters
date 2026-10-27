@@ -10,8 +10,7 @@ import type {
 } from '@mlc-ai/web-llm'
 import { gemmaRequest, checkGemmaRequest } from './gemma/request.js'
 import { gemmaChunks } from './gemma/stream.js'
-import { qwenChunks } from './qwen/stream.js'
-import { qwen35Chunks } from './qwen35/stream.js'
+import { qwenModelChunks } from './qwen/stream.js'
 import { isQwen } from './qwen/models.js'
 import { isQwen35 } from './qwen35/models.js'
 import { isTextFormat } from './response.js'
@@ -159,26 +158,15 @@ export function protocolStream({
         return engine.chat.completions.create(prepared)
       },
       (chunks) =>
-        xml
-          ? qwen35Chunks(chunks, tools, {
-              onChunk,
-              onChunkMayMutate,
-              parseProtocol,
-              thinkingPrefilled: prefilled,
-              thinkingDisabled,
-              stopRequested,
-              signal,
-            })
-          : qwenChunks(chunks, tools, {
-              onChunk,
-              onChunkMayMutate,
-              parseProtocol,
-              parseThinking: modelId.startsWith('Qwen3-'),
-              thinkingPrefilled: prefilled,
-              thinkingDisabled,
-              stopRequested,
-              signal,
-            }),
+        qwenModelChunks(modelId, chunks, tools, {
+          onChunk,
+          onChunkMayMutate,
+          parseProtocol,
+          thinkingPrefilled: prefilled,
+          thinkingDisabled,
+          stopRequested,
+          signal,
+        }),
     )
   }
   if (choice && choice !== 'none') choice = singleToolChoice(choice, tools)

@@ -48,6 +48,12 @@ export function toolPrompt(tools: ToolSpec[], choice?: ToolChoice) {
   return rules.join('\n')
 }
 
+export function systemPrompt(system: string | undefined, tools: ToolSpec[], choice?: ToolChoice) {
+  const declarations = toolPrompt(tools, choice)
+  if (!declarations) return system
+  return system ? `${declarations}\n\n${system}` : declarations
+}
+
 /** Match the template's JSON separators without changing strings. */
 function templateJson(value: unknown) {
   return stringifyJSON(value).replace(/"(?:\\.|[^"\\])*"|[:,]/g, (token) =>

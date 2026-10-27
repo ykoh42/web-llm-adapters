@@ -2,7 +2,10 @@ import type { ChatCompletionMessageParam } from '@mlc-ai/web-llm'
 import type { ProtocolMessage, ToolSpec, ToolChoice } from '../types.js'
 import { lastUserIndex } from '../history.js'
 import { formatCall as jsonCall, toolPrompt as jsonTools } from './tools.js'
-import { formatCall as xmlCall, toolPrompt as xmlTools } from '../qwen35/tools.js'
+import { formatCall as xmlCall, systemPrompt as xmlSystem } from '../qwen35/tools.js'
+
+export const qwen25SystemPrompt =
+  'You are Qwen, created by Alibaba Cloud. You are a helpful assistant.'
 
 export function qwenHistory(
   modelId: string,
@@ -13,17 +16,14 @@ export function qwenHistory(
 ): ChatCompletionMessageParam[] {
   const output: ChatCompletionMessageParam[] = []
   const system = history[0]?.role === 'system' ? history[0].content : undefined
-  const declarations = (xml ? xmlTools : jsonTools)(tools, choice)
-  const parts = xml
-    ? [declarations, system]
+  const prompt = xml
+    ? (xmlSystem(system, tools, choice) ?? '')
     : [
-        system ??
-          (modelId.startsWith('Qwen2.5-')
-            ? 'You are Qwen, created by Alibaba Cloud. You are a helpful assistant.'
-            : ''),
-        declarations,
+        system ?? (modelId.startsWith('Qwen2.5-') ? qwen25SystemPrompt : ''),
+        jsonTools(tools, choice),
       ]
-  const prompt = parts.filter((part) => part !== undefined && part !== '').join('\n\n')
+        .filter((part) => part !== undefined && part !== '')
+        .join('\n\n')
   if (prompt || system === '') output.push({ role: 'system', content: prompt })
   const last = lastUserIndex(history)
   let previousWasTool = false

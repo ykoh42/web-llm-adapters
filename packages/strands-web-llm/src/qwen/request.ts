@@ -1,6 +1,6 @@
 import { isQwen35 } from '../../../../shared/web-llm/qwen35/models.js'
 import { toolPrompt } from '../../../../shared/web-llm/qwen/tools.js'
-import { toolPrompt as xmlToolPrompt } from '../../../../shared/web-llm/qwen35/tools.js'
+import { systemPrompt as xmlSystem } from '../../../../shared/web-llm/qwen35/tools.js'
 import { ModelError, type Message, type StreamOptions } from '@strands-agents/sdk'
 import type { ChatCompletionRequestStreaming } from '@mlc-ai/web-llm'
 import type { WebLLMModelConfig } from '../types.js'
@@ -8,8 +8,7 @@ import { formatSystemPrompt } from '../chat/messages.js'
 import { generationOptions, hasStructuredResponse } from '../request.js'
 import { qwenHistory } from './history.js'
 import { qwenToolResponseFormat } from '../../../../shared/web-llm/qwen/constraints.js'
-
-const qwen25SystemPrompt = 'You are Qwen, created by Alibaba Cloud. You are a helpful assistant.'
+import { qwen25SystemPrompt } from '../../../../shared/web-llm/qwen/history.js'
 
 export function qwenRequest(
   config: WebLLMModelConfig,
@@ -55,8 +54,7 @@ function qwenMessages(isQwen3: boolean, messages: Message[], options: StreamOpti
 
 function qwen35Messages(messages: Message[], options: StreamOptions) {
   const system = formatSystemPrompt(options.systemPrompt)
-  const declarations = xmlToolPrompt(options.toolSpecs ?? [], options.toolChoice)
-  const prompt = declarations ? [declarations, ...(system ? [system] : [])].join('\n\n') : system
+  const prompt = xmlSystem(system, options.toolSpecs ?? [], options.toolChoice)
   return qwenHistory(messages, options, {
     systemPrompt: prompt,
     keepThoughts: true,
