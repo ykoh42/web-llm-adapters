@@ -100,5 +100,40 @@ for await (const event of truncatedStream) truncatedEvents.push(event.type)
 assert.deepEqual(truncatedEvents, ['start', 'toolcall_start', 'toolcall_delta', 'done'])
 assert.equal((await truncatedStream.result()).stopReason, 'length')
 
+let inferenceCalls = 0
+let toolExecutions = 0
+const finalChunk = {
+  ...toolChunk('stop'),
+  choices: [{ index: 0, delta: { content: 'Recovered' }, finish_reason: 'stop' }],
+}
+engine.chat.completions.create = (async () => {
+  const reply = ++inferenceCalls === 1 ? toolChunk('length') : finalChunk
+  return (async function* () { yield reply })()
+}) as unknown as typeof engine.chat.completions.create
+const truncatedAgent = new Agent({
+  initialState: {
+    model,
+    tools: [{
+      ...toolContext.tools[0]!,
+      label: 'Lookup',
+      execute: async () => {
+        toolExecutions++
+        return { content: [{ type: 'text' as const, text: 'A7' }], details: {} }
+      },
+    }],
+  },
+  streamFn: models.streamSimple.bind(models),
+})
+await truncatedAgent.prompt('Look up A7')
+assert.equal(toolExecutions, 0)
+assert.equal(inferenceCalls, 2)
+assert.ok(truncatedAgent.state.messages.some(message => message.role === 'toolResult' && message.isError))
+const finalMessage = truncatedAgent.state.messages.at(-1)
+assert.equal(finalMessage?.role, 'assistant')
+if (finalMessage?.role === 'assistant') {
+  assert.equal(finalMessage.stopReason, 'stop')
+  assert.deepEqual(finalMessage.content, [{ type: 'text', text: 'Recovered' }])
+}
+
 `,
 })
