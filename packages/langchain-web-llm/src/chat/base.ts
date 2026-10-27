@@ -29,13 +29,13 @@ import {
 import type { CallbackManagerForLLMRun } from '@langchain/core/callbacks/manager'
 import type { ChatModelStreamEvent } from '@langchain/core/language_models/event'
 import { ChatGenerationChunk, type ChatResult } from '@langchain/core/outputs'
-import { AsyncCaller, type AsyncCallerParams } from '@langchain/core/utils/async_caller'
+import type { AsyncCaller, AsyncCallerParams } from '@langchain/core/utils/async_caller'
 import { formatTools } from './tools.js'
 import { normalizeResponseFormat } from '../../../../shared/web-llm/response.js'
 import { stringifyJSON } from '../../../../shared/web-llm/json.js'
 import type { WebLLMModelOptions, WebLLMCallOptions, WebLLMRequest } from '../types.js'
 import { readEvents } from './events.js'
-import { waitForCallback } from '../../../../shared/web-llm/callback.js'
+import { SignalCaller } from './caller.js'
 import { checkRequest, preserveThinkingRequest } from '../../../../shared/web-llm/request.js'
 import { checkThinkingPrefill } from '../../../../shared/web-llm/qwen/prefill.js'
 
@@ -89,19 +89,7 @@ export abstract class WebLLMChatModel extends BaseChatModel<
   }
 
   protected createCaller(signal: AbortSignal): AsyncCaller {
-    const onFailedAttempt = this.callerParams.onFailedAttempt
-    return new AsyncCaller({
-      ...this.callerParams,
-      ...(onFailedAttempt && {
-        onFailedAttempt: (error: unknown) => {
-          signal.throwIfAborted()
-          return waitForCallback(
-            Promise.resolve().then(() => onFailedAttempt(error)),
-            signal,
-          )
-        },
-      }),
-    })
+    return new SignalCaller(this.callerParams, signal)
   }
 
   static override lc_name() {

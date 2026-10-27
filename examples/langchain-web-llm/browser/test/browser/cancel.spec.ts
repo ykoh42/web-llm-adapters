@@ -19,6 +19,7 @@ for (const modelId of [
       await page.evaluate((id) => window.checks.load(id), modelId)
       const thinking = !modelId.startsWith('Hermes-')
       const controller = new AbortController()
+      const reason = new Error('Stopped by user')
       let callbacks = 0
       let atCancel = 0
       const model = new BrowserChatWebLLM(page, {
@@ -31,7 +32,7 @@ for (const modelId of [
           const text = choice && ('delta' in choice ? choice.delta.content : choice.text)
           if (phase === 'raw callback' && text && !controller.signal.aborted) {
             atCancel = callbacks
-            controller.abort()
+            controller.abort(reason)
           }
         },
       })
@@ -58,7 +59,7 @@ for (const modelId of [
           controller.abort()
         }
       }
-      await expect(
+      const rejected = expect(
         (async () => {
           for await (const chunk of await bound.stream('Use lookup to look up code A7.', {
             signal: controller.signal,
@@ -66,7 +67,9 @@ for (const modelId of [
           }))
             output.push(chunk.text)
         })(),
-      ).rejects.toHaveProperty('name', 'AbortError')
+      )
+      if (phase === 'raw callback') await rejected.rejects.toBe(reason)
+      else await rejected.rejects.toHaveProperty('name', 'AbortError')
       expect(atCancel).toBeGreaterThan(0)
       expect(callbacks).toBe(atCancel)
       expect(tokenCallbacks).toBe(phase === 'raw callback' ? 0 : 1)

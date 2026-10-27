@@ -229,37 +229,41 @@ describe('engine ownership', () => {
     expect((await second).text).toBe('Recovered')
   })
 
-  it('cancels retry backoff without delaying the next engine call', async () => {
-    vi.useFakeTimers()
-    try {
-      const { engine, create } = setup(chunk({ content: 'Recovered' }, 'stop'))
-      const failed = pause()
-      create.mockImplementationOnce(async () => {
-        failed.resume()
-        throw new Error('Opening failed')
-      })
-      const model = new ChatWebLLM({
-        engine,
-        modelId: 'test-model',
-        maxConcurrency: 1,
-        maxRetries: 1,
-      })
-      const cancel = new AbortController()
-      const first = model.invoke('First', { signal: cancel.signal })
+  it.each([undefined, new Error('Stopped by user')])(
+    'cancels retry backoff without delaying the next engine call (reason=%s)',
+    async (reason) => {
+      vi.useFakeTimers()
+      try {
+        const { engine, create } = setup(chunk({ content: 'Recovered' }, 'stop'))
+        const failed = pause()
+        create.mockImplementationOnce(async () => {
+          failed.resume()
+          throw new Error('Opening failed')
+        })
+        const model = new ChatWebLLM({
+          engine,
+          modelId: 'test-model',
+          maxConcurrency: 1,
+          maxRetries: 2,
+        })
+        const cancel = new AbortController()
+        const first = model.invoke('First', { signal: cancel.signal })
 
-      await failed.wait
-      await vi.advanceTimersByTimeAsync(0)
-      expect(vi.getTimerCount()).toBeGreaterThan(0)
+        await failed.wait
+        await vi.advanceTimersByTimeAsync(0)
+        expect(vi.getTimerCount()).toBeGreaterThan(0)
 
-      cancel.abort()
-      await expect(first).rejects.toHaveProperty('name', 'AbortError')
-      expect((await model.invoke('Second')).text).toBe('Recovered')
-      await vi.runOnlyPendingTimersAsync()
-      expect(create).toHaveBeenCalledTimes(2)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
+        cancel.abort(reason)
+        await expect(first).rejects.toBe(cancel.signal.reason)
+        expect((await model.invoke('Second')).text).toBe('Recovered')
+        await vi.runOnlyPendingTimersAsync()
+        expect(vi.getTimerCount()).toBe(0)
+        expect(create).toHaveBeenCalledTimes(2)
+      } finally {
+        vi.useRealTimers()
+      }
+    },
+  )
 
   it('interrupts active generation and allows the next call to finish', async () => {
     const { model, create, stop } = setup(chunk({ content: 'Recovered' }, 'stop'))

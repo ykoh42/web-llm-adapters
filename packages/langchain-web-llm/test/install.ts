@@ -23,6 +23,16 @@ const identityPenalty: number | null | undefined = model._identifyingParams().re
 assert.equal(identityPenalty,undefined)
 const response = await model.invoke('Hi')
 assert.equal(response.text,'Hello')
+const signalled = await model.invoke('Hi', { signal: new AbortController().signal })
+assert.equal(signalled.text,'Hello')
+const complete = engine.chat.completions.create
+const failure = Object.assign(new Error('Invalid request'), { status: 400 })
+let attempts = 0
+engine.chat.completions.create = async () => { attempts++; throw failure }
+const retrying = new ChatWebLLM({ engine, modelId: 'test', maxRetries: 2 })
+await assert.rejects(retrying.invoke('Hi', { signal: new AbortController().signal }), error => error === failure)
+assert.equal(attempts,1)
+engine.chat.completions.create = complete
 const tokens: number | undefined = response.usage_metadata?.output_tokens
 assert.equal(tokens,undefined)
 const bound = await model.bindTools([]).invoke('Hi')

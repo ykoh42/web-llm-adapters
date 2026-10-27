@@ -34,6 +34,18 @@ afterEach(async () => {
 })
 
 describe('local failed-attempt cancellation', () => {
+  it('keeps the default retry policy when a signal is present', async () => {
+    const { engine, create } = setup(chunk({ content: 'Recovered' }, 'stop'))
+    const failure = Object.assign(new Error('Invalid request'), { status: 400 })
+    create.mockRejectedValueOnce(failure)
+    const model = new ChatWebLLM({ engine, modelId: 'test-model', maxRetries: 2 })
+
+    await expect(model.invoke('Hi', { signal: new AbortController().signal })).rejects.toBe(failure)
+    expect(getRetryable(failure)).toBe(false)
+    expect(create).toHaveBeenCalledOnce()
+    expect((await model.invoke('Recover')).text).toBe('Recovered')
+  })
+
   it.each([0, 1])('releases a pending handler with maxRetries=%i', async (maxRetries) => {
     const { engine, create } = setup(chunk({ content: 'Recovered' }, 'stop'))
     const hold = pause()

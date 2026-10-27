@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Stop scheduling retries after cancellation with a custom reason.
 - Stop requests cancelled during payload preparation before opening WebLLM.
 - Stream tool arguments and expose call IDs only after validation.
 - Use content events supported by LangChain Core 1.2.8 and later.
