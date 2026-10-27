@@ -64,10 +64,10 @@ Runnable examples use model-card sampling settings supported by WebLLM, except w
 
 ### Custom model IDs
 
-When a [WebLLM model record](https://github.com/mlc-ai/web-llm#custom-models) gives a known Qwen or Gemma 4 E2B model a different `model_id`, pass both IDs to the adapter:
+When a [WebLLM model record](https://github.com/mlc-ai/web-llm#custom-models) gives a known Qwen or Gemma 4 E2B model a different `model_id` (for example, during offline import), pass both IDs to keep its tool and thinking support:
 
 ```ts
-{ modelId: 'my-qwen', sourceModelId: 'Qwen3.5-4B-q4f16_1-MLC' }
+{ modelId: 'My-Local-Qwen3', sourceModelId: 'Qwen3-4B-q4f16_1-MLC' }
 ```
 
 Use the same model artifact, tokenizer, template, and compatible runtime as the source. The adapter cannot verify what the engine loaded. WebLLM's native tool API still checks its own model IDs.
