@@ -3,7 +3,7 @@ import { rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHarness } from '@strands-agents/harness'
-import { BeforeModelCallEvent, FunctionTool } from '@strands-agents/sdk'
+import { BeforeModelCallEvent, FunctionTool, type Message } from '@strands-agents/sdk'
 import { expect, test } from '../../../fixtures/browser.js'
 import { BrowserModel, type WebLLMChunk } from 'strands-web-llm'
 import type { ChatCompletionRequestStreaming } from '@mlc-ai/web-llm'
@@ -18,21 +18,34 @@ const cases = [
     'Qwen3-0.6B-q4f16_1-MLC',
     'Qwen3-4B-q4f16_1-MLC',
     'Qwen3-8B-q4f16_1-MLC',
-  ].map((modelId) => ({ modelId, sample: undefined })),
+  ].map((modelId) => ({
+    modelId,
+    sample: undefined,
+    protocolOnly: modelId === 'Qwen3-1.7B-q4f16_1-MLC',
+  })),
   {
     modelId: 'Qwen3-1.7B-q4f16_1-MLC',
     sample: { file: 'q3-91241.txt', code: 'code-999dca88' },
+    protocolOnly: false,
+  },
+  {
+    modelId: 'Qwen3-1.7B-q4f16_1-MLC',
+    sample: { file: 'q3-36203.txt', code: 'code-18c583a1' },
+    protocolOnly: true,
   },
 ]
 
-for (const { modelId, sample } of cases) {
-  const behavior =
-    modelId === 'Qwen3-0.6B-q4f16_1-MLC'
+for (const { modelId, sample, protocolOnly } of cases) {
+  const behavior = protocolOnly
+    ? 'preserves native output within a Harness turn limit'
+    : modelId === 'Qwen3-0.6B-q4f16_1-MLC'
       ? 'matches native thinking and tool output'
       : 'calls a Harness tool and preserves native thinking and answer'
   test(
     `${modelId} ${behavior}` + (sample ? ` with recorded input ${sample.file}` : ''),
-    modelId === 'Qwen3-0.6B-q4f16_1-MLC' ? {} : modelCheck(modelId, 'tools', 'thinking'),
+    modelId === 'Qwen3-0.6B-q4f16_1-MLC'
+      ? {}
+      : modelCheck(modelId, protocolOnly ? 'tool-protocol' : 'tools', 'thinking'),
     async ({ page }, info) => {
       const directory = process.platform === 'win32' ? tmpdir() : '/tmp'
       const path = join(directory, sample?.file ?? `q3-${process.pid}.txt`)
@@ -115,15 +128,26 @@ for (const { modelId, sample } of cases) {
         await recordNative(info, 'native-comparison', {
           code,
           path,
+          stopReason: result.stopReason,
+          modelCalls,
           messages: agent.messages.map((message) => message.toJSON()),
           ...comparison,
         })
-
-        expect(modelCalls).toBeGreaterThanOrEqual(2)
-        expect(result.stopReason).toBe('endTurn')
         const toolResults = agent.messages
           .flatMap((message) => message.content)
           .filter((block) => block.type === 'toolResultBlock')
+        expect(toolResults.length).toBeGreaterThan(0)
+        expect(toolResults.some((block) => block.status === 'success')).toBe(true)
+        expect(JSON.stringify(toolResults)).toContain(code)
+
+        if (protocolOnly) {
+          expect(modelCalls).toBe(comparison.requests.length)
+          checkBoundedLoop(agent.messages, comparison, result.stopReason, modelId)
+          return
+        }
+
+        expect(modelCalls).toBeGreaterThanOrEqual(2)
+        expect(result.stopReason).toBe('endTurn')
         const content = result.lastMessage.content
         const text = content
           .filter((block) => block.type === 'textBlock')
@@ -139,9 +163,6 @@ for (const { modelId, sample } of cases) {
           )
         expect(text.trim()).not.toBe('')
         expect({ text, thinking }).toEqual(nativeOutput(chunks.flat(), modelId))
-        expect(toolResults.length).toBeGreaterThan(0)
-        expect(toolResults.some((block) => block.status === 'success')).toBe(true)
-        expect(JSON.stringify(toolResults)).toContain(code)
         expect(JSON.stringify(comparison.requests.at(-1))).toContain(code)
       } finally {
         try {
@@ -297,6 +318,67 @@ async function compareNative(page: Page, adapted: WebLLMChunk[][]) {
   const requests = await page.evaluate(() => window.qwen3Requests)
   const native = await replayNative(page, requests)
   return { requests, adapted, native }
+}
+
+function checkBoundedLoop(
+  messages: readonly Message[],
+  { requests, native }: Awaited<ReturnType<typeof compareNative>>,
+  stopReason: string,
+  modelId: string,
+) {
+  expect(['endTurn', 'limitTurns']).toContain(stopReason)
+  expect(requests.length).toBeGreaterThan(0)
+  expect(requests.length).toBeLessThanOrEqual(3)
+  if (stopReason === 'limitTurns') expect(requests).toHaveLength(3)
+  const assistants = messages.filter((message) => message.role === 'assistant')
+  expect(assistants).toHaveLength(native.length)
+  const thinking = assistants.map((message) =>
+    message.content
+      .filter((block) => block.type === 'reasoningBlock')
+      .map((block) => block.text ?? '')
+      .join(''),
+  )
+  expect(thinking).toEqual(nativeOutput(native.flat(), modelId).thinking)
+  const results = messages
+    .flatMap((message) => message.content)
+    .filter((block) => block.type === 'toolResultBlock')
+  const byId = new Map(results.map((result) => [result.toolUseId, result]))
+  let callCount = 0
+  for (const [index, message] of assistants.entries()) {
+    const content = rawContent(native[index]!).replace(/<think>[\s\S]*?<\/think>/g, '')
+    const tool = /<tool_call>([\s\S]*?)<\/tool_call>/g
+    const expectedCalls = [...content.matchAll(tool)].map((match) => {
+      const call: Record<string, unknown> = JSON.parse(match[1]!)
+      return { name: call.name, arguments: call.arguments }
+    })
+    const calls = message.content.filter((block) => block.type === 'toolUseBlock')
+    expect(calls.map((call) => ({ name: call.name, arguments: call.input }))).toEqual(expectedCalls)
+    const text = message.content
+      .filter((block) => block.type === 'textBlock')
+      .map((block) => block.text)
+      .join('')
+    const expectedText = content.replace(tool, '')
+    // Strands omits blank text blocks when aggregating a model response.
+    expect(text).toBe(expectedText.trim() ? expectedText : '')
+    callCount += calls.length
+    for (const call of calls) {
+      const result = byId.get(call.toolUseId)
+      expect(result).toBeDefined()
+      const next = requests[index + 1]
+      if (!next) continue
+      for (const block of result!.content) {
+        if (block.type !== 'textBlock') continue
+        expect(
+          next.messages.some(
+            (message) =>
+              typeof message.content === 'string' && message.content.includes(block.text),
+          ),
+        ).toBe(true)
+      }
+    }
+  }
+  expect(results).toHaveLength(callCount)
+  expect(byId.size).toBe(callCount)
 }
 
 function rawContent(chunks: WebLLMChunk[]) {
