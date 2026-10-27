@@ -1,13 +1,98 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Type } from '@earendil-works/pi-ai'
+import type { ChatCompletionRequestStreaming } from '@mlc-ai/web-llm'
 import { pause } from '../../../fixtures/web-llm.js'
 import { chunk, setup } from './helpers.js'
 
 const context = { messages: [{ role: 'user' as const, content: 'Hello', timestamp: 0 }] }
 const json = { type: 'json_object' as const, schema: '{}' }
 const text = { type: 'text' as const }
+const constrainedContext = {
+  ...context,
+  tools: [
+    {
+      name: 'lookup',
+      description: 'Look up a code.',
+      parameters: Type.Object({ code: Type.String() }, { additionalProperties: false }),
+    },
+  ],
+}
 
 describe('Pi payload format changes', () => {
+  it.each(['Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC'])(
+    '%s keeps valid constraints and output with unchanged or cloned payloads',
+    async (modelId) => {
+      const output =
+        '<think>Plan.</think>' +
+        (modelId.startsWith('Qwen3.5-')
+          ? '<tool_call><function=lookup><parameter=code>A7</parameter></function></tool_call>'
+          : '<tool_call>{"name":"lookup","arguments":{"code":"A7"}}</tool_call>')
+      const { models, model, create } = setup([chunk({ content: output }, 'stop')], {
+        modelId,
+        request: { constrainedToolCalls: true, extra_body: { enable_thinking: true } },
+      })
+      for (const mode of ['none', 'same', 'clone']) {
+        const response = await models.complete(
+          model,
+          constrainedContext,
+          mode === 'none'
+            ? {}
+            : {
+                onPayload: (payload) => (mode === 'clone' ? structuredClone(payload) : payload),
+              },
+        )
+        expect(response).toMatchObject({
+          stopReason: 'toolUse',
+          content: [
+            { type: 'thinking', thinking: 'Plan.' },
+            { type: 'toolCall', name: 'lookup', arguments: { code: 'A7' } },
+          ],
+        })
+      }
+      expect(create).toHaveBeenCalledTimes(3)
+      expect(create.mock.calls[1]).toEqual(create.mock.calls[0])
+      expect(create.mock.calls[2]).toEqual(create.mock.calls[0])
+    },
+  )
+
+  it.each(
+    ['Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC'].flatMap((modelId) =>
+      [false, true].map((inPlace) => ({ modelId, inPlace })),
+    ),
+  )(
+    'rejects a changed tool grammar for $modelId (inPlace=$inPlace)',
+    async ({ modelId, inPlace }) => {
+      const { models, model, create } = setup([chunk({ content: '{"answer":42}' }, 'stop')], {
+        modelId,
+        request: { constrainedToolCalls: true },
+      })
+      const response = await models.complete(model, constrainedContext, {
+        onPayload: (payload) => {
+          const request = payload as ChatCompletionRequestStreaming
+          const format = request.response_format
+          if (!format) throw new Error('Missing tool constraints.')
+          const structural_tag = {
+            type: 'structural_tag',
+            format: { type: 'json_schema', json_schema: { type: 'object' } },
+          }
+          if (inPlace) {
+            if (!format.structural_tag || typeof format.structural_tag !== 'object')
+              throw new Error('Missing structural tool constraints.')
+            Object.assign(format.structural_tag, { format: structural_tag.format })
+            return
+          }
+          return { ...request, response_format: { ...format, structural_tag } }
+        },
+      })
+
+      expect(response).toMatchObject({
+        stopReason: 'error',
+        errorMessage: 'Qwen tool calls cannot use a structured response format.',
+      })
+      expect(create).not.toHaveBeenCalled()
+    },
+  )
+
   it.each([
     { mode: 'removed', tools: undefined },
     { mode: 'null', tools: null },

@@ -106,6 +106,7 @@ export function protocolStream({
         if (prefix && !prepared.prompt.endsWith(prefix))
           throw new Error('onPayload cannot change the Gemma protocol prefix.')
         stopRequested = Boolean(prepared.stop?.length)
+        signal?.throwIfAborted()
         return engine.completions.create(prepared)
       },
       (chunks) =>
@@ -137,7 +138,11 @@ export function protocolStream({
       async () => {
         const prepared = await prepare({
           ...sampling,
-          ...(toolResponseFormat && { response_format: toolResponseFormat }),
+          ...(toolResponseFormat && {
+            // Keep the generated format intact when a payload hook edits its copy.
+            response_format:
+              prepare === keepRequest ? toolResponseFormat : structuredClone(toolResponseFormat),
+          }),
           messages,
         })
         // The payload hook may change how native output is framed.
@@ -150,6 +155,7 @@ export function protocolStream({
         stopRequested = Boolean(prepared.stop?.length)
         if (tools.length && !parseProtocol)
           throw new Error('Qwen tool calls cannot use a structured response format.')
+        signal?.throwIfAborted()
         return engine.chat.completions.create(prepared)
       },
       (chunks) =>
@@ -201,6 +207,7 @@ export function protocolStream({
       onPrepared?.(prepared)
       // WebLLM treats an empty tools list as native tool mode, too.
       hasTools = Boolean(prepared.tools)
+      signal?.throwIfAborted()
       return engine.chat.completions.create(prepared)
     },
     (chunks) => nativeChunks(chunks, hasTools, { onChunk, onChunkMayMutate, signal }),

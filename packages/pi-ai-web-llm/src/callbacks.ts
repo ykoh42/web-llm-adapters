@@ -9,11 +9,13 @@ export function streamHooks(
   call: WebLLMStreamOptions,
   signal?: AbortSignal,
 ): Pick<ProtocolInput, 'prepare' | 'open'> {
-  return {
-    prepare: async (payload) => {
-      const returned = call.onPayload
-        ? await waitForCallback(Promise.resolve(call.onPayload(payload, model)), signal)
-        : undefined
+  const hooks: Pick<ProtocolInput, 'prepare' | 'open'> = {}
+  if (call.onPayload)
+    hooks.prepare = async (payload) => {
+      const returned = await waitForCallback(
+        Promise.resolve(call.onPayload?.(payload, model)),
+        signal,
+      )
       const changed = returned === undefined ? payload : returned
       signal?.throwIfAborted()
       if (
@@ -28,8 +30,9 @@ export function streamHooks(
       )
         throw new Error('onPayload must preserve the loaded model and one streaming response.')
       return changed as typeof payload
-    },
-    open: async (run) => {
+    }
+  if (call.onProviderStreamEvent)
+    hooks.open = async (run) => {
       const chunks = await run()
       if (!call.onProviderStreamEvent) return chunks
       return {
@@ -55,6 +58,6 @@ export function streamHooks(
           }
         },
       }
-    },
-  }
+    }
+  return hooks
 }

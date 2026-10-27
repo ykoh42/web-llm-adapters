@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Reject edits to generated Qwen tool constraints made by `onPayload`.
+- Stop requests cancelled during payload preparation before opening WebLLM.
+- Skip payload and stream wrappers when their callbacks are absent.
 - Stream partial tool arguments and withhold `toolcall_end` for incomplete calls.
 - Accept Qwen3.5 string enums and string `const` values without an explicit type.
 - Constrain type-less Qwen3.5 non-string `enum`/`const` values and JSON-only unions.
