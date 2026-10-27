@@ -1,8 +1,8 @@
 {
-  "commit": "ce47e4187e28267aa3ed37d5926cae3c09a958a4",
-  "source": "ec0526ecfd62b640c0be11c2be04610a22a0e7aeb8addce3aa363f132fb993d6",
+  "commit": "c44ea563c5e40b9fea37813d874304615f851908",
+  "source": "7142f5ac6e5ef5d41c01e9de64945dfe210fb7e7a01de329089603d6e937b8a0",
   "webllm": "0.2.86",
-  "checkedAt": "2026-10-27T15:11:42.717Z",
+  "checkedAt": "2026-10-27T16:49:58.558Z",
   "environment": {
     "platform": "darwin",
     "arch": "arm64",
@@ -19,7 +19,7 @@
     },
     {
       "adapter": "strands",
-      "name": "examples/strands-web-llm/harness/test/browser/concurrent.browser.ts > cancelling a queued browser request leaves the active and later calls usable",
+      "name": "examples/strands-web-llm/harness/test/browser/concurrent.browser.ts > cancelling and closing browser calls leaves the engine usable",
       "status": "passed",
       "checks": ["engine/cancel"]
     },
@@ -259,7 +259,7 @@
     },
     {
       "adapter": "langchain",
-      "name": "examples/langchain-web-llm/browser/test/browser/features.spec.ts > real engine serializes concurrent inference, cancels generation and recovers",
+      "name": "examples/langchain-web-llm/browser/test/browser/features.spec.ts > real engine handles concurrent calls, cancellation and bridge closure",
       "status": "passed",
       "checks": ["engine/concurrency", "engine/cancel"]
     },
@@ -472,30 +472,6 @@
       "name": "examples/pi-ai-web-llm/browser/test/vision.spec.ts > Phi images match native WebLLM through Pi and recover after an invalid image",
       "status": "passed",
       "checks": ["Phi-3.5-vision-instruct-q4f16_1-MLC/image"]
-    },
-    {
-      "adapter": "integration",
-      "name": "test/browser/model-alias.browser.ts > Qwen2.5-3B-Instruct-q4f16_1-MLC: custom ID keeps tool calls and thinking across adapters",
-      "status": "passed",
-      "checks": []
-    },
-    {
-      "adapter": "integration",
-      "name": "test/browser/model-alias.browser.ts > Qwen3-4B-q4f16_1-MLC: custom ID keeps tool calls and thinking across adapters",
-      "status": "passed",
-      "checks": []
-    },
-    {
-      "adapter": "integration",
-      "name": "test/browser/model-alias.browser.ts > Qwen3.5-4B-q4f16_1-MLC: custom ID keeps tool calls and thinking across adapters",
-      "status": "passed",
-      "checks": []
-    },
-    {
-      "adapter": "integration",
-      "name": "test/browser/model-alias.browser.ts > gemma-4-E2B-it-q4f16_1-MLC: custom ID keeps tool calls and thinking across adapters",
-      "status": "passed",
-      "checks": []
     }
   ]
 }
