@@ -1,10 +1,13 @@
 import { chromium, type FullConfig } from '@playwright/test'
-import { checkClean } from './source.ts'
+import { rmSync } from 'node:fs'
+import { checkClean, reportPath } from './source.ts'
 
 export default async function setup(config: FullConfig) {
   checkClean()
   if (config.shard || config.projects.some((project) => project.retries))
     throw new Error('Release model checks must run together without retries.')
+  // A killed run cannot reach the reporter's cleanup.
+  rmSync(reportPath, { force: true })
   const browser = await chromium.launch({
     channel: 'chrome',
     headless: process.env.HEADLESS === '1',

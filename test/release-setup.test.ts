@@ -3,15 +3,22 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 const state = vi.hoisted(() => ({
   checkClean: vi.fn(),
+  reportPath: '.github/real-models.json',
+  removeReport: vi.fn(),
 }))
 
 vi.mock('../scripts/release/source.ts', () => state)
+vi.mock('node:fs', async (original) => ({
+  ...(await original<typeof import('node:fs')>()),
+  rmSync: state.removeReport,
+}))
 
 const { default: setup } = await import('../scripts/release/setup.ts')
 const previousEnvironment = process.env.WEB_LLM_RELEASE_ENVIRONMENT
 
 beforeEach(() => {
   state.checkClean.mockReset()
+  state.removeReport.mockReset()
 })
 
 afterEach(() => {
@@ -34,6 +41,29 @@ test('rejects a sharded run', async () => {
   await expect(setup({ ...config, shard: { current: 1, total: 2 } })).rejects.toThrow(
     'without retries',
   )
+})
+
+test('invalidates the previous report before starting the browser', async () => {
+  const launch = vi.spyOn(chromium, 'launch').mockRejectedValue(new Error('Browser unavailable'))
+
+  await expect(setup(config)).rejects.toThrow('Browser unavailable')
+
+  expect(state.removeReport).toHaveBeenCalledExactlyOnceWith(state.reportPath, { force: true })
+  expect(state.removeReport.mock.invocationCallOrder[0]).toBeLessThan(
+    launch.mock.invocationCallOrder[0]!,
+  )
+})
+
+test('does not start a run when the previous report cannot be invalidated', async () => {
+  state.removeReport.mockImplementation(() => {
+    throw new Error('Report is read-only')
+  })
+  const launch = vi
+    .spyOn(chromium, 'launch')
+    .mockRejectedValue(new Error('Unexpected browser launch'))
+
+  await expect(setup(config)).rejects.toThrow('Report is read-only')
+  expect(launch).not.toHaveBeenCalled()
 })
 
 test('records the GPU environment and closes the browser', async () => {
