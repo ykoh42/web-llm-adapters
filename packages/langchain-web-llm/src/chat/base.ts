@@ -38,14 +38,12 @@ import { readEvents } from './events.js'
 import { SignalCaller } from './caller.js'
 import { checkRequest, preserveThinkingRequest } from '../../../../shared/web-llm/request.js'
 import { checkThinkingPrefill } from '../../../../shared/web-llm/qwen/prefill.js'
-import { protocolModelId } from '../../../../shared/web-llm/models.js'
 
 export abstract class WebLLMChatModel extends BaseChatModel<
   WebLLMCallOptions,
   AIMessageChunk<StandardMessageStructure>
 > {
   readonly modelId: string
-  protected readonly sourceModelId: string | undefined
   private readonly modelProfile: ModelProfile
   protected readonly retries: number
   private readonly callerParams: AsyncCallerParams
@@ -54,7 +52,6 @@ export abstract class WebLLMChatModel extends BaseChatModel<
 
   constructor({
     modelId,
-    sourceModelId,
     thinkingPrefilled = false,
     request,
     temperature,
@@ -66,19 +63,17 @@ export abstract class WebLLMChatModel extends BaseChatModel<
   }: WebLLMModelOptions) {
     super({ ...params, maxRetries: params.maxRetries ?? 0 })
     if (!modelId) throw new Error('modelId must name a loaded WebLLM model.')
-    const source = protocolModelId(modelId, sourceModelId)
-    checkThinkingPrefill(source, thinkingPrefilled)
+    checkThinkingPrefill(modelId, thinkingPrefilled)
     this.thinkingPrefilled = thinkingPrefilled
     this.disableStreaming = params.disableStreaming ?? false
     this.modelId = modelId
-    this.sourceModelId = sourceModelId
     this.retries = params.maxRetries ?? 0
     this.callerParams = {
       maxRetries: this.retries,
       ...(params.maxConcurrency !== undefined && { maxConcurrency: params.maxConcurrency }),
       ...(params.onFailedAttempt !== undefined && { onFailedAttempt: params.onFailedAttempt }),
     }
-    this.modelProfile = modelProfile(source, profile, request)
+    this.modelProfile = modelProfile(modelId, profile, request)
     this.request = structuredClone({
       ...request,
       ...(temperature !== undefined && { temperature }),
@@ -126,7 +121,6 @@ export abstract class WebLLMChatModel extends BaseChatModel<
       ...(options.tools && { tools: formatTools(options.tools) }),
       outputVersion: options.outputVersion ?? this.outputVersion ?? 'v0',
       ...(this.thinkingPrefilled && { thinkingPrefilled: true }),
-      ...(this.sourceModelId !== undefined && { sourceModelId: this.sourceModelId }),
     })
   }
 

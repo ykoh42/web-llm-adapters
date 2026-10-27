@@ -3,7 +3,7 @@ import { modelError } from './engine/error.js'
 import { promptTokens } from './gemma/prompt.js'
 import { trimThoughts } from './gemma/history.js'
 import { trimThoughts as trimQwenThoughts } from './qwen/history.js'
-import { isGemma, isQwen, isQwen35, protocolModelId } from '../../../shared/web-llm/models.js'
+import { isGemma, isQwen, isQwen35 } from '../../../shared/web-llm/models.js'
 import type { WebLLMModelConfig } from './types.js'
 import { checkRequest, preserveThinking } from '../../../shared/web-llm/request.js'
 import { checkThinkingPrefill } from '../../../shared/web-llm/qwen/prefill.js'
@@ -17,10 +17,7 @@ export abstract class WebLLMModelBase extends Model<WebLLMModelConfig> {
     this.config = structuredClone(config)
     if (!this.config.modelId) throw new Error('modelId must name a loaded WebLLM model.')
     checkRequest(this.config.request ?? {}, 'none')
-    checkThinkingPrefill(
-      protocolModelId(this.config.modelId, this.config.sourceModelId),
-      this.config.thinkingPrefilled,
-    )
+    checkThinkingPrefill(this.config.modelId, this.config.thinkingPrefilled)
   }
 
   override get modelId(): string {
@@ -34,17 +31,10 @@ export abstract class WebLLMModelBase extends Model<WebLLMModelConfig> {
   }
 
   override updateConfig(config: Partial<WebLLMModelConfig>): void {
-    if (
-      config.modelId !== undefined &&
-      config.modelId !== this.config.modelId &&
-      this.config.sourceModelId !== undefined &&
-      !Object.hasOwn(config, 'sourceModelId')
-    )
-      throw new Error('Set or clear sourceModelId when changing a custom model ID.')
     const next = structuredClone({ ...this.config, ...config })
     if (!next.modelId) throw new Error('modelId must name a loaded WebLLM model.')
     checkRequest(next.request ?? {}, 'none')
-    checkThinkingPrefill(protocolModelId(next.modelId, next.sourceModelId), next.thinkingPrefilled)
+    checkThinkingPrefill(next.modelId, next.thinkingPrefilled)
     this.config = next
   }
 
@@ -54,11 +44,11 @@ export abstract class WebLLMModelBase extends Model<WebLLMModelConfig> {
   ): Promise<number> {
     const read = this.getConfig
     const config = read === defaultGetConfig ? this.config : read.call(this)
-    const source = protocolModelId(config.modelId, config.sourceModelId)
-    const preserve = preserveThinking(source, config.request ?? {})
-    if (isQwen(source) || isQwen35(source))
-      return super.countTokens(trimQwenThoughts(messages, !source.startsWith('Qwen2.5-')), options)
-    if (!isGemma(source)) return super.countTokens(messages, options)
+    const { modelId } = config
+    const preserve = preserveThinking(modelId, config.request ?? {})
+    if (isQwen(modelId) || isQwen35(modelId))
+      return super.countTokens(trimQwenThoughts(messages, !modelId.startsWith('Qwen2.5-')), options)
+    if (!isGemma(modelId)) return super.countTokens(messages, options)
     const thinking = config.request?.extra_body?.enable_thinking === true
     try {
       return (

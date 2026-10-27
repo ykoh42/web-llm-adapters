@@ -71,15 +71,3 @@ export function supportsConstrainedToolCalls(modelId: string) {
 export function isVisionModel(modelId: string) {
   return visionIds.has(modelId)
 }
-
-/** Use a known source only when the caller explicitly names the model behind an alias. */
-export function protocolModelId(modelId: string, sourceModelId?: string) {
-  if (sourceModelId === undefined) return modelId
-  if (
-    !isQwen(sourceModelId) &&
-    !isQwen35(sourceModelId) &&
-    sourceModelId !== 'gemma-4-E2B-it-q4f16_1-MLC'
-  )
-    throw new Error('sourceModelId must name a known Qwen or Gemma 4 E2B model ID.')
-  return sourceModelId
-}

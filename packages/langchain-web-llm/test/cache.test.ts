@@ -45,6 +45,26 @@ describe.each(['local', 'browser'])('%s LangChain cache', (transport) => {
     }
   }
 
+  it('keeps answers for different model IDs separate', async () => {
+    const native = cachedModel()
+    const cache = new InMemoryCache()
+    native.create
+      .mockResolvedValueOnce(chunks(chunk({ content: 'First' }, 'stop')))
+      .mockResolvedValueOnce(chunks(chunk({ content: 'Second' }, 'stop')))
+    function model(modelId: string) {
+      const options = { modelId, cache }
+      return transport === 'browser'
+        ? new BrowserChatWebLLM(native.page, options)
+        : new ChatWebLLM({ engine: native.engine, ...options })
+    }
+    const first = model('Qwen2.5-3B-Instruct-q4f16_1-MLC')
+    const second = model('Qwen3.5-4B-q4f16_1-MLC')
+    expect((await first.invoke('Hi')).text).toBe('First')
+    expect((await second.invoke('Hi')).text).toBe('Second')
+    expect((await first.invoke('Hi')).text).toBe('First')
+    expect(native.create).toHaveBeenCalledTimes(2)
+  })
+
   it('keeps cached interpretations separate for a prefilled thinking template', async () => {
     const native = cachedModel()
     const cache = new InMemoryCache()

@@ -10,7 +10,7 @@ import { modelError } from './engine/error.js'
 import { usesGemmaProtocol } from './gemma/request.js'
 import { gemmaStream } from './gemma/model.js'
 import { trimThoughts } from './gemma/history.js'
-import { isGemma, isQwen, isQwen35, protocolModelId } from '../../../shared/web-llm/models.js'
+import { isGemma, isQwen, isQwen35 } from '../../../shared/web-llm/models.js'
 import { qwenStream } from './qwen/model.js'
 import type { WebLLMChunk, WebLLMModelOptions } from './types.js'
 import { WebLLMModelBase } from './model-base.js'
@@ -37,20 +37,20 @@ export class WebLLMModel extends WebLLMModelBase {
     const signal = options.cancelSignal
     signal?.throwIfAborted()
     const config = this.getConfig()
-    const source = protocolModelId(config.modelId, config.sourceModelId)
-    const preserve = preserveThinking(source, config.request ?? {})
+    const { modelId } = config
+    const preserve = preserveThinking(modelId, config.request ?? {})
     options = {
       ...options,
       ...(options.toolSpecs && { toolSpecs: structuredClone(options.toolSpecs) }),
       ...(options.toolChoice && { toolChoice: structuredClone(options.toolChoice) }),
     }
     // Past-turn thoughts must not force later JSON or audio requests onto raw completions.
-    if (isGemma(source)) messages = trimThoughts(messages, options.dynamicTrailingBlocks, preserve)
+    if (isGemma(modelId)) messages = trimThoughts(messages, options.dynamicTrailingBlocks, preserve)
     if (config.request?.tool_choice === 'none' && !options.toolChoice)
       options = { ...options, toolSpecs: [] }
     let stream = chatStream
     if (usesGemmaProtocol(config, messages, options)) stream = gemmaStream
-    else if (isQwen35(source) || isQwen(source)) stream = qwenStream
+    else if (isQwen35(modelId) || isQwen(modelId)) stream = qwenStream
     let logprobs: WebLLMLogprobs | undefined
     let responseId: string | undefined
     let responseModel: string | undefined

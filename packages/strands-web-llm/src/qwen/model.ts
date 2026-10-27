@@ -6,7 +6,6 @@ import { readStream } from '../stream/read.js'
 import { hasStructuredResponse } from '../request.js'
 import { qwenRequest } from './request.js'
 import { qwenModelChunks } from '../../../../shared/web-llm/qwen/stream.js'
-import { protocolModelId } from '../../../../shared/web-llm/models.js'
 
 /** Qwen uses its documented tool tags because WebLLM exposes no tool API for these IDs. */
 export function qwenStream(
@@ -23,21 +22,16 @@ export function qwenStream(
     () => engine.chat.completions.create(request),
     (chunks) =>
       readStream(
-        qwenModelChunks(
-          protocolModelId(config.modelId, config.sourceModelId),
-          chunks,
-          options.toolSpecs ?? [],
-          {
-            onChunk,
-            onChunkMayMutate,
-            parseProtocol: !hasStructuredResponse(config),
-            thinkingDisabled: request.extra_body?.enable_thinking === false,
-            thinkingPrefilled:
-              config.thinkingPrefilled === true && request.extra_body?.enable_thinking !== false,
-            stopRequested: Boolean(request.stop?.length),
-            signal: options.cancelSignal,
-          },
-        ),
+        qwenModelChunks(config.modelId, chunks, options.toolSpecs ?? [], {
+          onChunk,
+          onChunkMayMutate,
+          parseProtocol: !hasStructuredResponse(config),
+          thinkingDisabled: request.extra_body?.enable_thinking === false,
+          thinkingPrefilled:
+            config.thinkingPrefilled === true && request.extra_body?.enable_thinking !== false,
+          stopRequested: Boolean(request.stop?.length),
+          signal: options.cancelSignal,
+        }),
         options.cancelSignal,
         options.toolChoice ?? config.request?.tool_choice,
       ),

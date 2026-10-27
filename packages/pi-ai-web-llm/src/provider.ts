@@ -14,16 +14,15 @@ import { formatContext } from './messages.js'
 import { responseStream } from './events.js'
 import type { ToolPolicy } from './tools.js'
 import { checkThinkingPrefill } from '../../../shared/web-llm/qwen/prefill.js'
-import { isVisionModel, protocolModelId } from '../../../shared/web-llm/models.js'
+import { isVisionModel } from '../../../shared/web-llm/models.js'
 import type { ToolChoice } from '../../../shared/web-llm/types.js'
 import type { WebLLMApi, WebLLMProviderOptions, WebLLMStreamOptions } from './types.js'
 
 /** Wrap a loaded browser engine without taking ownership of its worker or GPU memory. */
 export function createWebLLMProvider(options: WebLLMProviderOptions): Provider<WebLLMApi> {
-  const { engine, modelId, sourceModelId, onChunk, thinkingPrefilled = false } = options
+  const { engine, modelId, onChunk, thinkingPrefilled = false } = options
   if (!modelId.trim()) throw new Error('modelId must name a loaded WebLLM model.')
-  const source = protocolModelId(modelId, sourceModelId)
-  checkThinkingPrefill(source, thinkingPrefilled)
+  checkThinkingPrefill(modelId, thinkingPrefilled)
   positiveInteger(options.contextWindow, 'contextWindow')
   const maxTokens = options.maxTokens ?? Math.min(4096, options.contextWindow)
   positiveInteger(maxTokens, 'maxTokens')
@@ -31,7 +30,7 @@ export function createWebLLMProvider(options: WebLLMProviderOptions): Provider<W
   const providerId = options.providerId ?? 'webllm'
   if (!providerId.trim()) throw new Error('providerId cannot be empty.')
   const defaults = structuredClone(options.request ?? {})
-  const imageInputs = options.imageInputs ?? isVisionModel(source)
+  const imageInputs = options.imageInputs ?? isVisionModel(modelId)
   const model: Model<WebLLMApi> = {
     id: modelId,
     name: options.name ?? modelId,
@@ -39,7 +38,7 @@ export function createWebLLMProvider(options: WebLLMProviderOptions): Provider<W
     provider: providerId,
     baseUrl: '',
     input: imageInputs ? ['text', 'image'] : ['text'],
-    reasoning: options.reasoning ?? /^(Qwen3(?:\.5)?-|gemma-4-)/i.test(source),
+    reasoning: options.reasoning ?? /^(Qwen3(?:\.5)?-|gemma-4-)/i.test(modelId),
     contextWindow: options.contextWindow,
     maxTokens,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -74,7 +73,6 @@ export function createWebLLMProvider(options: WebLLMProviderOptions): Provider<W
         const chunks = protocolStream({
           engine,
           modelId,
-          ...(sourceModelId !== undefined && { sourceModelId }),
           thinkingPrefilled,
           history,
           tools,

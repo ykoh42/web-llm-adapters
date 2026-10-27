@@ -1,7 +1,6 @@
 import type { WebLLMModelConfig } from './types.js'
 import { isTextFormat, normalizeResponseFormat } from '../../../shared/web-llm/response.js'
 import { nativeRequest, streamOptions } from '../../../shared/web-llm/request.js'
-import { protocolModelId } from '../../../shared/web-llm/models.js'
 
 export function hasStructuredResponse(config: WebLLMModelConfig) {
   return !isTextFormat(config.request?.response_format)
@@ -10,7 +9,7 @@ export function hasStructuredResponse(config: WebLLMModelConfig) {
 /** SDK settings take precedence over their native WebLLM equivalents. */
 export function generationOptions(config: WebLLMModelConfig) {
   const options = {
-    ...nativeRequest(config.request ?? {}, protocolModelId(config.modelId, config.sourceModelId)),
+    ...nativeRequest(config.request ?? {}, config.modelId),
     model: config.modelId,
     stream: true as const,
     stream_options: streamOptions(config.request ?? {}),

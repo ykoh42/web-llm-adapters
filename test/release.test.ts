@@ -35,31 +35,6 @@ describe('release model gate', () => {
     expect(() => checkReport(report, source, webllm, ['strands/model/thinking'])).toThrow('Missing')
   })
 
-  test('requires cross-adapter checks to pass without replacing adapter coverage', () => {
-    const integration = {
-      adapter: 'integration' as const,
-      name: 'custom model IDs',
-      status: 'passed' as const,
-      checks: ['model/tools'],
-    }
-    expect(
-      checkReport({ ...report, tests: [...report.tests, integration] }, source, webllm, [
-        'strands/model/tools',
-      ]),
-    ).toBeDefined()
-    expect(() =>
-      checkReport({ ...report, tests: [integration] }, source, webllm, ['strands/model/tools']),
-    ).toThrow('Missing')
-    expect(() =>
-      checkReport(
-        { ...report, tests: [...report.tests, { ...integration, status: 'failed' }] },
-        source,
-        webllm,
-        [],
-      ),
-    ).toThrow('must pass')
-  })
-
   test('does not count default tools or protocol errors as a constrained tool loop', () => {
     const constrained = 'strands/model/constrained-tools'
     expect(() => checkReport(report, source, webllm, [constrained])).toThrow('Missing')

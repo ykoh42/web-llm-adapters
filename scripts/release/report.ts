@@ -20,7 +20,7 @@ export const modelReport = z.object({
   tests: z
     .array(
       z.object({
-        adapter: z.enum(['langchain', 'pi', 'strands', 'integration']),
+        adapter: z.enum(['langchain', 'pi', 'strands']),
         name: z.string().min(1),
         status: z.enum(['passed', 'failed', 'timedOut', 'skipped', 'interrupted']),
         checks: z.array(z.string().min(1)),
