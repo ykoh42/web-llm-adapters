@@ -2994,8 +2994,8 @@ packages:
     engines: {node: '>=14.17'}
     hasBin: true
 
-  typescript@6.0.2:
-    resolution: {integrity: sha512-bGdAIrZ0wiGDo5l8c++HWtbaNCWTS4UTv7RaTH/ThVIgjkveJt83m74bBHMJkuCbslY8ixgLBVZJIOiQlQTjfQ==}
+  typescript@6.0.3:
+    resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
     engines: {node: '>=14.17'}
     hasBin: true
 
@@ -4444,7 +4444,7 @@ snapshots:
 
   '@typescript/typescript6@6.0.2':
     dependencies:
-      '@typescript/old': typescript@6.0.2
+      '@typescript/old': typescript@6.0.3
 
   '@vitest/coverage-v8@5.0.5(vitest@5.0.5)':
     dependencies:
@@ -5578,7 +5578,7 @@ snapshots:
 
   typescript@5.6.1-rc: {}
 
-  typescript@6.0.2: {}
+  typescript@6.0.3: {}
 
   typescript@7.0.2:
     optionalDependencies:
