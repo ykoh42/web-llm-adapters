@@ -1,13 +1,13 @@
 {
-  "commit": "3706f5f34cfc867030d4f06cd687e68f9403106e",
-  "source": "450b4fa55ea52ac190ab3c431ce5c63f64d78a03b146c9f2ec5988cea127d8e8",
+  "commit": "3fb33dc0ac31777dd777f0650ab65c1dba9cef84",
+  "source": "d528caa19e0f1aa9bfacdd616151000c68db45af2db275ce60ce092bf9d75209",
   "webllm": "0.2.86",
-  "checkedAt": "2026-10-25T10:39:47.977Z",
+  "checkedAt": "2026-10-27T05:24:01.671Z",
   "environment": {
     "platform": "darwin",
     "arch": "arm64",
-    "node": "v24.19.0",
-    "browser": "156.0.8078.47",
+    "node": "v26.12.1",
+    "browser": "156.0.8078.48",
     "gpu": { "vendor": "apple", "architecture": "metal-3", "device": "", "description": "" }
   },
   "tests": [
@@ -39,19 +39,19 @@
       "adapter": "strands",
       "name": "examples/strands-web-llm/harness/test/browser/constraints.browser.ts > Qwen2.5-1.5B-Instruct-q4f16_1-MLC constrains an Agent tool loop and preserves native output",
       "status": "passed",
-      "checks": ["Qwen2.5-1.5B-Instruct-q4f16_1-MLC/tools"]
+      "checks": []
     },
     {
       "adapter": "strands",
       "name": "examples/strands-web-llm/harness/test/browser/constraints.browser.ts > Qwen3-1.7B-q4f16_1-MLC constrains an Agent tool loop and preserves native output",
       "status": "passed",
-      "checks": ["Qwen3-1.7B-q4f16_1-MLC/tools", "Qwen3-1.7B-q4f16_1-MLC/thinking"]
+      "checks": []
     },
     {
       "adapter": "strands",
       "name": "examples/strands-web-llm/harness/test/browser/constraints.browser.ts > Qwen3.5-4B-q4f16_1-MLC constrains an Agent tool loop and preserves native output",
       "status": "passed",
-      "checks": ["Qwen3.5-4B-q4f16_1-MLC/tools", "Qwen3.5-4B-q4f16_1-MLC/thinking"]
+      "checks": []
     },
     {
       "adapter": "strands",
@@ -109,9 +109,15 @@
     },
     {
       "adapter": "strands",
-      "name": "examples/strands-web-llm/harness/test/browser/qwen25.browser.ts > Qwen2.5-7B-Instruct-q4f16_1-MLC calls Harness read and answers from its result",
+      "name": "examples/strands-web-llm/harness/test/browser/qwen25.browser.ts > Qwen2.5-7B-Instruct-q4f16_1-MLC preserves native tool output through Harness",
       "status": "passed",
-      "checks": ["Qwen2.5-7B-Instruct-q4f16_1-MLC/tools"]
+      "checks": ["Qwen2.5-7B-Instruct-q4f16_1-MLC/tool-protocol"]
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/qwen25.browser.ts > Qwen2.5-7B-Instruct-q4f16_1-MLC calls Harness read and answers from its result with constraints",
+      "status": "passed",
+      "checks": ["Qwen2.5-7B-Instruct-q4f16_1-MLC/constrained-tools"]
     },
     {
       "adapter": "strands",
@@ -177,19 +183,31 @@
       "adapter": "langchain",
       "name": "examples/langchain-web-llm/browser/test/browser/constraints.spec.ts > Qwen2.5-1.5B-Instruct-q4f16_1-MLC constrains an Agent tool loop and preserves native output",
       "status": "passed",
-      "checks": ["Qwen2.5-1.5B-Instruct-q4f16_1-MLC/tools"]
+      "checks": []
     },
     {
       "adapter": "langchain",
       "name": "examples/langchain-web-llm/browser/test/browser/constraints.spec.ts > Qwen3-1.7B-q4f16_1-MLC constrains an Agent tool loop and preserves native output",
       "status": "passed",
-      "checks": ["Qwen3-1.7B-q4f16_1-MLC/tools", "Qwen3-1.7B-q4f16_1-MLC/thinking"]
+      "checks": []
     },
     {
       "adapter": "langchain",
       "name": "examples/langchain-web-llm/browser/test/browser/constraints.spec.ts > Qwen3.5-4B-q4f16_1-MLC constrains an Agent tool loop and preserves native output",
       "status": "passed",
-      "checks": ["Qwen3.5-4B-q4f16_1-MLC/tools", "Qwen3.5-4B-q4f16_1-MLC/thinking"]
+      "checks": []
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/constraints.spec.ts > Qwen3.5 constrains type-less string and numeric enums",
+      "status": "passed",
+      "checks": []
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/constraints.spec.ts > Qwen3.5 constrains a type-less array-or-null tool argument",
+      "status": "passed",
+      "checks": []
     },
     {
       "adapter": "langchain",
@@ -229,73 +247,79 @@
     },
     {
       "adapter": "langchain",
-      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen3.5-9B-q4f16_1-MLC: default Deep Agents tools and final answer",
+      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen3.5-9B-q4f16_1-MLC: Deep Agents tools and final answer",
       "status": "passed",
       "checks": ["Qwen3.5-9B-q4f16_1-MLC/tools", "Qwen3.5-9B-q4f16_1-MLC/thinking"]
     },
     {
       "adapter": "langchain",
-      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen3.5-4B-q4f16_1-MLC: default Deep Agents tools and final answer",
+      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen3.5-4B-q4f16_1-MLC: Deep Agents tools and final answer",
       "status": "passed",
       "checks": ["Qwen3.5-4B-q4f16_1-MLC/tools", "Qwen3.5-4B-q4f16_1-MLC/thinking"]
     },
     {
       "adapter": "langchain",
-      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen3-4B-q4f16_1-MLC: default Deep Agents tools and final answer",
+      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen3-4B-q4f16_1-MLC: Deep Agents tools and final answer",
       "status": "passed",
       "checks": ["Qwen3-4B-q4f16_1-MLC/tools", "Qwen3-4B-q4f16_1-MLC/thinking"]
     },
     {
       "adapter": "langchain",
-      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > gemma-4-E2B-it-q4f16_1-MLC: default Deep Agents tools and final answer",
+      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > gemma-4-E2B-it-q4f16_1-MLC: Deep Agents tools and final answer",
       "status": "passed",
       "checks": ["gemma-4-E2B-it-q4f16_1-MLC/tools", "gemma-4-E2B-it-q4f16_1-MLC/thinking"]
     },
     {
       "adapter": "langchain",
-      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen2.5-7B-Instruct-q4f16_1-MLC: default Deep Agents tools and final answer",
+      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen2.5-7B-Instruct-q4f16_1-MLC: default Deep Agents preserves native tool output",
       "status": "passed",
-      "checks": ["Qwen2.5-7B-Instruct-q4f16_1-MLC/tools"]
+      "checks": ["Qwen2.5-7B-Instruct-q4f16_1-MLC/tool-protocol"]
     },
     {
       "adapter": "langchain",
-      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen2.5-3B-Instruct-q4f16_1-MLC: default Deep Agents tools and final answer",
+      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen2.5-7B-Instruct-q4f16_1-MLC: Deep Agents tools and final answer with constraints",
+      "status": "passed",
+      "checks": ["Qwen2.5-7B-Instruct-q4f16_1-MLC/constrained-tools"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen2.5-3B-Instruct-q4f16_1-MLC: Deep Agents tools and final answer",
       "status": "passed",
       "checks": ["Qwen2.5-3B-Instruct-q4f16_1-MLC/tools"]
     },
     {
       "adapter": "langchain",
-      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen2.5-1.5B-Instruct-q4f16_1-MLC: default Deep Agents tools and final answer",
+      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen2.5-1.5B-Instruct-q4f16_1-MLC: Deep Agents tools and final answer",
       "status": "passed",
       "checks": ["Qwen2.5-1.5B-Instruct-q4f16_1-MLC/tools"]
     },
     {
       "adapter": "langchain",
-      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen2.5-0.5B-Instruct-q4f16_1-MLC: default Deep Agents tools and final answer",
+      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen2.5-0.5B-Instruct-q4f16_1-MLC: Deep Agents tools and final answer",
       "status": "passed",
       "checks": ["Qwen2.5-0.5B-Instruct-q4f16_1-MLC/tools"]
     },
     {
       "adapter": "langchain",
-      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen3-8B-q4f16_1-MLC: default Deep Agents tools and final answer",
+      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen3-8B-q4f16_1-MLC: Deep Agents tools and final answer",
       "status": "passed",
       "checks": ["Qwen3-8B-q4f16_1-MLC/tools", "Qwen3-8B-q4f16_1-MLC/thinking"]
     },
     {
       "adapter": "langchain",
-      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen3.5-2B-q4f16_1-MLC: default Deep Agents tools and final answer",
+      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen3.5-2B-q4f16_1-MLC: Deep Agents tools and final answer",
       "status": "passed",
       "checks": ["Qwen3.5-2B-q4f16_1-MLC/tools", "Qwen3.5-2B-q4f16_1-MLC/thinking"]
     },
     {
       "adapter": "langchain",
-      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen3.5-0.8B-q4f16_1-MLC: default Deep Agents tools and final answer",
+      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen3.5-0.8B-q4f16_1-MLC: Deep Agents tools and final answer",
       "status": "passed",
       "checks": ["Qwen3.5-0.8B-q4f16_1-MLC/tools", "Qwen3.5-0.8B-q4f16_1-MLC/thinking"]
     },
     {
       "adapter": "langchain",
-      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen3-1.7B-q4f16_1-MLC: default Deep Agents tools and final answer",
+      "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen3-1.7B-q4f16_1-MLC: Deep Agents tools and final answer",
       "status": "passed",
       "checks": ["Qwen3-1.7B-q4f16_1-MLC/tools", "Qwen3-1.7B-q4f16_1-MLC/thinking"]
     },
@@ -309,19 +333,19 @@
       "adapter": "pi",
       "name": "examples/pi-ai-web-llm/browser/test/constraints.spec.ts > Qwen2.5-1.5B-Instruct-q4f16_1-MLC constrains an Agent tool loop and preserves native output",
       "status": "passed",
-      "checks": ["Qwen2.5-1.5B-Instruct-q4f16_1-MLC/tools"]
+      "checks": []
     },
     {
       "adapter": "pi",
       "name": "examples/pi-ai-web-llm/browser/test/constraints.spec.ts > Qwen3-1.7B-q4f16_1-MLC constrains an Agent tool loop and preserves native output",
       "status": "passed",
-      "checks": ["Qwen3-1.7B-q4f16_1-MLC/tools", "Qwen3-1.7B-q4f16_1-MLC/thinking"]
+      "checks": []
     },
     {
       "adapter": "pi",
       "name": "examples/pi-ai-web-llm/browser/test/constraints.spec.ts > Qwen3.5-4B-q4f16_1-MLC constrains an Agent tool loop and preserves native output",
       "status": "passed",
-      "checks": ["Qwen3.5-4B-q4f16_1-MLC/tools", "Qwen3.5-4B-q4f16_1-MLC/thinking"]
+      "checks": []
     },
     {
       "adapter": "pi",
@@ -385,9 +409,15 @@
     },
     {
       "adapter": "pi",
-      "name": "examples/pi-ai-web-llm/browser/test/provider.spec.ts > Qwen2.5-7B-Instruct-q4f16_1-MLC: Pi Agent Core tools, usage, cancellation and recovery in a Worker",
+      "name": "examples/pi-ai-web-llm/browser/test/provider.spec.ts > Qwen2.5-7B-Instruct-q4f16_1-MLC: Pi Agent Core preserves native tool output",
       "status": "passed",
-      "checks": ["Qwen2.5-7B-Instruct-q4f16_1-MLC/tools"]
+      "checks": ["Qwen2.5-7B-Instruct-q4f16_1-MLC/tool-protocol"]
+    },
+    {
+      "adapter": "pi",
+      "name": "examples/pi-ai-web-llm/browser/test/provider.spec.ts > Qwen2.5-7B-Instruct-q4f16_1-MLC: Pi Agent Core tools, usage, cancellation and recovery in a Worker with constraints",
+      "status": "passed",
+      "checks": ["Qwen2.5-7B-Instruct-q4f16_1-MLC/constrained-tools"]
     },
     {
       "adapter": "pi",
@@ -406,6 +436,12 @@
       "name": "examples/pi-ai-web-llm/browser/test/provider.spec.ts > Qwen2.5-0.5B-Instruct-q4f16_1-MLC: Pi Agent Core tools, usage, cancellation and recovery in a Worker",
       "status": "passed",
       "checks": ["Qwen2.5-0.5B-Instruct-q4f16_1-MLC/tools"]
+    },
+    {
+      "adapter": "pi",
+      "name": "examples/pi-ai-web-llm/browser/test/provider.spec.ts > gemma-4-E2B-it-q4f16_1-MLC: preserves thinking history when sampling sets WebLLM options",
+      "status": "passed",
+      "checks": []
     },
     {
       "adapter": "pi",
