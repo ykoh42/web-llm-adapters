@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Type, type AssistantMessage, type Message } from '@earendil-works/pi-ai'
 import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
+import { ModelType, postInitAndCheckFieldsChatCompletion } from '@mlc-ai/web-llm'
 import { formatContext } from '../src/messages.js'
 import { setup } from './helpers.js'
 
@@ -222,12 +223,67 @@ describe('Pi transcript conversion', () => {
     })
   })
 
+  it.each(['lookup', 'search'])(
+    'replays an ID reused by %s after the earlier call has its result',
+    async (name) => {
+      const { model, models, create } = setup()
+      const messages: Message[] = [
+        assistant([toolCall]),
+        result,
+        { role: 'user', content: 'Look up B8.', timestamp: 1 },
+        assistant([{ ...toolCall, name, arguments: { code: 'B8' } }]),
+        { ...result, toolName: name, content: [{ type: 'text', text: '43' }] },
+      ]
+      const input = normalizeContext({ messages })
+      const before = structuredClone(input)
+
+      const { history } = formatContext(input, model)
+
+      expect(history.filter((message) => message.role === 'assistant')).toEqual([
+        {
+          role: 'assistant',
+          content: '',
+          tool_calls: [
+            {
+              id: 'call-1',
+              type: 'function',
+              function: { name: 'lookup', arguments: '{"code":"A7"}' },
+            },
+          ],
+        },
+        {
+          role: 'assistant',
+          content: '',
+          tool_calls: [
+            { id: 'call-1', type: 'function', function: { name, arguments: '{"code":"B8"}' } },
+          ],
+        },
+      ])
+      expect(history.filter((message) => message.role === 'tool')).toEqual([
+        { role: 'tool', tool_call_id: 'call-1', content: '42' },
+        { role: 'tool', tool_call_id: 'call-1', content: '43' },
+      ])
+      const response = await models.completeSimple(model, { messages })
+      expect(response.stopReason).toBe('stop')
+      expect(create).toHaveBeenCalledOnce()
+      expect(create.mock.calls[0]?.[0].messages).toEqual(history)
+      expect(() =>
+        postInitAndCheckFieldsChatCompletion(
+          structuredClone(create.mock.calls[0]![0]),
+          model.id,
+          ModelType.LLM,
+        ),
+      ).not.toThrow()
+      expect(input).toEqual(before)
+    },
+  )
+
   it.each([
     [assistant([toolCall])],
     [assistant([toolCall]), { role: 'user', content: 'Next', timestamp: 0 }],
     [assistant([toolCall]), { ...result, toolName: 'other' }],
     [assistant([toolCall]), result, result],
-    [assistant([toolCall]), result, assistant([toolCall]), result],
+    [assistant([toolCall, toolCall]), result],
     [result],
   ] satisfies Message[][])(
     'rejects incomplete, mismatched or duplicated tool history %#',

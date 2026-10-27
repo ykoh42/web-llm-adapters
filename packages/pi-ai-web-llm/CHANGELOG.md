@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Allow a tool-call ID to be reused after its earlier call has a result.
 - Reject edits to generated Qwen tool constraints made by `onPayload`.
 - Stop requests cancelled during payload preparation before opening WebLLM.
 - Skip payload and stream wrappers when their callbacks are absent.

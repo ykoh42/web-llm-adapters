@@ -19,7 +19,7 @@ import type { ProtocolMessage, ToolSpec } from '../../../shared/web-llm/types.js
 
 export function formatContext(context: TranscriptContext, model: Model<Api>) {
   const history: ProtocolMessage[] = []
-  const calls: ToolHistory = { pending: new Map(), seen: new Set() }
+  const pending = new Map<string, string>()
   const transcript = collapseSystemMessages(context)
   const tools = formatTools(getInitialSystemMessage(transcript.messages)?.toolsAdded ?? [])
   let toolImages: ChatCompletionContentPart[] = []
@@ -35,7 +35,7 @@ export function formatContext(context: TranscriptContext, model: Model<Api>) {
     )
       continue
     if (message.role !== 'toolResult') {
-      if (calls.pending.size) throw new Error('WebLLM is missing a tool result.')
+      if (pending.size) throw new Error('WebLLM is missing a tool result.')
       flushImages()
     }
     if (message.role === 'system') {
@@ -56,9 +56,9 @@ export function formatContext(context: TranscriptContext, model: Model<Api>) {
               ),
       })
     } else if (message.role === 'toolResult') {
-      if (calls.pending.get(message.toolCallId) !== message.toolName)
+      if (pending.get(message.toolCallId) !== message.toolName)
         throw new Error('A tool result needs a matching tool call ID and name.')
-      calls.pending.delete(message.toolCallId)
+      pending.delete(message.toolCallId)
       let text = ''
       for (const part of message.content) {
         if (part.type === 'text') text += part.text
@@ -70,10 +70,10 @@ export function formatContext(context: TranscriptContext, model: Model<Api>) {
         content: (message.isError ? '[ERROR] ' : '') + text,
       })
     } else {
-      history.push(formatAssistant(message, model, calls))
+      history.push(formatAssistant(message, model, pending))
     }
   }
-  if (calls.pending.size) throw new Error('WebLLM is missing a tool result.')
+  if (pending.size) throw new Error('WebLLM is missing a tool result.')
   flushImages()
   return { history, tools }
 }
@@ -97,15 +97,10 @@ function formatTools(tools: Tool[]): ToolSpec[] {
   })
 }
 
-interface ToolHistory {
-  pending: Map<string, string>
-  seen: Set<string>
-}
-
 function formatAssistant(
   message: AssistantMessage,
   model: Model<Api>,
-  calls: ToolHistory,
+  pending: Map<string, string>,
 ): ProtocolMessage {
   const toolCalls = []
   let text = ''
@@ -121,7 +116,7 @@ function formatAssistant(
         if (sameModel && !part.redacted) reasoning += part.thinking
         break
       case 'toolCall':
-        toolCalls.push(formatCall(part, calls))
+        toolCalls.push(formatCall(part, pending))
         break
     }
   }
@@ -133,12 +128,11 @@ function formatAssistant(
   }
 }
 
-function formatCall(call: ToolCall, calls: ToolHistory) {
+function formatCall(call: ToolCall, pending: Map<string, string>) {
   if (call.argumentsError || call.namespace)
     throw new Error('WebLLM cannot replay invalid or namespaced tool calls.')
-  if (calls.seen.has(call.id)) throw new Error('WebLLM received a duplicate tool call ID.')
-  calls.seen.add(call.id)
-  calls.pending.set(call.id, call.name)
+  if (pending.has(call.id)) throw new Error('WebLLM received a duplicate tool call ID.')
+  pending.set(call.id, call.name)
   return {
     id: call.id,
     type: 'function' as const,
