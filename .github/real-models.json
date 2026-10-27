@@ -1,8 +1,8 @@
 {
-  "commit": "44943a0435eb526148f446eca2cc77eb800c401a",
-  "source": "e90eb38b8e5169cd215e78ef56fd1565b2fcda16b3a1ecc4752da050649c52c2",
+  "commit": "ce47e4187e28267aa3ed37d5926cae3c09a958a4",
+  "source": "ec0526ecfd62b640c0be11c2be04610a22a0e7aeb8addce3aa363f132fb993d6",
   "webllm": "0.2.86",
-  "checkedAt": "2026-10-27T13:59:48.766Z",
+  "checkedAt": "2026-10-27T15:11:42.717Z",
   "environment": {
     "platform": "darwin",
     "arch": "arm64",
@@ -472,6 +472,30 @@
       "name": "examples/pi-ai-web-llm/browser/test/vision.spec.ts > Phi images match native WebLLM through Pi and recover after an invalid image",
       "status": "passed",
       "checks": ["Phi-3.5-vision-instruct-q4f16_1-MLC/image"]
+    },
+    {
+      "adapter": "integration",
+      "name": "test/browser/model-alias.browser.ts > Qwen2.5-3B-Instruct-q4f16_1-MLC: custom ID keeps tool calls and thinking across adapters",
+      "status": "passed",
+      "checks": []
+    },
+    {
+      "adapter": "integration",
+      "name": "test/browser/model-alias.browser.ts > Qwen3-4B-q4f16_1-MLC: custom ID keeps tool calls and thinking across adapters",
+      "status": "passed",
+      "checks": []
+    },
+    {
+      "adapter": "integration",
+      "name": "test/browser/model-alias.browser.ts > Qwen3.5-4B-q4f16_1-MLC: custom ID keeps tool calls and thinking across adapters",
+      "status": "passed",
+      "checks": []
+    },
+    {
+      "adapter": "integration",
+      "name": "test/browser/model-alias.browser.ts > gemma-4-E2B-it-q4f16_1-MLC: custom ID keeps tool calls and thinking across adapters",
+      "status": "passed",
+      "checks": []
     }
   ]
 }
