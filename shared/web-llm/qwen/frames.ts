@@ -88,13 +88,11 @@ export async function* qwenFrames(
           const end = textEnd(pending, reader.markers ?? toolEndMarkers)
           const at = reader.end(pending, end)
           if (at === -1) {
-            output.add('tool', pending.slice(0, end))
             toolText += pending.slice(0, end)
             pending = pending.slice(end)
             break
           }
           toolText += pending.slice(0, at)
-          output.add('tool', pending.slice(0, at) + callEnd)
           pending = pending.slice(at + callEnd.length)
           mode = 'text'
           if (!failure) {
@@ -148,9 +146,8 @@ export async function* qwenFrames(
       if (stop) {
         readingPrefix = false
         if (mode === 'tool') {
-          if (stop !== 'maxTokens' && stop !== 'cancelled') {
+          if (stop !== 'maxTokens' && stop !== 'cancelled')
             throw new ModelError(reader.unclosedError())
-          } else output.add('tool', pending)
           pending = ''
           toolText = ''
           mode = 'text'
