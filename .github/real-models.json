@@ -1,8 +1,8 @@
 {
-  "commit": "3fb33dc0ac31777dd777f0650ab65c1dba9cef84",
-  "source": "d528caa19e0f1aa9bfacdd616151000c68db45af2db275ce60ce092bf9d75209",
+  "commit": "a721e3ac6ebd3d5408768b98e54c60bedc117c5c",
+  "source": "228551947392e70151dcbd5d9ac616786be3982569a234db43a40bae217aea73",
   "webllm": "0.2.86",
-  "checkedAt": "2026-10-27T05:24:01.671Z",
+  "checkedAt": "2026-10-27T07:34:16.873Z",
   "environment": {
     "platform": "darwin",
     "arch": "arm64",
