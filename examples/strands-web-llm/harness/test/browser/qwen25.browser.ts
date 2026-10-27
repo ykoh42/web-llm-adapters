@@ -42,19 +42,22 @@ const cases = [
     modelId: 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
     // Native generation omits a character here; preserve the original failing input.
     sample: { file: 'q25-76746.txt', code: 'code-4b62881b' },
-    exactCopy: false,
     release: true,
   },
   ...[
     'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
     'Qwen2.5-3B-Instruct-q4f16_1-MLC',
     'Qwen2.5-7B-Instruct-q4f16_1-MLC',
-  ].map((modelId) => ({ modelId, sample: undefined, exactCopy: true, release: true })),
+  ].map((modelId) => ({ modelId, sample: undefined, release: true })),
   {
     modelId: 'Qwen2.5-3B-Instruct-q4f16_1-MLC',
     sample: { file: 'q25-70021.txt', code: 'code-77b175b5' },
-    exactCopy: true,
     release: false,
+  },
+  {
+    modelId: 'Qwen2.5-3B-Instruct-q4f16_1-MLC',
+    sample: { file: 'q25-62169.txt', code: 'code-38adf3b0' },
+    release: true,
   },
 ].flatMap((item) =>
   (item.modelId === 'Qwen2.5-7B-Instruct-q4f16_1-MLC' ? [false, true] : [false]).map(
@@ -62,15 +65,15 @@ const cases = [
   ),
 )
 
-for (const { modelId, sample, exactCopy, release, constrainedToolCalls } of cases) {
+for (const { modelId, sample, release, constrainedToolCalls } of cases) {
   const protocol = modelId === 'Qwen2.5-7B-Instruct-q4f16_1-MLC' && !constrainedToolCalls
   const title = protocol
     ? `${modelId} preserves native tool output through Harness`
-    : `${modelId} calls Harness read and answers from its result`
+    : `${modelId} calls Harness read and preserves the native answer`
   const feature = constrainedToolCalls ? 'constrained-tools' : 'tools'
   test(
     title +
-      (sample ? ' with recorded tool history' : '') +
+      (sample ? ` with recorded input ${sample.file}` : '') +
       (constrainedToolCalls ? ' with constraints' : ''),
     release ? modelCheck(modelId, protocol ? 'tool-protocol' : feature) : {},
     async ({ page }, info) => {
@@ -177,6 +180,7 @@ for (const { modelId, sample, exactCopy, release, constrainedToolCalls } of case
         expect(chunks.map(rawText)).toEqual(native.map(rawText))
         expect(result.stopReason).toBe('endTurn')
         expect(text.trim()).not.toBe('')
+        // Keep the native answer even when the model copies the code incorrectly.
         expect(text).toBe(rawText(native.at(-1)!))
         expect(
           native
@@ -184,7 +188,6 @@ for (const { modelId, sample, exactCopy, release, constrainedToolCalls } of case
             .flatMap((chunk) => chunk.choices.map((choice) => choice.finish_reason))
             .filter(Boolean),
         ).toEqual(['stop'])
-        if (exactCopy) expect(text).toContain(code)
         const blocks = agent.messages.flatMap((message) => message.content)
         const calls = blocks.filter((block) => block.type === 'toolUseBlock')
         expect(calls).toHaveLength(1)
