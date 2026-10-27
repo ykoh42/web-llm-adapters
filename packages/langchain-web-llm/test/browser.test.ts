@@ -951,6 +951,32 @@ describe('browser transport', () => {
     ).rejects.toThrow('closed')
   })
 
+  it('waits for a native call and rejects queued work when closing', async () => {
+    const { bridge } = browser()
+    const entered = pause()
+    const finish = pause()
+    const active = bridge.withEngine(async () => {
+      entered.resume()
+      await finish.wait
+      return 'finished'
+    })
+    await entered.wait
+    const run = vi.fn()
+    const queued = expect(bridge.withEngine(run)).rejects.toThrow('closed')
+    let closed = false
+    const closing = bridge.close().then(() => {
+      closed = true
+    })
+    await expect(bridge.withEngine(run)).rejects.toThrow('closed')
+    expect(closed).toBe(false)
+    finish.resume()
+    expect(await active).toBe('finished')
+    await queued
+    await closing
+    expect(closed).toBe(true)
+    expect(run).not.toHaveBeenCalled()
+  })
+
   it('cancels browser generation and recovers on the next request', async () => {
     const { model, create, stop } = browser(chunk({ content: 'Recovered' }, 'stop'))
     const hold = pause()

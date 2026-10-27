@@ -4,12 +4,12 @@ import {
   type StandardMessageStructure,
 } from '@langchain/core/messages'
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
-import { withEngine } from '../../../../shared/web-llm/engine/access.js'
 import type { WebLLMChunk } from '../types.js'
 import { WebLLMEmbeddings } from '../embeddings/model.js'
 import { ChatWebLLM } from '../model.js'
 import type { BrowserBridge, BrowserChunk } from './types.js'
 import { browserStream, type BrowserPacket } from '../../../../shared/browser/stream.js'
+import { browserCalls, type BrowserCall } from '../../../../shared/browser/calls.js'
 import { markChunkCallbackNonMutating } from '../../../../shared/web-llm/callback.js'
 import { failedAttempts, type FailedAttempt } from './failed-attempts.js'
 import { serializeBrowserError, type BrowserError } from './errors.js'
@@ -17,39 +17,17 @@ import { serializeBrowserError, type BrowserError } from './errors.js'
 /** Serve a caller-owned engine on a private browser page. Closing does not unload it. */
 export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
   type Read = BrowserPacket<BrowserChunk, WebLLMChunk> | FailedAttempt
-  interface Call {
+  interface Call extends BrowserCall<Read> {
     takeChunks?: () => WebLLMChunk[]
-    stream: AsyncGenerator<BrowserChunk>
-    next: () => Promise<Read>
-    pending?: Promise<Read>
     retry?: (error: BrowserError) => void
-    controller: AbortController
-    closing?: Promise<void>
   }
-  const calls = new Map<string, Call>()
-  let closed = false
-  const nativeCalls = new Set<Promise<unknown>>()
-  function checkOpen() {
-    if (closed) throw new Error('The browser bridge is closed.')
-  }
+  const active = browserCalls<Read, Call>(engine)
+  const { calls } = active
   const bridge: BrowserBridge = {
-    async withEngine(run) {
-      checkOpen()
-      const call = withEngine(engine, (engine) => {
-        checkOpen()
-        return run(engine)
-      })
-      nativeCalls.add(call)
-      try {
-        return await call
-      } finally {
-        nativeCalls.delete(call)
-      }
-    },
+    withEngine: active.withEngine,
     async embed({ config, texts, type, hostRetries }) {
-      let call: Promise<number[][]> | undefined
       try {
-        checkOpen()
+        active.checkOpen()
         const model = new WebLLMEmbeddings({
           ...config,
           engine,
@@ -57,12 +35,11 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
         })
         if (type === 'query' && texts.length !== 1)
           throw new Error('An embedding query needs one text.')
-        call =
+        const call =
           type === 'query'
             ? model.embedQuery(texts[0]!).then((vector) => [vector])
             : model.embedDocuments(texts)
-        nativeCalls.add(call)
-        return await call
+        return await active.track(call)
       } catch (error) {
         const packet = {
           error: serializeBrowserError(error),
@@ -71,12 +48,10 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
           },
         }
         return packet
-      } finally {
-        if (call) nativeCalls.delete(call)
       }
     },
     async start({ config, messages, options, includeChunks, includeFailedAttempts }) {
-      checkOpen()
+      active.checkOpen()
       const id = crypto.randomUUID()
       const controller = new AbortController()
       const output = includeChunks ? browserStream<BrowserChunk, WebLLMChunk>() : undefined
@@ -126,11 +101,7 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
       const call = calls.get(id)
       try {
         if (!call) throw new Error('Unknown browser call.')
-        const pending = call.pending ?? call.next()
-        // Reserve the next chunk before waiting, so overlapping reads cannot share it.
-        call.pending = pending.then((result) => (result.done ? result : call.next()))
-        void call.pending.catch(() => {})
-        const result = await pending
+        const result = await active.read(call)
         if (result.done) calls.delete(id)
         return result
       } catch (error) {
@@ -149,27 +120,8 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
     retry(id, error) {
       calls.get(id)?.retry?.(error)
     },
-    stop(id) {
-      const call = calls.get(id)
-      if (!call) return Promise.resolve()
-      call.controller.abort()
-      call.closing ??= (async () => {
-        try {
-          await call.stream.return(undefined)
-        } finally {
-          calls.delete(id)
-        }
-      })()
-      return call.closing
-    },
-    async close() {
-      closed = true
-      const results = await Promise.allSettled([
-        ...Array.from(calls.keys(), (id) => bridge.stop(id)),
-        ...Array.from(nativeCalls, (call) => call.catch(() => {})),
-      ])
-      for (const result of results) if (result.status === 'rejected') throw result.reason
-    },
+    stop: active.stop,
+    close: () => active.close((id) => bridge.stop(id)),
   }
   return bridge
 }

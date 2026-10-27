@@ -20,7 +20,12 @@ export default defineConfig({
     ],
     coverage: {
       provider: 'v8',
-      include: ['packages/*/src/**/*.ts', 'shared/web-llm/**/*.ts', 'shared/browser/stream.ts'],
+      include: [
+        'packages/*/src/**/*.ts',
+        'shared/web-llm/**/*.ts',
+        'shared/browser/stream.ts',
+        'shared/browser/calls.ts',
+      ],
       reporter: ['text', 'html'],
       thresholds: {
         lines: 95,

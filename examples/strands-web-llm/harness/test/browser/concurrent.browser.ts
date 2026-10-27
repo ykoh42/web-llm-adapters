@@ -47,7 +47,7 @@ test(
 )
 
 test(
-  'cancelling a queued browser request leaves the active and later calls usable',
+  'cancelling and closing browser calls leaves the engine usable',
   modelCheck('engine', 'cancel'),
   async ({ page }) => {
     const harness = await openHarness(page)
@@ -99,6 +99,35 @@ test(
           later += event.delta.text
       }
       expect(later.toLowerCase()).toMatch(/pineapple|🍍/)
+
+      const engine = await page.evaluateHandle(() => window.webllmBridge.withEngine((e) => e))
+      const unfinished = harness.auxModel.stream(
+        messages('Explain the history of mathematics in detail.'),
+      )
+      while (true) {
+        const result = await unfinished.next()
+        if (result.done) throw new Error('The model returned no text')
+        if (
+          result.value.type === 'modelContentBlockDeltaEvent' &&
+          result.value.delta.type === 'textDelta'
+        )
+          break
+      }
+      await page.evaluate(() => window.webllmBridge.close())
+      await unfinished.return(undefined)
+      await expect(harness.auxModel.stream(messages('Hello')).next()).rejects.toThrow('closed')
+      const answer = await engine.evaluate(async (engine) => {
+        const result = await engine.chat.completions.create({
+          model: 'gemma-4-E2B-it-q4f16_1-MLC',
+          messages: [{ role: 'user', content: 'What is 1 + 1?' }],
+          temperature: 0,
+          max_tokens: 128,
+          extra_body: { enable_thinking: false },
+        })
+        return result.choices[0]?.message.content
+      })
+      expect(answer).toContain('2')
+      await engine.dispose()
     } finally {
       await harness.close()
     }

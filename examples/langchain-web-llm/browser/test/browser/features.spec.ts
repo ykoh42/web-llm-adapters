@@ -354,7 +354,7 @@ test(
 )
 
 test(
-  'real engine serializes concurrent inference, cancels generation and recovers',
+  'real engine handles concurrent calls, cancellation and bridge closure',
   modelCheck('engine', 'concurrency', 'cancel'),
   async ({ page }) => {
     const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
@@ -379,6 +379,16 @@ test(
     cancel.abort()
     await expect(stream.next()).rejects.toHaveProperty('name', 'AbortError')
     expect((await model.invoke('What is 3 + 3?')).text).toContain('6')
+
+    const unfinished = await model.stream('Explain the history of mathematics in detail.')
+    expect((await unfinished.next()).done).toBe(false)
+    await page.evaluate(() => window.webllmLangChainBridge!.close())
+    await expect(unfinished.return()).rejects.toHaveProperty('name', 'AbortError')
+    await expect(model.invoke('Hello')).rejects.toThrow('closed')
+    const answer = await page.evaluate(
+      async () => (await window.checks.model(false).invoke('What is 4 + 4?')).text,
+    )
+    expect(answer).toContain('8')
   },
 )
 
