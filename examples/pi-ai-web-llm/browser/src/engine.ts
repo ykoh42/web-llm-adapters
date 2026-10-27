@@ -1,4 +1,5 @@
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
+import type { WebLLMProviderOptions } from 'pi-ai-web-llm'
 import { chatOptions } from '../../chat-options.js'
 import { sampling } from '../../sampling.js'
 import runtimeUrl from 'pi-ai-web-llm/runtime/gemma-4-e2b.wasm?url'
@@ -49,7 +50,7 @@ export async function load(id: string, useWorker = true, onProgress?: (text: str
 
 export async function provider(
   enabled: boolean,
-  thinkingPrefilled = modelId.startsWith('Qwen3.5-'),
+  options: Pick<WebLLMProviderOptions, 'thinkingPrefilled' | 'request'> = {},
 ) {
   if (!engine) throw new Error('Load a model first.')
   const [{ createModels }, { createWebLLMProvider }] = await Promise.all([
@@ -60,9 +61,9 @@ export async function provider(
   const source = createWebLLMProvider({
     engine,
     modelId,
-    thinkingPrefilled,
+    thinkingPrefilled: options.thinkingPrefilled ?? modelId.startsWith('Qwen3.5-'),
     contextWindow,
-    request: { ...sampling(modelId, enabled), max_tokens: 4096, seed: 7 },
+    request: { ...sampling(modelId, enabled), max_tokens: 4096, seed: 7, ...options.request },
   })
   models.setProvider(source)
   return { models, model: source.getModels()[0]!, engine }

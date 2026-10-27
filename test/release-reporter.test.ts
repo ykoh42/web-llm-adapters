@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
@@ -111,7 +111,7 @@ test('keeps every result when Playwright starts another test', async () => {
 test('listing tests needs no GPU environment and leaves the verification report intact', async () => {
   const root = fileURLToPath(new URL('../', import.meta.url))
   const report = join(root, '.github/real-models.json')
-  const previous = readFileSync(report, 'utf8')
+  const previous = existsSync(report) ? readFileSync(report, 'utf8') : undefined
   const { stdout, stderr } = await run(
     process.execPath,
     [
@@ -134,5 +134,5 @@ test('listing tests needs no GPU environment and leaves the verification report 
   )
   expect(stdout).toMatch(/Total: \d+ tests in \d+ files/)
   expect(stderr).toBe('')
-  expect(readFileSync(report, 'utf8')).toBe(previous)
+  expect(existsSync(report) ? readFileSync(report, 'utf8') : undefined).toBe(previous)
 }, 15_000)

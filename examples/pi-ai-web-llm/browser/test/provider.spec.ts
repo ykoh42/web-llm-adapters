@@ -304,7 +304,7 @@ test('the example UI loads a Worker and runs the Pi tool loop without test globa
   expect(errors).toEqual([])
 })
 
-for (const modelId of process.env.MODEL_IDS?.split(',') ?? [
+const modelIds = process.env.MODEL_IDS?.split(',') ?? [
   'Qwen3.5-9B-q4f16_1-MLC',
   'Qwen3.5-4B-q4f16_1-MLC',
   'Qwen3.5-2B-q4f16_1-MLC',
@@ -317,12 +317,23 @@ for (const modelId of process.env.MODEL_IDS?.split(',') ?? [
   'Qwen2.5-3B-Instruct-q4f16_1-MLC',
   'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
   'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
-]) {
+]
+const checks = modelIds.flatMap((modelId) =>
+  (modelId === 'Qwen2.5-7B-Instruct-q4f16_1-MLC' ? [false, true] : [false]).map(
+    (constrainedToolCalls) => ({ modelId, constrainedToolCalls }),
+  ),
+)
+for (const { modelId, constrainedToolCalls } of checks) {
+  const protocol = modelId === 'Qwen2.5-7B-Instruct-q4f16_1-MLC' && !constrainedToolCalls
+  const title = protocol
+    ? 'Pi Agent Core preserves native tool output'
+    : 'Pi Agent Core tools, usage, cancellation and recovery in a Worker'
+  const feature = constrainedToolCalls ? 'constrained-tools' : 'tools'
   test(
-    `${modelId}: Pi Agent Core tools, usage, cancellation and recovery in a Worker`,
+    `${modelId}: ${title}` + (constrainedToolCalls ? ' with constraints' : ''),
     modelCheck(
       modelId,
-      'tools',
+      protocol ? 'tool-protocol' : feature,
       ...(!modelId.startsWith('Qwen2.5-') ? (['thinking'] as const) : []),
     ),
     async ({ page }, info) => {
@@ -330,28 +341,46 @@ for (const modelId of process.env.MODEL_IDS?.split(',') ?? [
       page.on('pageerror', (error) => errors.push(error.message))
       await page.goto('http://127.0.0.1:4173/pi/test/checks.html')
       await page.evaluate((id) => window.piChecks.load(id), modelId)
-      const evidence = await page.evaluate(async (modelId) => {
-        const agent = await window.piChecks.createAgent(true)
-        const requests: unknown[] = []
-        const native: ChatCompletionChunk[] = []
-        agent.onPayload = (payload) => {
-          requests.push(structuredClone(payload))
-        }
-        agent.onProviderStreamEvent = (event) => {
-          native.push(structuredClone(event) as ChatCompletionChunk)
-        }
-        const error = await agent
-          .prompt(
-            modelId === 'Qwen3.5-0.8B-q4f16_1-MLC'
-              ? 'Call lookup with code A7 and report exactly the answer it returns.'
-              : 'Look up A7 and tell me the answer.',
-          )
-          .then(
-            () => null,
-            (error: unknown) => String(error),
-          )
-        return { messages: agent.state.messages, requests, native, error }
-      }, modelId)
+      const evidence = await page.evaluate(
+        async ({ modelId, constrainedToolCalls }) => {
+          const agent = await window.piChecks.createAgent(true, { constrainedToolCalls })
+          const requests: ChatCompletionRequestStreaming[] = []
+          const native: ChatCompletionChunk[] = []
+          let toolCalls = 0
+          agent.subscribe((event) => {
+            if (event.type === 'tool_execution_start') toolCalls++
+          })
+          agent.onPayload = (payload) => {
+            requests.push(structuredClone(payload) as ChatCompletionRequestStreaming)
+          }
+          agent.onProviderStreamEvent = (event) => {
+            native.push(structuredClone(event) as ChatCompletionChunk)
+          }
+          const error = await agent
+            .prompt(
+              modelId === 'Qwen3.5-0.8B-q4f16_1-MLC'
+                ? 'Call lookup with code A7 and report exactly the answer it returns.'
+                : 'Look up A7 and tell me the answer.',
+            )
+            .then(
+              () => null,
+              (error: unknown) => String(error),
+            )
+          let direct: string | undefined
+          if (!constrainedToolCalls && agent.state.errorMessage) {
+            const { engine } = await window.piChecks.provider(true)
+            direct = await window.piChecks.withEngine(engine, async (engine) => {
+              await engine.resetChat()
+              let text = ''
+              for await (const chunk of await engine.chat.completions.create(requests[0]!))
+                text += chunk.choices[0]?.delta.content ?? ''
+              return text
+            })
+          }
+          return { messages: agent.state.messages, requests, native, error, direct, toolCalls }
+        },
+        { modelId, constrainedToolCalls },
+      )
       const path = info.outputPath('model.json')
       await writeFile(path, JSON.stringify(evidence, null, 2))
       await info.attach('messages', {
@@ -360,6 +389,29 @@ for (const modelId of process.env.MODEL_IDS?.split(',') ?? [
       })
       expect(evidence.error).toBeNull()
       const { messages } = evidence
+      const last = messages.at(-1)
+      if (last?.role === 'assistant' && last.stopReason === 'error') {
+        expect(protocol).toBe(true)
+        expect(last.errorMessage).toContain('Qwen returned invalid tool JSON.')
+        expect(evidence.toolCalls).toBe(0)
+        expect(messages.some((message) => message.role === 'toolResult')).toBe(false)
+        expect(last.content.some((part) => part.type === 'toolCall')).toBe(false)
+        expect(evidence.requests).toHaveLength(1)
+        expect(evidence.requests[0]).not.toHaveProperty('response_format')
+        const raw = evidence.native
+          .flatMap((chunk) => chunk.choices.map((choice) => choice.delta.content ?? ''))
+          .join('')
+        expect(evidence.direct?.startsWith(raw)).toBe(true)
+        expect(raw.match(/<tool_call>/g)).toHaveLength(1)
+        expect(raw.match(/<\/tool_call>/g)).toHaveLength(1)
+        const source = raw.match(/<tool_call>([\s\S]*)<\/tool_call>/)?.[1]
+        expect(source).toBeDefined()
+        expect(() => JSON.parse(source!)).toThrow(SyntaxError)
+        return
+      }
+      if (constrainedToolCalls)
+        expect(evidence.requests[0]?.response_format?.type).toBe('structural_tag')
+      else expect(evidence.requests[0]).not.toHaveProperty('response_format')
       expect(
         messages.some(
           (message) =>

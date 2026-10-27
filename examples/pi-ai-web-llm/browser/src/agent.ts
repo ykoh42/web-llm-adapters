@@ -1,10 +1,11 @@
 import { provider } from './engine.js'
+import type { WebLLMRequest } from 'pi-ai-web-llm'
 
-export async function createAgent(enabled: boolean) {
+export async function createAgent(enabled: boolean, request: WebLLMRequest = {}) {
   const [{ Agent }, { Type }, { models, model }] = await Promise.all([
     import('@earendil-works/pi-agent-core'),
     import('@earendil-works/pi-ai'),
-    provider(enabled),
+    provider(enabled, { request }),
   ])
   return new Agent({
     initialState: {

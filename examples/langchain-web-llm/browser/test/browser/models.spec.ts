@@ -7,6 +7,7 @@ import { tool } from '@langchain/core/tools'
 import { z } from 'zod'
 import { BrowserChatWebLLM, type WebLLMChunk } from 'langchain-web-llm'
 import { test, expect } from '../../../fixtures/browser.js'
+import type { ChatCompletionRequestStreaming } from '@mlc-ai/web-llm'
 import type {} from '../../src/main.js'
 import { writeFile } from 'node:fs/promises'
 
@@ -42,12 +43,23 @@ const selected =
       cases.find((item) => item.modelId === modelId) ?? { modelId, prompt: defaultPrompt },
   ) ?? cases
 
-for (const { modelId, prompt } of selected) {
+const checks = selected.flatMap((item) =>
+  (item.modelId === 'Qwen2.5-7B-Instruct-q4f16_1-MLC' ? [false, true] : [false]).map(
+    (constrainedToolCalls) => ({ ...item, constrainedToolCalls }),
+  ),
+)
+
+for (const { modelId, prompt, constrainedToolCalls } of checks) {
+  const protocol = modelId === 'Qwen2.5-7B-Instruct-q4f16_1-MLC' && !constrainedToolCalls
+  const title = protocol
+    ? 'default Deep Agents preserves native tool output'
+    : 'Deep Agents tools and final answer'
+  const feature = constrainedToolCalls ? 'constrained-tools' : 'tools'
   test(
-    `${modelId}: default Deep Agents tools and final answer`,
+    `${modelId}: ${title}` + (constrainedToolCalls ? ' with constraints' : ''),
     modelCheck(
       modelId,
-      'tools',
+      protocol ? 'tool-protocol' : feature,
       ...(!modelId.startsWith('Qwen2.5-') ? (['thinking'] as const) : []),
     ),
     async ({ page }, testInfo) => {
@@ -84,21 +96,43 @@ for (const { modelId, prompt } of selected) {
         thinkingPrefilled: modelId.startsWith('Qwen3.5-'),
         profile,
         onChunk: (chunk) => native.push(chunk),
-        request: { ...sampling(modelId, thinking), max_tokens: 4096, seed: 7 },
+        request: {
+          ...sampling(modelId, thinking),
+          max_tokens: 4096,
+          seed: 7,
+          constrainedToolCalls,
+        },
       })
       const agent = createDeepAgent({ model })
-      let output: Awaited<ReturnType<typeof agent.invoke>>
+      let toolCalls = 0
+      let outcome: { result: Awaited<ReturnType<typeof agent.invoke>> } | { error: unknown }
       try {
-        output = await agent.invoke({
-          messages: [{ role: 'user', content: prompt }],
-          files: {
-            '/answer.txt': {
-              content: ['The secret code is ORCHID-42.'],
-              created_at: '2026-10-19',
-              modified_at: '2026-10-19',
+        outcome = await agent
+          .invoke(
+            {
+              messages: [{ role: 'user', content: prompt }],
+              files: {
+                '/answer.txt': {
+                  content: ['The secret code is ORCHID-42.'],
+                  created_at: '2026-10-19',
+                  modified_at: '2026-10-19',
+                },
+              },
             },
-          },
-        })
+            {
+              callbacks: [
+                {
+                  handleToolStart() {
+                    toolCalls++
+                  },
+                },
+              ],
+            },
+          )
+          .then(
+            (result) => ({ result }),
+            (error: unknown) => ({ error }),
+          )
       } finally {
         await writeFile(
           testInfo.outputPath('requests.json'),
@@ -117,6 +151,55 @@ for (const { modelId, prompt } of selected) {
           contentType: 'application/json',
         })
       }
+      const requests = await page.evaluate(
+        () =>
+          (window as unknown as { nativeRequests: ChatCompletionRequestStreaming[] })
+            .nativeRequests,
+      )
+      if ('error' in outcome) {
+        if (!protocol) throw outcome.error
+        expect(outcome.error).toMatchObject({ message: 'Qwen returned invalid tool JSON.' })
+        expect(toolCalls).toBe(0)
+        expect(requests).toHaveLength(1)
+        expect(requests[0]).not.toHaveProperty('response_format')
+        const raw = native
+          .flatMap((chunk) =>
+            chunk.choices.map((choice) =>
+              'delta' in choice ? (choice.delta.content ?? '') : choice.text,
+            ),
+          )
+          .join('')
+        const direct = await page.evaluate(async (request) => {
+          const engine = window.checks.engine()
+          await engine.resetChat()
+          let text = ''
+          for await (const chunk of await engine.chat.completions.create(request))
+            text += chunk.choices[0]?.delta.content ?? ''
+          return text
+        }, requests[0]!)
+        await testInfo.attach('native-default', {
+          body: JSON.stringify({ raw, direct, error: String(outcome.error) }),
+          contentType: 'application/json',
+        })
+        expect(direct.startsWith(raw)).toBe(true)
+        expect(raw.match(/<tool_call>/g)).toHaveLength(1)
+        expect(raw.match(/<\/tool_call>/g)).toHaveLength(1)
+        const source = raw.match(/<tool_call>([\s\S]*)<\/tool_call>/)?.[1]
+        expect(source).toBeDefined()
+        expect(() => JSON.parse(source!)).toThrow(SyntaxError)
+        return
+      }
+      const firstRequest = await page.evaluate(() => {
+        const records = window as unknown as {
+          nativeRequests: unknown[]
+          nativePrompts: unknown[]
+        }
+        return records.nativeRequests[0] ?? records.nativePrompts[0]
+      })
+      if (constrainedToolCalls)
+        expect(firstRequest).toHaveProperty('response_format.type', 'structural_tag')
+      else expect(firstRequest).not.toHaveProperty('response_format')
+      const output = outcome.result
       const result = output.messages.map((message) => ({
         type: message.type,
         text: message.text,

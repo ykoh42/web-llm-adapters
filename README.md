@@ -13,7 +13,7 @@ The first load fetches WebLLM's runtime and model files; the browser caches them
 ## Models
 
 Exact WebLLM **0.2.86** IDs checked with the adapters below. **All** = LangChain, Pi, and Strands.
-`O` = verified; `X` = unverified. Tools covers call → result → final answer; Think covers separation and preservation of native reasoning.
+`O` = verified; `O*` = verified with `request.constrainedToolCalls: true`; `X` = unverified. Tools covers call → result → final answer; Think covers separation and preservation of native reasoning.
 Tool choice and argument accuracy depend on the model.
 Decode speeds are local M4 Pro (24 GB), Chrome 155 measurements.
 
@@ -25,7 +25,7 @@ Decode speeds are local M4 Pro (24 GB), Chrome 155 measurements.
 | `Qwen3-4B-q4f16_1-MLC`              |   [70.4](https://huggingface.co/Qwen/Qwen3-4B-Thinking-2507#performance) |         51.5 | O     | O     | X     | X                      | X     | All               |
 | `Qwen3.5-2B-q4f16_1-MLC`            |                           [66.5](https://huggingface.co/Qwen/Qwen3.5-2B) |         59.7 | O     | O     | X     | X                      | X     | All               |
 | `gemma-4-E2B-it-q4f16_1-MLC`        |                     [60.0](https://huggingface.co/google/gemma-4-E2B-it) |         38.5 | O     | O     | X     | O (LangChain, Strands) | X     | All               |
-| `Qwen2.5-7B-Instruct-q4f16_1-MLC`   |                       [56.3](https://qwenlm.github.io/blog/qwen2.5-llm/) |         38.0 | O     | X     | X     | X                      | X     | All               |
+| `Qwen2.5-7B-Instruct-q4f16_1-MLC`   |                       [56.3](https://qwenlm.github.io/blog/qwen2.5-llm/) |         38.0 | O*    | X     | X     | X                      | X     | All               |
 | `Qwen3-1.7B-q4f16_1-MLC`            |                                                                        — |            — | O     | O     | X     | X                      | X     | All               |
 | `Qwen2.5-3B-Instruct-q4f16_1-MLC`   |                       [43.7](https://qwenlm.github.io/blog/qwen2.5-llm/) |         59.5 | O     | X     | X     | X                      | X     | All               |
 | `Qwen3.5-0.8B-q4f16_1-MLC`          |                         [42.3](https://huggingface.co/Qwen/Qwen3.5-0.8B) |         71.2 | O     | O     | X     | X                      | X     | All               |
@@ -33,6 +33,7 @@ Decode speeds are local M4 Pro (24 GB), Chrome 155 measurements.
 | `Qwen2.5-0.5B-Instruct-q4f16_1-MLC` |                       [15.0](https://qwenlm.github.io/blog/qwen2.5-llm/) |        136.8 | O     | X     | X     | X                      | X     | All               |
 
 Gemma needs the bundled [runtime setup](shared/runtime/README.md). Audio works in ordinary chat, without tools or thinking. Video is unsupported.
+Qwen2.5-7B can emit malformed tool calls without [constraints](#tool-call-constraints). Constraints are optional and off by default.
 
 <details>
 <summary>Benchmark notes and tool formats</summary>

@@ -3,7 +3,7 @@ import { rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHarness } from '@strands-agents/harness'
-import { Agent, BeforeModelCallEvent } from '@strands-agents/sdk'
+import { Agent, BeforeModelCallEvent, BeforeToolCallEvent } from '@strands-agents/sdk'
 import { expect, test } from '../../../fixtures/browser.js'
 import { BrowserModel, type WebLLMChunk } from 'strands-web-llm'
 import type { ChatCompletionRequestStreaming } from '@mlc-ai/web-llm'
@@ -56,13 +56,23 @@ const cases = [
     exactCopy: true,
     release: false,
   },
-]
+].flatMap((item) =>
+  (item.modelId === 'Qwen2.5-7B-Instruct-q4f16_1-MLC' ? [false, true] : [false]).map(
+    (constrainedToolCalls) => ({ ...item, constrainedToolCalls }),
+  ),
+)
 
-for (const { modelId, sample, exactCopy, release } of cases) {
-  const title = `${modelId} calls Harness read and answers from its result`
+for (const { modelId, sample, exactCopy, release, constrainedToolCalls } of cases) {
+  const protocol = modelId === 'Qwen2.5-7B-Instruct-q4f16_1-MLC' && !constrainedToolCalls
+  const title = protocol
+    ? `${modelId} preserves native tool output through Harness`
+    : `${modelId} calls Harness read and answers from its result`
+  const feature = constrainedToolCalls ? 'constrained-tools' : 'tools'
   test(
-    title + (sample ? ' with recorded tool history' : ''),
-    release ? modelCheck(modelId, 'tools') : {},
+    title +
+      (sample ? ' with recorded tool history' : '') +
+      (constrainedToolCalls ? ' with constraints' : ''),
+    release ? modelCheck(modelId, protocol ? 'tool-protocol' : feature) : {},
     async ({ page }, info) => {
       const directory = process.platform === 'win32' ? tmpdir() : '/tmp'
       const path = join(directory, sample?.file ?? `q25-${process.pid}.txt`)
@@ -95,6 +105,7 @@ for (const { modelId, sample, exactCopy, release } of cases) {
             modelId,
             maxTokens: 1024,
             temperature: 0,
+            request: { constrainedToolCalls },
             onChunk: (chunk) => chunks.at(-1)!.push(chunk),
           }),
           builtinTools: ['read'],
@@ -108,31 +119,59 @@ for (const { modelId, sample, exactCopy, release } of cases) {
           printer: false,
         })
         let modelCalls = 0
+        let toolCalls = 0
         agent.addHook(BeforeModelCallEvent, () => {
           modelCalls++
           chunks.push([])
         })
+        agent.addHook(BeforeToolCallEvent, () => {
+          toolCalls++
+        })
 
-        const result = await agent.invoke(
-          `Use the read tool once with offset 1 to read ${path}. After it returns, answer with the secret code. Do not call the read tool again.`,
-          { limits: { turns: 3 } },
-        )
+        const outcome = await agent
+          .invoke(
+            `Use the read tool once with offset 1 to read ${path}. After it returns, answer with the secret code. Do not call the read tool again.`,
+            { limits: { turns: 3 } },
+          )
+          .then(
+            (result) => ({ result }),
+            (error: unknown) => ({ error }),
+          )
 
         const requests = await page.evaluate(() => window.qwen25Requests)
         const native = await replayNative(page, requests)
-        const text = result.lastMessage.content
-          .filter((block) => block.type === 'textBlock')
-          .map((block) => block.text)
-          .join('')
         await recordNative(info, 'native-comparison', {
           code,
           path,
           requests,
           adapted: chunks,
           native,
-          text,
+          error: 'error' in outcome ? String(outcome.error) : undefined,
           messages: agent.messages.map((message) => message.toJSON()),
         })
+        if ('error' in outcome) {
+          if (!protocol) throw outcome.error
+          expect(outcome.error).toMatchObject({ message: 'Qwen returned invalid tool JSON.' })
+          expect(modelCalls).toBe(1)
+          expect(toolCalls).toBe(0)
+          expect(requests).toHaveLength(1)
+          expect(requests[0]).not.toHaveProperty('response_format')
+          const raw = rawText(chunks[0]!)
+          expect(rawText(native[0]!).startsWith(raw)).toBe(true)
+          expect(raw.match(/<tool_call>/g)).toHaveLength(1)
+          expect(raw.match(/<\/tool_call>/g)).toHaveLength(1)
+          const source = raw.match(/<tool_call>([\s\S]*)<\/tool_call>/)?.[1]
+          expect(source).toBeDefined()
+          expect(() => JSON.parse(source!)).toThrow(SyntaxError)
+          return
+        }
+        const { result } = outcome
+        const text = result.lastMessage.content
+          .filter((block) => block.type === 'textBlock')
+          .map((block) => block.text)
+          .join('')
+        if (constrainedToolCalls) expect(requests[0]?.response_format?.type).toBe('structural_tag')
+        else expect(requests[0]).not.toHaveProperty('response_format')
         expect(modelCalls).toBe(2)
         expect(requests).toHaveLength(2)
         expect(chunks.map(rawText)).toEqual(native.map(rawText))

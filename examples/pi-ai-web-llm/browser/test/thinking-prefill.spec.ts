@@ -19,7 +19,9 @@ test('Pi reads thinking prefilled by the loaded Qwen template', async ({ page, r
   await page.evaluate((id) => window.piChecks.load(id), modelId)
   const result = await page.evaluate(
     async ({ modelId, template }) => {
-      const { models, model, engine } = await window.piChecks.provider(true, true)
+      const { models, model, engine } = await window.piChecks.provider(true, {
+        thinkingPrefilled: true,
+      })
       await window.piChecks.withEngine(engine, (engine) =>
         engine.reload(modelId, { context_window_size: 32768, conv_template: template }),
       )

@@ -35,6 +35,22 @@ describe('release model gate', () => {
     expect(() => checkReport(report, source, webllm, ['strands/model/thinking'])).toThrow('Missing')
   })
 
+  test('does not count default tools or protocol errors as a constrained tool loop', () => {
+    const constrained = 'strands/model/constrained-tools'
+    expect(() => checkReport(report, source, webllm, [constrained])).toThrow('Missing')
+    const tests = [{ ...report.tests[0]!, checks: ['model/tool-protocol'] }]
+    expect(() => checkReport({ ...report, tests }, source, webllm, [constrained])).toThrow(
+      'Missing',
+    )
+    tests[0]!.checks.push('model/constrained-tools')
+    expect(checkReport({ ...report, tests }, source, webllm, [constrained])).toMatchObject({
+      tests,
+    })
+    expect(() =>
+      checkReport({ ...report, tests }, source, webllm, ['strands/model/tools']),
+    ).toThrow('Missing')
+  })
+
   test.each(['failed', 'timedOut', 'skipped', 'interrupted'] as const)(
     'rejects %s tests even when a later attempt passes',
     (status) => {
@@ -76,6 +92,19 @@ describe('README support coverage', () => {
     expect(claims).not.toContain('pi/embed/embeddings')
   })
 
+  test('requires constrained loops and default protocol checks for conditional tools', () => {
+    const claims = supportClaims(table.replace('| O |', '| O* |'))
+    for (const adapter of ['langchain', 'pi', 'strands']) {
+      expect(claims).toContain(`${adapter}/model/constrained-tools`)
+      expect(claims).toContain(`${adapter}/model/tool-protocol`)
+      expect(claims).not.toContain(`${adapter}/model/tools`)
+    }
+    const scoped = supportClaims(table.replace('| O |', '| O* (Strands) |'))
+    expect(scoped).toContain('strands/model/constrained-tools')
+    expect(scoped).not.toContain('pi/model/constrained-tools')
+    expect(scoped).not.toContain('langchain/model/constrained-tools')
+  })
+
   test('ignores package and development tables', () => {
     expect(
       supportClaims(
@@ -92,6 +121,7 @@ describe('README support coverage', () => {
     table + '\n' + row,
     table.replace('All', 'Other'),
     table.replace('| O |', '| Maybe |'),
+    table.replace('| O | O |', '| O | O* |'),
     '## Models\n| `model` | Unknown input | All |',
     table.replace(' | All |', ' | Pi |'),
   ])('rejects missing, ambiguous or unknown model claims: %s', (markdown) => {

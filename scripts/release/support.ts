@@ -1,6 +1,12 @@
 const adapters = ['langchain', 'pi', 'strands'] as const
 const features = ['tools', 'thinking', 'image', 'audio', 'video'] as const
-export type Feature = (typeof features)[number] | 'embeddings' | 'cancel' | 'concurrency'
+export type Feature =
+  | (typeof features)[number]
+  | 'constrained-tools'
+  | 'tool-protocol'
+  | 'embeddings'
+  | 'cancel'
+  | 'concurrency'
 
 function names(value: string) {
   if (value === 'All') return [...adapters]
@@ -26,11 +32,14 @@ export function supportClaims(markdown: string) {
       for (const [index, feature] of features.entries()) {
         const cell = cells[index + 3]!
         if (cell === 'X') continue
-        const match = /^O(?: \(([^)]+)\))?$/.exec(cell)
+        const match = /^O(\*)?(?: \(([^)]+)\))?$/.exec(cell)
         if (!match) throw new Error(`Unknown support value: ${cell}`)
-        for (const adapter of match[1] ? names(match[1]) : verified) {
+        if (match[1] && feature !== 'tools')
+          throw new Error('Only tool checks can use constrained generation.')
+        for (const adapter of match[2] ? names(match[2]) : verified) {
           if (!verified.includes(adapter)) throw new Error(`Unexpected adapter: ${adapter}`)
-          claims.push(`${adapter}/${model}/${feature}`)
+          const checks = match[1] ? ['constrained-tools', 'tool-protocol'] : [feature]
+          for (const check of checks) claims.push(`${adapter}/${model}/${check}`)
         }
       }
     } else if (cells.length === 3) {

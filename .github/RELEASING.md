@@ -2,6 +2,7 @@
 
 Update the package version and changelog, then commit the changes.
 Run `pnpm test:release:models` locally with Chrome and WebGPU. It reuses the tagged real-model tests for all three adapters.
+`O*` tool support requires a constrained tool loop and a separate default-generation protocol check. Native malformed output must raise the framework's error without executing that call; it does not count as a successful tool loop.
 Commit the generated `.github/real-models.json`, run `pnpm check:release:models`, then push to `main`.
 Publish a GitHub release named `<package>-v<version>`; for example, `strands-web-llm-v0.2.2`.
 The Publish workflow checks CI, packed installs, and the real-model report before publishing to npm with provenance.
