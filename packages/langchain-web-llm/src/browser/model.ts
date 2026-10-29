@@ -15,7 +15,7 @@ import { startBrowserCall } from '../../../../shared/browser/start.js'
 import { watchBrowserCall } from '../../../../shared/browser/lifecycle.js'
 import { readBrowserError } from '../../../../shared/browser/errors.js'
 import { WebLLMChatModel } from '../chat/base.js'
-import { hasTokenCallbacks } from '../chat/callbacks.js'
+import { hasTokenCallbacks, notifyToken } from '../chat/callbacks.js'
 import { modelError } from '../error.js'
 import type { WebLLMModelOptions, ChatWebLLMOptions } from '../types.js'
 import type { BrowserChunk, BrowserPage, BrowserRequest } from './types.js'
@@ -136,12 +136,7 @@ export class BrowserChatWebLLM extends WebLLMChatModel {
           if ('native' in result) continue
           const chunk = readBrowserChunk(result.value)
           if (runManager && hasTokenCallbacks(runManager))
-            await waitForCallback(
-              runManager.handleLLMNewToken(chunk.text, undefined, undefined, undefined, undefined, {
-                chunk,
-              }),
-              signal,
-            )
+            await waitForCallback(notifyToken(runManager, chunk), signal)
           signal?.throwIfAborted()
           yield chunk
         }

@@ -3,7 +3,7 @@ import type { CallbackManagerForLLMRun } from '@langchain/core/callbacks/manager
 import type { ChatGenerationChunk } from '@langchain/core/outputs'
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
 import { WebLLMChatModel } from './chat/base.js'
-import { hasTokenCallbacks } from './chat/callbacks.js'
+import { hasTokenCallbacks, notifyToken } from './chat/callbacks.js'
 import { formatMessages } from './chat/messages.js'
 import { formatChoice, formatTools } from './chat/tools.js'
 import { protocolStream } from './protocol/stream.js'
@@ -81,12 +81,7 @@ export class ChatWebLLM extends WebLLMChatModel {
         if (responseId) chunk.message.id = responseId
         if (chunk.generationInfo?.finish_reason) addMetadata(chunk)
         if (runManager && hasTokenCallbacks(runManager))
-          await waitForCallback(
-            runManager.handleLLMNewToken(chunk.text, undefined, undefined, undefined, undefined, {
-              chunk,
-            }),
-            options.signal,
-          )
+          await waitForCallback(notifyToken(runManager, chunk), options.signal)
         options.signal?.throwIfAborted()
         yield chunk
       }

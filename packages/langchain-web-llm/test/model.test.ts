@@ -92,6 +92,30 @@ describe('LangChain model', () => {
     expect((await model.invoke('Next')).text).toBe('Answer')
   })
 
+  it('uses the cancellation signal set by the token callback', async () => {
+    const { model } = setup(chunk({ content: 'Answer' }, 'stop'))
+    const controller = new AbortController()
+    const reason = new Error('Cancelled by the token callback')
+    let signal = new AbortController().signal
+    const options = {
+      get signal() {
+        return signal
+      },
+    }
+    const callbacks = CallbackManager.fromHandlers({ handleLLMNewToken() {} })
+    const messages = [new HumanMessage('Hi')]
+    const [run] = await callbacks.handleChatModelStart(model.toJSON(), [messages])
+    if (!run) throw new Error('Missing callback run manager.')
+    vi.spyOn(run, 'handleLLMNewToken').mockImplementation(() => {
+      signal = controller.signal
+      controller.abort(reason)
+      return new Promise(() => {})
+    })
+
+    const stream = model._streamResponseChunks(messages, options, run)
+    await expect(stream.next()).rejects.toBe(reason)
+  })
+
   it('skips token dispatch for handlers that ignore LLM events', async () => {
     const { model } = setup(chunk({ content: 'Answer' }, 'stop'))
     const onToken = vi.fn()
