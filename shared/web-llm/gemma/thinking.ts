@@ -23,6 +23,8 @@ export interface GemmaStreamOptions extends ChunkOptions<Completion> {
   stopRequested?: boolean
 }
 
+type ThinkingMode = 'text' | 'header' | 'thought'
+
 type ThinkingChunk = Pick<StreamChunk, 'stop' | 'usage'> & {
   type: 'text' | 'reasoning'
   text: string
@@ -41,7 +43,7 @@ export async function* splitThinking(
   }: GemmaStreamOptions & { parseTools: boolean },
 ): AsyncGenerator<ThinkingChunk> {
   let pending = prefix
-  let mode: 'text' | 'header' | 'thought' = 'text'
+  let mode: ThinkingMode = 'text'
   let tool = false
   let received = false
   function piece(text: string, usage?: StreamChunk['usage']): ThinkingChunk {
@@ -74,9 +76,7 @@ export async function* splitThinking(
       pending += choice.text
       while (pending) {
         if (signal?.aborted) return
-        let marker = channelStart
-        if (mode === 'header') marker = '\n'
-        else if (mode === 'thought') marker = channelEnd
+        const marker = nextMarker(mode)
         const at = pending.indexOf(marker)
         const call = parseTools && mode === 'text' ? pending.indexOf(toolStart) : -1
         if (call !== -1 && (at === -1 || call < at)) {
@@ -93,9 +93,7 @@ export async function* splitThinking(
         } else if (at !== -1) {
           if (at) yield piece(pending.slice(0, at), parserChunk.usage)
         } else {
-          const markers = mode === 'thought' ? thoughtEndMarkers : channelStartMarkers
-          const endMarkers = parseTools && mode === 'text' ? channelAndToolMarkers : markers
-          const end = textEnd(pending, endMarkers)
+          const end = textEnd(pending, partialMarkers(mode, parseTools))
           const text = pending.slice(0, end)
           pending = pending.slice(end)
           if (text) yield piece(text, parserChunk.usage)
@@ -131,4 +129,14 @@ export async function* splitThinking(
   if (signal?.aborted) return
   if (received && (pending || mode === 'header')) yield piece(pending)
   throwStreamError(failure, signal)
+}
+
+function nextMarker(mode: ThinkingMode): string {
+  if (mode === 'header') return '\n'
+  return mode === 'thought' ? channelEnd : channelStart
+}
+
+function partialMarkers(mode: 'text' | 'thought', parseTools: boolean): string[] {
+  if (mode === 'thought') return thoughtEndMarkers
+  return parseTools ? channelAndToolMarkers : channelStartMarkers
 }

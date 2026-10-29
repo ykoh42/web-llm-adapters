@@ -177,14 +177,7 @@ export async function* readStream(
       // tool calls at generation end, so those are emitted by finishTool below.
       if (progressiveTools && !chunk.stop && !signal?.aborted) {
         const firstCall = calls.get(0)
-        if (
-          calls.size === 1 &&
-          firstCall?.id &&
-          firstCall.name &&
-          !firstCall.started &&
-          toolNames?.includes(firstCall.name) &&
-          !toolNames.some((name) => name !== firstCall.name && name.startsWith(firstCall.name))
-        ) {
+        if (canStartTool(calls, firstCall, toolNames)) {
           yield* closeBlock()
           firstCall.started = true
           yield {
@@ -226,6 +219,22 @@ export async function* readStream(
     }
     throw error
   }
+}
+
+function canStartTool(
+  calls: Map<number, ToolCall>,
+  call: ToolCall | undefined,
+  toolNames: readonly string[] | undefined,
+): call is ToolCall & { id: string } {
+  if (
+    calls.size !== 1 ||
+    !call?.id ||
+    !call.name ||
+    call.started ||
+    !toolNames?.includes(call.name)
+  )
+    return false
+  return !toolNames.some((name) => name !== call.name && name.startsWith(call.name))
 }
 
 function* finishTool(call: ToolCall, signal?: AbortSignal): Generator<ModelStreamEvent> {

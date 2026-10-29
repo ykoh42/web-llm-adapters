@@ -19,7 +19,7 @@ interface ToolCall extends ToolDelta {
   streamed: boolean
 }
 
-type Deferred = { call: ToolCall } | { chunk: ChatGenerationChunk }
+type Deferred = ToolCall | ChatGenerationChunk
 
 const contentFields = [
   ['reasoning', 'reasoning'],
@@ -48,9 +48,8 @@ export async function* readChunks(
   function* emitDeferred(includeTools: boolean): Generator<ChatGenerationChunk> {
     while (deferred && deferredIndex < deferred.length) {
       const part = deferred[deferredIndex++]!
-      if ('call' in part) {
-        if (includeTools) yield toolCallChunk(part.call)
-      } else yield part.chunk
+      if (part instanceof ChatGenerationChunk) yield part
+      else if (includeTools) yield toolCallChunk(part)
       signal?.throwIfAborted()
     }
   }
@@ -69,7 +68,7 @@ export async function* readChunks(
       calls.set(delta.index, call)
       if (orderedTools) {
         deferred ??= []
-        deferred.push({ call })
+        deferred.push(call)
       }
     }
     if (delta.id) {
@@ -175,7 +174,7 @@ export async function* readChunks(
           index++
         }
         const contentChunk = makeContentChunk(type, value, index)
-        if (deferred) deferred.push({ chunk: contentChunk })
+        if (deferred) deferred.push(contentChunk)
         else yield contentChunk
         signal?.throwIfAborted()
       }
