@@ -145,6 +145,7 @@ test('Strands search recovers after a dimension error and owns cached vectors', 
     const storage = new InMemoryStorage()
     await storage.write('note', new TextEncoder().encode('A basket of fresh apples.'))
     let documentCalls = 0
+    let activeModel = embeddingModelId
     let queryVector: number[] = []
     let documentVector: number[] = []
     const strategy = new WebLLMEmbeddingSearchStrategy({
@@ -163,7 +164,7 @@ test('Strands search recovers after a dimension error and owns cached vectors', 
                 .map(({ embedding }) => embedding)
             }),
           {
-            model: embeddingModelId,
+            model: activeModel,
             input: texts.map((text) =>
               type === 'query'
                 ? `Represent this sentence for searching relevant passages: ${text}`
@@ -195,6 +196,21 @@ test('Strands search recovers after a dimension error and owns cached vectors', 
     documentVector.fill(0)
     expect(await strategy.search(storage, 'fruit')).toEqual(results)
     expect(documentCalls).toBe(2)
+    strategy.clearCache()
+    expect(await strategy.search(storage, 'fruit')).toEqual(results)
+    expect(documentCalls).toBe(3)
+
+    activeModel = 'snowflake-arctic-embed-s-q0f32-MLC-b32'
+    await page.evaluate(
+      (id) => window.webllmBridge.withEngine((engine) => engine.reload(id)),
+      activeModel,
+    )
+    strategy.clearCache()
+    const afterSwitch = await strategy.search(storage, 'fruit')
+    expect(afterSwitch).toHaveLength(1)
+    expect(afterSwitch[0]).toMatchObject({ key: 'note', score: expect.any(Number) })
+    expect(afterSwitch[0]!.score).toBeGreaterThan(0)
+    expect(documentCalls).toBe(4)
   } finally {
     await page.evaluate(() => window.harness.close())
   }

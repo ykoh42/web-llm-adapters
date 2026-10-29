@@ -1,6 +1,12 @@
 import { test, expect } from './browser.js'
 import type {} from './checks.js'
-import type { ChatCompletionChunk } from '@mlc-ai/web-llm'
+import type {
+  ChatCompletionChunk,
+  ChatCompletionRequestStreaming,
+  Completion,
+  CompletionCreateParamsStreaming,
+} from '@mlc-ai/web-llm'
+import { nativeOutput } from '../../../../test/support/native-output.js'
 
 test('Qwen preserves a caller stop inside thinking selected by onPayload', async ({ page }) => {
   await page.goto('http://127.0.0.1:4173/pi/test/checks.html')
@@ -41,43 +47,55 @@ test('Qwen preserves a caller stop inside thinking selected by onPayload', async
   expect(result.response.content.every((block) => block.type === 'thinking')).toBe(true)
 })
 
-test('unset sampling token limits match native payload handling with thinking enabled', async ({
-  page,
-}) => {
+test('unset sampling token limits reach WebLLM with thinking enabled', async ({ page }) => {
+  const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
   await page.goto('http://127.0.0.1:4173/pi/test/checks.html')
-  await page.evaluate(() => window.piChecks.load('Qwen3.5-4B-q4f16_1-MLC'))
+  await page.evaluate((id) => window.piChecks.load(id), modelId)
   const result = await page.evaluate(async () => {
-    const { models, model } = await window.piChecks.provider(true)
-    const context = {
-      messages: [{ role: 'user' as const, content: 'What is 3 + 3? Reply briefly.', timestamp: 0 }],
-    }
-    const baseline = await models.complete(model, context, {
-      reasoning: 'low',
-      onPayload: (payload) => {
-        if (!payload || typeof payload !== 'object') throw new Error('Expected a native request.')
-        return { ...payload, max_tokens: undefined }
+    const { models, model, engine } = await window.piChecks.provider(true)
+    let request: ChatCompletionRequestStreaming | undefined
+    const endpoint = engine.chat.completions
+    endpoint.create = new Proxy(endpoint.create, {
+      apply(target, self, args) {
+        request = structuredClone(args[0])
+        return Reflect.apply(target, self, args)
       },
     })
-    let unset = false
-    const response = await models.complete(model, context, {
-      reasoning: 'low',
-      samplingParams: { max_tokens: undefined },
-      onPayload: (payload) => {
-        if (!payload || typeof payload !== 'object') throw new Error('Expected a native request.')
-        unset = 'max_tokens' in payload && payload.max_tokens === undefined
+    const chunks: ChatCompletionChunk[] = []
+    const response = await models.complete(
+      model,
+      { messages: [{ role: 'user', content: 'What is 3 + 3? Reply briefly.', timestamp: 0 }] },
+      {
+        reasoning: 'low',
+        samplingParams: { max_tokens: undefined },
+        onProviderStreamEvent: (event) => {
+          chunks.push(event as ChatCompletionChunk)
+        },
       },
-    })
-    return { baseline, response, unset }
+    )
+    return { response, request, chunks }
   })
 
-  expect(result.unset).toBe(true)
-  expect(result.baseline.stopReason).toBe('stop')
+  expect(result.request).toHaveProperty('max_tokens', undefined)
+  expect(result.request?.extra_body?.enable_thinking).toBe(true)
   expect(result.response.stopReason).toBe('stop')
-  expect(result.response.content).toEqual(result.baseline.content)
-  expect(result.response.usage).toEqual(result.baseline.usage)
-  expect(result.response.content.some((part) => part.type === 'thinking' && part.thinking)).toBe(
-    true,
-  )
+  const text = result.response.content
+    .filter((part) => part.type === 'text')
+    .map((part) => part.text)
+    .join('')
+  const thinking = result.response.content
+    .filter((part) => part.type === 'thinking')
+    .map((part) => part.thinking)
+    .join('')
+  expect(thinking).not.toBe('')
+  expect({ text, thinking: [thinking] }).toEqual(nativeOutput(result.chunks, modelId, '<think>'))
+  const usage = result.chunks.at(-1)?.usage
+  expect(usage).toBeDefined()
+  expect(result.response.usage).toMatchObject({
+    input: usage?.prompt_tokens,
+    output: usage?.completion_tokens,
+    totalTokens: usage?.total_tokens,
+  })
 })
 
 test('unreadable callback errors finish and leave a real WebLLM engine usable', async ({
@@ -125,7 +143,15 @@ test('Qwen uses the response format selected by onPayload without losing native 
   await page.goto('http://127.0.0.1:4173/pi/test/checks.html')
   await page.evaluate(() => window.piChecks.load('Qwen3.5-4B-q4f16_1-MLC'))
   const result = await page.evaluate(async () => {
-    const { models, model } = await window.piChecks.provider(true)
+    const { models, model, engine } = await window.piChecks.provider(true)
+    const requests: ChatCompletionRequestStreaming[] = []
+    const endpoint = engine.chat.completions
+    endpoint.create = new Proxy(endpoint.create, {
+      apply(target, self, args) {
+        requests.push(structuredClone(args[0]))
+        return Reflect.apply(target, self, args)
+      },
+    })
     const context = {
       messages: [
         {
@@ -152,10 +178,7 @@ test('Qwen uses the response format selected by onPayload without losing native 
     const reasoningContext = {
       messages: [{ role: 'user' as const, content: 'What is 17 * 23?', timestamp: 0 }],
     }
-    const baseline = await models.complete(model, reasoningContext, {
-      reasoning: 'low',
-      request: { response_format: text },
-    })
+    const chunks: ChatCompletionChunk[] = []
     const changed = await models.complete(model, reasoningContext, {
       reasoning: 'low',
       request: { response_format: json },
@@ -163,10 +186,17 @@ test('Qwen uses the response format selected by onPayload without losing native 
         if (!payload || typeof payload !== 'object') throw new Error('Expected a native request.')
         return { ...payload, response_format: text }
       },
+      onProviderStreamEvent: (event) => {
+        chunks.push(event as ChatCompletionChunk)
+      },
     })
-    return { structured, native, baseline, changed }
+    return { structured, native, changed, chunks, requests }
   })
 
+  expect(result.requests.map((request) => request.response_format)).toEqual([
+    { type: 'json_object', schema: '{}' },
+    { type: 'text' },
+  ])
   expect(result.structured.stopReason).toBe('stop')
   expect(result.native.length).toBeGreaterThan(0)
   expect(
@@ -175,11 +205,18 @@ test('Qwen uses the response format selected by onPayload without losing native 
       .map((part) => part.text)
       .join(''),
   ).toBe(result.native)
-  expect(result.baseline.stopReason).toBe('stop')
   expect(result.changed.stopReason).toBe('stop')
-  expect(result.changed.content).toEqual(result.baseline.content)
-  expect(result.changed.content.some((part) => part.type === 'thinking' && part.thinking)).toBe(
-    true,
+  const text = result.changed.content
+    .filter((part) => part.type === 'text')
+    .map((part) => part.text)
+    .join('')
+  const thinking = result.changed.content
+    .filter((part) => part.type === 'thinking')
+    .map((part) => part.thinking)
+    .join('')
+  expect(thinking).not.toBe('')
+  expect({ text, thinking: [thinking] }).toEqual(
+    nativeOutput(result.chunks, 'Qwen3.5-4B-q4f16_1-MLC', '<think>'),
   )
 })
 
@@ -187,33 +224,54 @@ test('Gemma honors a stop string selected by onPayload inside thinking', async (
   await page.goto('http://127.0.0.1:4173/pi/test/checks.html')
   await page.evaluate(() => window.piChecks.load('gemma-4-E2B-it-q4f16_1-MLC'))
   const result = await page.evaluate(async () => {
-    const { models, model } = await window.piChecks.provider(true)
-    const context = {
-      messages: [
-        {
-          role: 'user' as const,
-          content: 'What is 17 * 23? Explain your calculation.',
-          timestamp: 0,
-        },
-      ],
-    }
-    const stop = ['<channel|>']
-    const baseline = await models.complete(model, context, { reasoning: 'low', request: { stop } })
-    const changed = await models.complete(model, context, {
-      reasoning: 'low',
-      onPayload: (payload) => {
-        if (!payload || typeof payload !== 'object') throw new Error('Expected a native request.')
-        return { ...payload, stop }
+    const { models, model, engine } = await window.piChecks.provider(true)
+    let request: CompletionCreateParamsStreaming | undefined
+    const endpoint = engine.completions
+    endpoint.create = new Proxy(endpoint.create, {
+      apply(target, self, args) {
+        request = structuredClone(args[0])
+        return Reflect.apply(target, self, args)
       },
     })
-    return { baseline, changed }
+    const chunks: Completion[] = []
+    const response = await models.complete(
+      model,
+      {
+        messages: [
+          {
+            role: 'user',
+            content: 'What is 17 * 23? Explain your calculation.',
+            timestamp: 0,
+          },
+        ],
+      },
+      {
+        reasoning: 'low',
+        onPayload: (payload) => {
+          if (!payload || typeof payload !== 'object') throw new Error('Expected a native request.')
+          return { ...payload, stop: ['<channel|>'] }
+        },
+        onProviderStreamEvent: (event) => {
+          chunks.push(event as Completion)
+        },
+      },
+    )
+    return { response, request, chunks }
   })
 
-  expect(result.baseline.stopReason).toBe('stop')
-  expect(result.changed.stopReason).toBe('stop')
-  expect(result.changed.content).toEqual(result.baseline.content)
-  expect(result.changed.content.some((part) => part.type === 'thinking' && part.thinking)).toBe(
-    true,
-  )
-  expect(result.changed.content.every((part) => part.type === 'thinking')).toBe(true)
+  expect(result.request?.stop).toEqual(['<channel|>'])
+  expect(result.response.stopReason).toBe('stop')
+  expect(result.response.content.every((part) => part.type === 'thinking')).toBe(true)
+  const thinking = result.response.content
+    .filter((part) => part.type === 'thinking')
+    .map((part) => part.thinking)
+    .join('')
+  const native = result.chunks
+    .flatMap((chunk) => chunk.choices.map((choice) => choice.text))
+    .join('')
+  expect(thinking).not.toBe('')
+  expect(native).not.toContain('<channel|>')
+  const prefix = '<|channel>thought\n'
+  if (!native.startsWith(prefix)) expect(result.request?.prompt).toMatch(/<\|channel>thought\n$/)
+  expect(thinking).toBe(native.replace(/^<\|channel>thought\n/, ''))
 })

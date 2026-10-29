@@ -2,9 +2,23 @@
 
 ## Unreleased
 
+- Reject detached image and audio bytes instead of sending empty data.
+- Remove WebLLM's empty thinking prefix from Qwen2.5 answers.
+- Accept uppercase data URL schemes for WAV audio.
+- Preserve literal Qwen thinking tags in answers when thinking is disabled.
+- Cancel requests promptly while WebLLM or browser responses are pending.
+- Return promptly when closing a cancelled stream; keep the engine reserved for cleanup.
+- Skip queued retry callbacks after cancellation.
+- Wait for native cleanup when closing browser bridges.
+
+- Preserve negative zero in tool calls and conversation history.
+- Preserve error fields when a provider rejects with an object.
+- Preserve context overflow causes.
+- Support `require()` in Node.js CommonJS.
 - Stop scheduling retries after cancellation with a custom reason.
 - Stop requests cancelled during payload preparation before opening WebLLM.
 - Stream tool arguments and expose call IDs only after validation.
+- Preserve reserved keys in streamed tool calls from browser models.
 - Use content events supported by LangChain Core 1.2.8 and later.
 - Keep text, thinking, and tool events in separate blocks.
 - Reject duplicate tool call IDs before returning tool calls.
@@ -15,7 +29,7 @@
 - Preserve cross-realm error types, causes, and provider fields across browser bridges.
 - Accept image, WAV, and PCM arrays created in another JavaScript realm.
 - Await async `onChunk` handlers and propagate their errors.
-- Keep browser errors when provider fields cannot be inspected.
+- Keep browser errors and retries when provider fields cannot be inspected.
 - Preserve native response creation times in metadata.
 - Report both WebLLM Phi-3.5 Vision precisions in model profiles.
 - Reject Qwen3.5 tool names that cannot be represented in XML.

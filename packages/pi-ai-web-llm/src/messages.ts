@@ -44,31 +44,9 @@ export function formatContext(context: TranscriptContext, model: Model<Api>) {
         content: getSystemMessageText(message),
       })
     } else if (message.role === 'user') {
-      history.push({
-        role: 'user',
-        content:
-          typeof message.content === 'string'
-            ? message.content
-            : formatUserContent(
-                message.content.map((part) =>
-                  part.type === 'text' ? { type: 'text', text: part.text } : imagePart(part, model),
-                ),
-              ),
-      })
+      history.push(formatUser(message, model))
     } else if (message.role === 'toolResult') {
-      if (pending.get(message.toolCallId) !== message.toolName)
-        throw new Error('A tool result needs a matching tool call ID and name.')
-      pending.delete(message.toolCallId)
-      let text = ''
-      for (const part of message.content) {
-        if (part.type === 'text') text += part.text
-        else if (part.type === 'image') toolImages.push(imagePart(part, model))
-      }
-      history.push({
-        role: 'tool',
-        tool_call_id: message.toolCallId,
-        content: (message.isError ? '[ERROR] ' : '') + text,
-      })
+      history.push(formatToolResult(message, model, pending, toolImages))
     } else {
       history.push(formatAssistant(message, model, pending))
     }
@@ -76,6 +54,44 @@ export function formatContext(context: TranscriptContext, model: Model<Api>) {
   if (pending.size) throw new Error('WebLLM is missing a tool result.')
   flushImages()
   return { history, tools }
+}
+
+function formatUser(
+  message: Extract<TranscriptContext['messages'][number], { role: 'user' }>,
+  model: Model<Api>,
+): ProtocolMessage {
+  return {
+    role: 'user',
+    content:
+      typeof message.content === 'string'
+        ? message.content
+        : formatUserContent(
+            message.content.map((part) =>
+              part.type === 'text' ? { type: 'text', text: part.text } : imagePart(part, model),
+            ),
+          ),
+  }
+}
+
+function formatToolResult(
+  message: Extract<TranscriptContext['messages'][number], { role: 'toolResult' }>,
+  model: Model<Api>,
+  pending: Map<string, string>,
+  images: ChatCompletionContentPart[],
+): ProtocolMessage {
+  if (pending.get(message.toolCallId) !== message.toolName)
+    throw new Error('A tool result needs a matching tool call ID and name.')
+  pending.delete(message.toolCallId)
+  let text = ''
+  for (const part of message.content) {
+    if (part.type === 'text') text += part.text
+    else if (part.type === 'image') images.push(imagePart(part, model))
+  }
+  return {
+    role: 'tool',
+    tool_call_id: message.toolCallId,
+    content: (message.isError ? '[ERROR] ' : '') + text,
+  }
 }
 
 function imagePart(image: ImageContent, model: Model<Api>): ChatCompletionContentPart {

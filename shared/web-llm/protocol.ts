@@ -101,6 +101,14 @@ export function protocolStream({
       async () => {
         const prepared = await prepare(createRequest())
         checkGemmaRequest(prepared)
+        if (
+          ('tools' in prepared && prepared.tools != null) ||
+          ('tool_choice' in prepared && prepared.tool_choice != null) ||
+          (prepared.extra_body &&
+            'enable_thinking' in prepared.extra_body &&
+            prepared.extra_body.enable_thinking != null)
+        )
+          throw new Error('Set Gemma tools, toolChoice, and thinking before onPayload.')
         if (prefix && !prepared.prompt.endsWith(prefix))
           throw new Error('onPayload cannot change the Gemma protocol prefix.')
         stopRequested = Boolean(prepared.stop?.length)
@@ -134,7 +142,7 @@ export function protocolStream({
     let stopRequested = Boolean(request.stop?.length)
     return stream(
       async () => {
-        const prepared = await prepare({
+        const prepared: ChatCompletionRequestStreaming = await prepare({
           ...sampling,
           ...(toolResponseFormat && {
             // Keep the generated format intact when a payload hook edits its copy.
@@ -143,6 +151,8 @@ export function protocolStream({
           }),
           messages,
         })
+        if (prepared.tools != null || prepared.tool_choice != null)
+          throw new Error('Set Qwen tools and toolChoice before onPayload.')
         // The payload hook may change how native output is framed.
         parseProtocol =
           isTextFormat(prepared.response_format) ||
@@ -168,29 +178,24 @@ export function protocolStream({
         }),
     )
   }
-  if (choice && choice !== 'none') choice = singleToolChoice(choice, tools)
-  if (
-    choice !== 'none' &&
-    choice &&
-    'tool' in choice &&
-    !tools.some((tool) => tool.name === choice.tool.name)
-  )
-    throw new Error('The chosen WebLLM tool is not registered.')
+  choice = nativeChoice(choice, tools)
   const native: ChatCompletionRequestStreaming = {
     ...sampling,
     messages: nativeHistory(nativeMessages(history), modelId, Boolean(tools.length)),
   }
-  if (tools.length) native.tools = nativeTools(tools)
-  if (choice === 'none') native.tool_choice = 'none'
-  else if (choice && 'any' in choice)
-    throw new Error('Required tool choice needs exactly one tool for this model.')
-  else if (choice && 'tool' in choice)
-    native.tool_choice = { type: 'function', function: { name: choice.tool.name } }
+  setNativeTools(native, tools, choice)
   let hasTools = false
   return stream(
     async () => {
       // Hermes adds its system prompt and response format while opening a request.
       const prepared = await prepare({ ...native, messages: [...native.messages] })
+      if (
+        gemma &&
+        (prepared.tools != null ||
+          (prepared.tool_choice != null && prepared.tool_choice !== native.tool_choice) ||
+          prepared.extra_body?.enable_thinking != null)
+      )
+        throw new Error('Set Gemma tools, toolChoice, and thinking before onPayload.')
       onPrepared?.(prepared)
       // WebLLM treats an empty tools list as native tool mode, too.
       hasTools = Boolean(prepared.tools)
@@ -206,4 +211,29 @@ export function protocolStream({
   ) {
     return streamCall(engine, () => open(create), read, signal)
   }
+}
+
+function nativeChoice(choice: ToolChoice | 'none' | undefined, tools: ToolSpec[]) {
+  if (choice && choice !== 'none') choice = singleToolChoice(choice, tools)
+  if (
+    choice !== 'none' &&
+    choice &&
+    'tool' in choice &&
+    !tools.some((tool) => tool.name === choice.tool.name)
+  )
+    throw new Error('The chosen WebLLM tool is not registered.')
+  return choice
+}
+
+function setNativeTools(
+  request: ChatCompletionRequestStreaming,
+  tools: ToolSpec[],
+  choice: ToolChoice | 'none' | undefined,
+) {
+  if (tools.length) request.tools = nativeTools(tools)
+  if (choice === 'none') request.tool_choice = 'none'
+  else if (choice && 'any' in choice)
+    throw new Error('Required tool choice needs exactly one tool for this model.')
+  else if (choice && 'tool' in choice)
+    request.tool_choice = { type: 'function', function: { name: choice.tool.name } }
 }

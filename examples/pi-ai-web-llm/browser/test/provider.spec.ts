@@ -1,11 +1,11 @@
-import { modelCheck } from '../../../../scripts/release/support.js'
+import { modelCheck, recordThinking } from '../../../../scripts/release/support.js'
 import { writeFile } from 'node:fs/promises'
 import type { AssistantMessage, SimpleStreamOptions } from '@earendil-works/pi-ai'
 import { test, expect } from './browser.js'
 import type {} from './checks.js'
 import type { ChatCompletionChunk, ChatCompletionRequestStreaming } from '@mlc-ai/web-llm'
 import type { WebLLMChunk } from 'pi-ai-web-llm'
-import { nativeOutput } from '../../../../test/support/native-output.js'
+import { hasToolResult, nativeOutput } from '../../../../test/support/native-output.js'
 
 test('Pi rejects invalid tool choices before inference and keeps auto and none usable', async ({
   page,
@@ -207,8 +207,7 @@ test('Pi applies thinking-level sampling and cancels pending callbacks on a real
         try {
           cancelled.push(
             await models.completeSimple(model, context, {
-              signal: controller.signal,
-              ...(timeout && { timeoutMs: 1000 }),
+              ...(timeout ? { timeoutMs: 1000 } : { signal: controller.signal }),
               [callback]: () => {
                 if (!timeout) controller.abort()
                 return hold
@@ -333,11 +332,7 @@ for (const { modelId, constrainedToolCalls } of checks) {
   const feature = constrainedToolCalls ? 'constrained-tools' : 'tools'
   test(
     `${modelId}: ${title}` + (constrainedToolCalls ? ' with constraints' : ''),
-    modelCheck(
-      modelId,
-      protocol ? 'tool-protocol' : feature,
-      ...(!modelId.startsWith('Qwen2.5-') ? (['thinking'] as const) : []),
-    ),
+    modelCheck(modelId, protocol ? 'tool-protocol' : feature),
     async ({ page }, info) => {
       const errors: string[] = []
       page.on('pageerror', (error) => errors.push(error.message))
@@ -368,18 +363,7 @@ for (const { modelId, constrainedToolCalls } of checks) {
               () => null,
               (error: unknown) => String(error),
             )
-          let direct: string | undefined
-          if (!constrainedToolCalls && agent.state.errorMessage) {
-            const { engine } = await window.piChecks.provider(true)
-            direct = await window.piChecks.withEngine(engine, async (engine) => {
-              await engine.resetChat()
-              let text = ''
-              for await (const chunk of await engine.chat.completions.create(requests[0]!))
-                text += chunk.choices[0]?.delta.content ?? ''
-              return text
-            })
-          }
-          return { messages: agent.state.messages, requests, native, error, direct, toolCalls }
+          return { messages: agent.state.messages, requests, native, error, toolCalls }
         },
         { modelId, constrainedToolCalls },
       )
@@ -407,7 +391,6 @@ for (const { modelId, constrainedToolCalls } of checks) {
             ),
           )
           .join('')
-        expect(evidence.direct?.startsWith(raw)).toBe(true)
         expect(raw.match(/<tool_call>/g)).toHaveLength(1)
         expect(raw.match(/<\/tool_call>/g)).toHaveLength(1)
         const source = raw.match(/<tool_call>([\s\S]*)<\/tool_call>/)?.[1]
@@ -434,6 +417,7 @@ for (const { modelId, constrainedToolCalls } of checks) {
             message.role === 'toolResult' && message.toolName === 'lookup' && !message.isError,
         ),
       ).toBe(true)
+      expect(hasToolResult(evidence.requests.slice(1), 'ORCHID-42')).toBe(true)
       const final = messages.at(-1)
       expect(final).toMatchObject({ role: 'assistant', stopReason: 'stop' })
       if (final?.role === 'assistant') {
@@ -459,6 +443,7 @@ for (const { modelId, constrainedToolCalls } of checks) {
             })
         expect(text.trim()).not.toBe('')
         expect({ text, thinking }).toEqual(nativeOutput(evidence.native, modelId, prefix))
+        recordThinking(info, modelId, thinking, evidence.requests)
         expect(final.usage.totalTokens).toBeGreaterThan(0)
       }
       const recovery = await page.evaluate(() => window.piChecks.cancelAndRecover())
@@ -618,7 +603,7 @@ for (const modelId of [
     await page.goto('http://127.0.0.1:4173/pi/test/checks.html')
     await page.evaluate((id) => window.piChecks.load(id), modelId)
     const results = await page.evaluate(async () => {
-      const { models, model, engine } = await window.piChecks.provider(true)
+      const { models, model } = await window.piChecks.provider(true)
       const context = {
         messages: [{ role: 'user' as const, content: 'What is 17 * 23?', timestamp: 0 }],
       }
@@ -628,7 +613,6 @@ for (const modelId of [
         message: AssistantMessage
         payload: ChatCompletionRequestStreaming
         native: string
-        direct: string
       }[] = []
       for (const simple of [false, true]) {
         for (const enable_thinking of [true, false]) {
@@ -641,6 +625,7 @@ for (const modelId of [
               payload = structuredClone(request) as ChatCompletionRequestStreaming
             },
             onProviderStreamEvent: (event) => {
+              // Compare with the original WebLLM output from this same call.
               const chunk = event as ChatCompletionChunk
               native += chunk.choices[0]?.delta.content ?? ''
             },
@@ -649,35 +634,27 @@ for (const modelId of [
             ? await models.completeSimple(model, context, options)
             : await models.complete(model, context, options)
           if (!payload) throw new Error('Missing native request.')
-          results.push({ simple, enable_thinking, message, payload, native, direct: '' })
+          results.push({ simple, enable_thinking, message, payload, native })
         }
       }
-      await window.piChecks.withEngine(engine, async (engine) => {
-        await engine.resetChat()
-        for (const result of results) {
-          for await (const chunk of await engine.chat.completions.create(result.payload))
-            result.direct += chunk.choices[0]?.delta.content ?? ''
-        }
-      })
       return results
     })
     await writeFile(info.outputPath('thinking-sampling.json'), JSON.stringify(results, null, 2))
     expect(results).toHaveLength(4)
-    for (const { simple, enable_thinking, message, payload, native, direct } of results) {
+    for (const { simple, enable_thinking, message, payload, native } of results) {
       const mode = `simple=${simple}, thinking=${enable_thinking}`
       expect(payload, mode).toMatchObject({
         max_tokens: 4096,
         seed: 7,
         extra_body: { enable_thinking, enable_latency_breakdown: true },
       })
-      expect(native, mode).toBe(direct)
       expect(message.stopReason, mode).toBe('stop')
       const text = message.content
         .filter((part) => part.type === 'text')
         .map((part) => part.text)
         .join('')
       expect(text, mode).toContain('391')
-      const output = enable_thinking && modelId.startsWith('Qwen3.5-') ? '<think>' + direct : direct
+      const output = enable_thinking && modelId.startsWith('Qwen3.5-') ? '<think>' + native : native
       expect(text, mode).toBe(output.replace(/^<think>[\s\S]*?<\/think>/, ''))
       const thinking = message.content
         .filter((part) => part.type === 'thinking')

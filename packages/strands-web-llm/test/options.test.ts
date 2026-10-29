@@ -44,7 +44,7 @@ const options = {
   seed: 7,
   stream_options: { include_usage: true },
   tool_choice: 'none',
-  response_format: { type: 'json_object', schema: '{"type":"object"}' },
+  response_format: { type: 'text' },
   ignore_eos: false,
   extra_body: {
     enable_thinking: null,

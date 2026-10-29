@@ -17,26 +17,32 @@ export function readValue(
     const closing = lineEnding === '\r\n' && text.endsWith('\r\n') ? '\r\n' : '\n'
     if (text.endsWith(closing)) text = text.slice(0, -closing.length)
   } else text = text.replace(/\r?\n$/, '')
-  if (types?.includes('string')) {
-    if (types.includes('null') && text.trim() === 'null') {
-      if (unknownNegation)
-        throw new ModelError('Qwen3.5 cannot determine a negated tool argument type.')
-      return null
-    }
-    const otherTypes = types.filter((type) => type !== 'string' && type !== 'null')
-    if (otherTypes.length) {
-      try {
-        // Inspect the candidate type without rejecting valid string contents.
-        const value: unknown = JSON.parse(text)
-        const overflow = typeof value === 'number' && !Number.isFinite(value)
-        if (otherTypes.some((type) => matchesType(value, type) || (type === 'integer' && overflow)))
-          throw new ModelError('Qwen3.5 returned an ambiguous tool argument.')
-      } catch (cause) {
-        if (cause instanceof ModelError) throw cause
-      }
-    }
-    return text
+  if (types?.includes('string')) return readString(text, types, unknownNegation)
+  return readJSON(text, types)
+}
+
+function readString(text: string, types: string[], unknownNegation: boolean) {
+  if (types.includes('null') && text.trim() === 'null') {
+    if (unknownNegation)
+      throw new ModelError('Qwen3.5 cannot determine a negated tool argument type.')
+    return null
   }
+  const otherTypes = types.filter((type) => type !== 'string' && type !== 'null')
+  if (otherTypes.length) {
+    try {
+      // Inspect the candidate type without rejecting valid string contents.
+      const value: unknown = JSON.parse(text)
+      const overflow = typeof value === 'number' && !Number.isFinite(value)
+      if (otherTypes.some((type) => matchesType(value, type) || (type === 'integer' && overflow)))
+        throw new ModelError('Qwen3.5 returned an ambiguous tool argument.')
+    } catch (cause) {
+      if (cause instanceof ModelError) throw cause
+    }
+  }
+  return text
+}
+
+function readJSON(text: string, types: string[] | undefined) {
   // Qwen's schema-aware parser accepts case-insensitive booleans and 0/1.
   const booleanText = types?.includes('boolean') ? text.trim().toLowerCase() : undefined
   if (booleanText === 'true' || booleanText === 'false') return booleanText === 'true'

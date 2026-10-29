@@ -615,6 +615,29 @@ describe('WebLLMModel', () => {
     expect(callback).not.toHaveBeenCalled()
   })
 
+  it('does not run either tool when one of two native calls is malformed', async () => {
+    const { model } = setup(
+      chunk(
+        {
+          tool_calls: [
+            { index: 0, id: 'first', function: { name: 'weather', arguments: '{}' } },
+            { index: 1, id: 'second', function: { name: 'weather', arguments: '{' } },
+          ],
+        },
+        'tool_calls',
+      ),
+    )
+    const callback = vi.fn(() => 'Sunny')
+    const agent = new Agent({
+      model,
+      printer: false,
+      tools: [new FunctionTool({ ...tools[0]!, callback })],
+    })
+
+    await expect(agent.invoke('What is the weather?')).rejects.toThrow('invalid tool JSON')
+    expect(callback).not.toHaveBeenCalled()
+  })
+
   it('rejects a tool-choice violation before publishing a native tool block', async () => {
     const registeredTools = [...tools, { name: 'time', description: 'Get the time.' }]
     const { model } = setup(

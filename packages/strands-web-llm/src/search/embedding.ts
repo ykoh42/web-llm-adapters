@@ -29,6 +29,12 @@ interface StorageIndex {
   byContent: Map<string, IndexedText>
 }
 
+interface SearchDocument {
+  key: string
+  data?: Uint8Array
+  content: string
+}
+
 type QueryEmbeddingResult = { vector: number[] } | { error: unknown }
 
 const decoder = new TextDecoder('utf-8', { fatal: true })
@@ -39,7 +45,7 @@ export class WebLLMEmbeddingSearchStrategy implements SearchStrategy {
   readonly #embed: EmbedTexts
   readonly #minScore: number | undefined
   readonly #includeData: boolean
-  readonly #stores = new WeakMap<Storage, StorageIndex>()
+  #stores = new WeakMap<Storage, StorageIndex>()
   readonly #tails = new WeakMap<Storage, Promise<void>>()
 
   constructor(options: WebLLMEmbeddingSearchOptions) {
@@ -52,6 +58,11 @@ export class WebLLMEmbeddingSearchStrategy implements SearchStrategy {
     this.#embed = options.embed
     this.#minScore = options.minScore
     this.#includeData = options.includeData ?? true
+  }
+
+  /** Rebuild document vectors on the next search. Storage contents are unchanged. */
+  clearCache(): void {
+    this.#stores = new WeakMap()
   }
 
   index(storage: Storage, key: string, data: Uint8Array): Promise<void> {
@@ -88,7 +99,7 @@ export class WebLLMEmbeddingSearchStrategy implements SearchStrategy {
       const cached = index.byKey
 
       const keys = await storage.list('')
-      const documents: { key: string; data?: Uint8Array; content: string }[] = []
+      const documents: SearchDocument[] = []
       let queryEmbedding: Promise<QueryEmbeddingResult> | undefined
       const startQueryEmbedding = () => {
         queryEmbedding ??= Promise.resolve()
@@ -126,25 +137,7 @@ export class WebLLMEmbeddingSearchStrategy implements SearchStrategy {
       if ('error' in queryResult) throw queryResult.error
       const queryVector = queryResult.vector
       const querySumSquares = scaleVector(queryVector)
-      const missing = new Map<string, string[]>()
-
-      for (const { key, content } of documents) {
-        const previous = cached.get(key)
-        if (previous?.content === content && previous.vector.length === queryVector.length) continue
-        const keys = missing.get(content)
-        if (keys) keys.push(key)
-        else missing.set(content, [key])
-      }
-
-      const reusable = [...missing].flatMap(([content, keys]) => {
-        const previous = index.byContent.get(content)
-        return previous?.vector.length === queryVector.length ? [{ content, keys, previous }] : []
-      })
-      for (const { content, keys, previous } of reusable) {
-        for (const key of keys) this.#assign(index, key, previous)
-        missing.delete(content)
-      }
-
+      const missing = this.#findMissing(index, documents, queryVector.length)
       const entries = [...missing]
       for (let offset = 0; offset < entries.length; offset += batchSize) {
         const batch = entries.slice(offset, offset + batchSize)
@@ -185,6 +178,27 @@ export class WebLLMEmbeddingSearchStrategy implements SearchStrategy {
         .filter(({ score }) => (this.#minScore === undefined ? score > 0 : score >= this.#minScore))
         .sort((left, right) => right.score - left.score)
     })
+  }
+
+  #findMissing(index: StorageIndex, documents: readonly SearchDocument[], dimensions: number) {
+    const missing = new Map<string, string[]>()
+    for (const { key, content } of documents) {
+      const previous = index.byKey.get(key)
+      if (previous?.content === content && previous.vector.length === dimensions) continue
+      const keys = missing.get(content)
+      if (keys) keys.push(key)
+      else missing.set(content, [key])
+    }
+
+    const reusable = [...missing].flatMap(([content, keys]) => {
+      const previous = index.byContent.get(content)
+      return previous?.vector.length === dimensions ? [{ content, keys, previous }] : []
+    })
+    for (const { content, keys, previous } of reusable) {
+      for (const key of keys) this.#assign(index, key, previous)
+      missing.delete(content)
+    }
+    return missing
   }
 
   #cache(storage: Storage) {

@@ -1,6 +1,8 @@
 packages:
   - packages/*
   - examples/*/*
+minimumReleaseAge: 1440
+minimumReleaseAgeIgnoreMissingTime: false
 allowBuilds:
   '@google/genai': false
   esbuild: true

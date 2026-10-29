@@ -1,4 +1,4 @@
-import { modelCheck } from '../../../../../scripts/release/support.js'
+import { modelCheck, recordThinking } from '../../../../../scripts/release/support.js'
 import { sampling } from '../../../sampling.js'
 import { createDeepAgent } from 'deepagents'
 import { createAgent } from 'langchain'
@@ -13,7 +13,7 @@ import type {
 } from '@mlc-ai/web-llm'
 import type {} from '../../src/main.js'
 import { writeFile } from 'node:fs/promises'
-import { nativeOutput } from '../../../../../test/support/native-output.js'
+import { hasToolResult, nativeOutput } from '../../../../../test/support/native-output.js'
 
 const gemmaModel = 'gemma-4-E2B-it-q4f16_1-MLC'
 const models = [
@@ -61,11 +61,7 @@ for (const { modelId, prompt, constrainedToolCalls } of checks) {
   const feature = constrainedToolCalls ? 'constrained-tools' : 'tools'
   test(
     `${modelId}: ${title}` + (constrainedToolCalls ? ' with constraints' : ''),
-    modelCheck(
-      modelId,
-      protocol ? 'tool-protocol' : feature,
-      ...(!modelId.startsWith('Qwen2.5-') ? (['thinking'] as const) : []),
-    ),
+    modelCheck(modelId, protocol ? 'tool-protocol' : feature),
     async ({ page }, testInfo) => {
       await page.evaluate((id) => window.checks.load(id), modelId)
       const profile = await page.evaluate(() => window.checks.model().profile)
@@ -219,6 +215,7 @@ for (const { modelId, prompt, constrainedToolCalls } of checks) {
       expect(
         result.some((message) => message.type === 'tool' && message.text.includes('ORCHID-42')),
       ).toBe(true)
+      expect(hasToolResult(nativeRequests.slice(1), 'ORCHID-42')).toBe(true)
       expect(result.at(-1)?.type).toBe('ai')
       const answer = result.at(-1)!
       const thoughts = result
@@ -245,6 +242,7 @@ for (const { modelId, prompt, constrainedToolCalls } of checks) {
       expect({ text: answer.text, thinking: thoughts }).toEqual(
         nativeOutput(native, modelId, prefix),
       )
+      recordThinking(testInfo, modelId, thoughts, nativeRequests)
       const finishes = native
         .flatMap((chunk) => chunk.choices.map((choice) => choice.finish_reason))
         .filter(Boolean)

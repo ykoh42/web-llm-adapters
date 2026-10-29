@@ -34,6 +34,7 @@ export function qwenStream(
         }),
         options.cancelSignal,
         options.toolChoice ?? config.request?.tool_choice,
+        { orderedTools: true },
       ),
     options.cancelSignal,
   )

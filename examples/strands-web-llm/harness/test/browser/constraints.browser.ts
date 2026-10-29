@@ -12,18 +12,20 @@ import { BrowserModel, type WebLLMChunk } from 'strands-web-llm'
 import { z } from 'zod'
 import { test, expect } from '../../../fixtures/browser.js'
 import { sampling } from '../../../sampling.js'
-import { modelCheck } from '../../../../../scripts/release/support.js'
+import { modelCheck, recordThinking } from '../../../../../scripts/release/support.js'
+import { captureChatRequests } from '../../fixtures/native.js'
 
 for (const modelId of ['Qwen3-1.7B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC']) {
   test(
     `${modelId} constrains required tools and preserves thinking through the final answer`,
-    modelCheck(modelId, 'tools', 'thinking'),
+    modelCheck(modelId, 'constrained-tools'),
     async ({ page }, info) => {
       const receipt = 'CODE-' + crypto.randomUUID().slice(0, 8)
       const inputs: unknown[] = []
-      const inputSchema = z
-        .object({ city: z.string(), unit: z.enum(['celsius', 'fahrenheit']) })
-        .strict()
+      const inputSchema = z.strictObject({
+        city: z.string(),
+        unit: z.enum(['celsius', 'fahrenheit']),
+      })
       const tool = defineTool({
         name: 'lookup',
         description: 'Process the supplied fields and return a verification code.',
@@ -36,6 +38,7 @@ for (const modelId of ['Qwen3-1.7B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC']) {
       await page.goto('http://127.0.0.1:4173/harness.html')
       await page.waitForFunction(() => Boolean(window.harness))
       await page.evaluate((id) => window.harness.open(id, 8192), modelId)
+      await captureChatRequests(page)
       const settings = sampling(modelId, true)
       const chunks: WebLLMChunk[][] = []
       const model = new BrowserModel(page, {
@@ -92,6 +95,8 @@ for (const modelId of ['Qwen3-1.7B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC']) {
           )
           chunks.push([])
           const last = await read(model.streamAggregated(messages, { toolSpecs: [tool.toolSpec] }))
+          const requests = await page.evaluate(() => window.releaseChatRequests.slice(-2))
+          recordThinking(info, modelId, [reasoning], requests)
           expect(last.some((block) => block.type === 'toolUseBlock')).toBe(false)
           expect(
             last

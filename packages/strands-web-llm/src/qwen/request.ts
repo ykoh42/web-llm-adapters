@@ -40,24 +40,34 @@ export function qwenRequest(
 }
 
 function qwenMessages(isQwen3: boolean, messages: Message[], options: StreamOptions) {
+  return qwenHistory(messages, options, {
+    systemPrompt: qwenSystemPrompt(isQwen3, options),
+    keepThoughts: isQwen3,
+  })
+}
+
+export function qwenSystemPrompt(isQwen3: boolean, options: StreamOptions) {
   const system = formatSystemPrompt(options.systemPrompt)
   const prompt = toolPrompt(options.toolSpecs ?? [], options.toolChoice)
   const systemParts = []
   if (system !== undefined) systemParts.push(system)
   else if (!isQwen3) systemParts.push(qwen25SystemPrompt)
   if (prompt) systemParts.push(prompt)
-  return qwenHistory(messages, options, {
-    systemPrompt: systemParts.length ? systemParts.join('\n\n') : undefined,
-    keepThoughts: isQwen3,
-  })
+  return systemParts.length ? systemParts.join('\n\n') : undefined
 }
 
 function qwen35Messages(messages: Message[], options: StreamOptions) {
-  const system = formatSystemPrompt(options.systemPrompt)
-  const prompt = xmlSystem(system, options.toolSpecs ?? [], options.toolChoice)
   return qwenHistory(messages, options, {
-    systemPrompt: prompt,
+    systemPrompt: qwen35SystemPrompt(options),
     keepThoughts: true,
     xml: true,
   })
+}
+
+export function qwen35SystemPrompt(options: StreamOptions) {
+  return xmlSystem(
+    formatSystemPrompt(options.systemPrompt),
+    options.toolSpecs ?? [],
+    options.toolChoice,
+  )
 }

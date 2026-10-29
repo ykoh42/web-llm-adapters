@@ -16,6 +16,86 @@ const lookup = {
 }
 
 describe('native WebLLM messages', () => {
+  it.each([
+    {
+      modelId: 'Qwen2.5-3B-Instruct-q4f16_1-MLC',
+      call: '<tool_call>{"name":"lookup","arguments":{"code":"A7"}}</tool_call>',
+    },
+    {
+      modelId: 'Qwen3-4B-q4f16_1-MLC',
+      call: '<tool_call>{"name":"lookup","arguments":{"code":"A7"}}</tool_call>',
+    },
+    {
+      modelId: 'Qwen3.5-4B-q4f16_1-MLC',
+      call: '<tool_call><function=lookup><parameter=code>A7</parameter></function></tool_call>',
+    },
+  ])('keeps text and tool events in model order for $modelId', async ({ modelId, call }) => {
+    const source = `Before${call}Between${call}After`
+    for (const size of [1, source.length])
+      for (const choice of ['auto', 'lookup'] as const) {
+        const parts = source.match(new RegExp(`[\\s\\S]{1,${size}}`, 'g'))!
+        const { engine } = setup(
+          ...parts.map((content, index) =>
+            chunk({ content }, index === parts.length - 1 ? 'stop' : null),
+          ),
+        )
+        const model = new ChatWebLLM({ engine, modelId })
+        const stream = model.streamEvents('Look up A7.', { tools: [lookup], tool_choice: choice })
+        const events = await collect(stream)
+
+        expect(
+          events
+            .filter((event) => event.event === 'content-block-start')
+            .map((event) => event.content.type),
+          `chunk size ${size}, choice ${choice}`,
+        ).toEqual(['text', 'tool_call_chunk', 'text', 'tool_call_chunk', 'text'])
+        expect((await stream).text).toBe('BeforeBetweenAfter')
+        expect(await stream.toolCalls).toMatchObject([
+          { name: 'lookup', args: { code: 'A7' } },
+          { name: 'lookup', args: { code: 'A7' } },
+        ])
+      }
+  })
+
+  it.each(['length', 'error', 'wrong tool', 'mixed tools'])(
+    'keeps later text without publishing a restricted call on %s',
+    async (finish) => {
+      const call = (name: string) =>
+        `<tool_call>{"name":"${name}","arguments":{"code":"A7"}}</tool_call>`
+      const middle =
+        finish === 'mixed tools'
+          ? `${call('lookup')}Between${call('other')}`
+          : call(finish === 'wrong tool' ? 'other' : 'lookup')
+      const failure = new Error('Stream failed')
+      const { engine, create } = setup()
+      create.mockResolvedValueOnce(
+        (async function* () {
+          yield chunk({ content: `Before${middle}After` }, finish === 'length' ? 'length' : null)
+          if (finish === 'error') throw failure
+          if (finish === 'wrong tool' || finish === 'mixed tools') yield chunk({}, 'stop')
+        })(),
+      )
+      const model = new ChatWebLLM({ engine, modelId: 'Qwen3-4B-q4f16_1-MLC' })
+      const other = { ...lookup, function: { ...lookup.function, name: 'other' } }
+      const output: string[] = []
+      const toolChunks: unknown[] = []
+      const pending = (async () => {
+        for await (const item of await model
+          .bindTools([lookup, other], { tool_choice: 'lookup' })
+          .stream('Find A7.')) {
+          output.push(item.text)
+          toolChunks.push(...(item.tool_call_chunks ?? []))
+        }
+      })()
+      if (finish === 'error') await expect(pending).rejects.toBe(failure)
+      else if (finish === 'wrong tool' || finish === 'mixed tools')
+        await expect(pending).rejects.toThrow('outside tool_choice')
+      else await pending
+      expect(output.join('')).toBe(finish === 'mixed tools' ? 'BeforeBetweenAfter' : 'BeforeAfter')
+      expect(toolChunks).toEqual([])
+    },
+  )
+
   it('keeps reasoning, tool calls, and later text in separate event blocks', async () => {
     const { engine } = setup(
       chunk({ content: '<think>Thought</think>' }),
@@ -273,6 +353,33 @@ describe('native WebLLM messages', () => {
     expect(result.tool_calls).toEqual([])
     expect(result.response_metadata.finish_reason).toBe('length')
   })
+
+  it.each(['{"code":"A', '{"code":"A7"}'])(
+    'keeps out-of-order native tool fragments without completing a truncated call: %s',
+    async (args) => {
+      const { model } = setup(
+        chunk(
+          {
+            tool_calls: [
+              { index: 1, type: 'function', function: { name: 'lookup', arguments: args } },
+            ],
+          },
+          'length',
+        ),
+      )
+      const messages: AIMessageChunk[] = []
+      for await (const message of await model.bindTools([lookup]).stream('Look up A7.'))
+        messages.push(message)
+
+      const [initial, ...rest] = messages
+      if (!initial) throw new Error('WebLLM returned no message chunks.')
+      const result = rest.reduce((combined, message) => combined.concat(message), initial)
+      expect(result.tool_call_chunks).toMatchObject([{ index: 1, name: 'lookup', args }])
+      expect(result.tool_call_chunks?.[0]?.id).toBeUndefined()
+      expect(result.tool_calls).toEqual([])
+      expect(result.response_metadata.finish_reason).toBe('length')
+    },
+  )
 
   it('keeps out-of-order Hermes calls ordered when WebLLM omits IDs', async () => {
     const { model } = setup(

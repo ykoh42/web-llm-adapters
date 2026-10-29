@@ -45,10 +45,10 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
       try {
         if (!call) throw new Error('Unknown browser call.')
         const result = await active.read(call)
-        if (result.done) calls.delete(id)
+        if (result.done && !call.closing) calls.delete(id)
         return result
       } catch (error) {
-        calls.delete(id)
+        if (!call?.closing) calls.delete(id)
         const chunks = call?.takeChunks?.()
         const packet = {
           ...(chunks?.length && { chunks }),

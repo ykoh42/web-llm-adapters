@@ -8,7 +8,8 @@ npm install langchain-web-llm
 
 - Yarn: also install `@mlc-ai/web-llm` and `@langchain/core`. Check compatible versions with `yarn explain peer-requirements`.
 - pnpm: if dependency scripts are blocked, run [`pnpm approve-builds`](https://pnpm.io/cli/approve-builds) to allow or deny them, then rerun `pnpm install`.
-- TypeScript: use `moduleResolution: "bundler"` for full WebLLM option checking; its declarations lose type information under `NodeNext`.
+- CommonJS: use `require('langchain-web-llm')` on Node.js 22.12 or later. With Yarn PnP on Node 22.12–22.14 or 23.0–23.4, use `import()`.
+- TypeScript: `moduleResolution: "bundler"` retains more WebLLM option types than `NodeNext`. WebLLM's declarations may require `skipLibCheck` and leave some types unchecked.
 
 ## Use
 
@@ -114,7 +115,7 @@ Load the browser engine with `context_window_size: 32768` and the Qwen3.5 `conv_
 | Chat, streaming, tools, reasoning    | Model-dependent                                                                                                |
 | Required tool choice                 | Qwen: one or more tools; Gemma/native tool models: one                                                         |
 | Cancellation and shared-engine calls | Yes                                                                                                            |
-| Token counts                         | LangChain estimates (`getNumTokens`)                                                                           |
+| Token counts                         | WebLLM usage; LangChain estimates with `getNumTokens`                                                          |
 | LangChain response cache (`cache`)   | Known upstream cache defects; leave unset ([#10092](https://github.com/langchain-ai/langchainjs/issues/10092)) |
 | Structured output                    | `withStructuredOutput()` through tools or native JSON                                                          |
 | Images                               | Model-dependent; URLs/base64/bytes; no detail                                                                  |
@@ -123,9 +124,14 @@ Load the browser engine with `context_window_size: 32768` and the Qwen3.5 `conv_
 | Embeddings                           | `WebLLMEmbeddings` and `BrowserWebLLMEmbeddings` for LangGraph memory                                          |
 | Strict tool schemas                  | No                                                                                                             |
 
+When WebLLM reuses conversation state, input usage may count only new prompt tokens.
+Chat retries are off by default; `maxRetries` retries stream setup only.
+For log probabilities, browser transports must preserve non-finite numbers; Playwright does.
 A media message accepts one text segment; text on both sides of media blocks is rejected. Browser transport carries PCM as float WAV without changing samples or sample rate.
 
-Tested with LangChain Core **1.2.8** and **1.3.0**, and WebLLM **0.2.79** and **0.2.86**.
+Tested with LangChain Core **1.2.8** and **1.3.1**, and WebLLM **0.2.79** and **0.2.86**.
+
+WebLLM 0.2.79 ignores request-level `repetition_penalty` and `enable_latency_breakdown`. Versions 0.2.81–0.2.83 fail when directly imported as ESM in Node.js. Versions 0.2.79–0.2.85 can leave the engine blocked after a stream stops early. Use 0.2.86 for cancellation and reuse.
 
 For Qwen agents with tools and a response schema, use `responseFormat: toolStrategy(schema)` ([`toolStrategy`](https://reference.langchain.com/javascript/langchain/index/toolStrategy) from `langchain`); native JSON cannot be combined with Qwen tools.
 For optional [Qwen tool-call constraints](https://github.com/ykoh42/web-llm-adapters#tool-call-constraints), set `request.constrainedToolCalls: true` with WebLLM 0.2.86.
@@ -139,6 +145,8 @@ Use literal `~0`/`~1` in `$ref` paths; LangChain's tool validator cannot resolve
 See the [verified models](https://github.com/ykoh42/web-llm-adapters#models) for exact IDs and features.
 
 Install WebLLM `0.2.79` or later in the `0.2.x` series. Gemma 4 E2B was verified with WebLLM `0.2.86` and needs the bundled [runtime setup and protocol limits](https://github.com/ykoh42/web-llm-adapters/blob/main/shared/runtime/README.md). Audio works in ordinary chat; the default profile keeps it disabled for Deep Agents. Tools and thinking accept text and tool results only. Model-selected tools and arguments still need validation.
+
+Tool errors are sent with an `[ERROR]` prefix because WebLLM has no tool-result status field.
 
 Qwen3.5 preserves object/array arguments, type-less non-string `enum`/`const` values, and `anyOf`/`oneOf` unions without string branches as JSON. History rejects `<|im_start|>`, `<|im_end|>`, or `<|endoftext|>` in tool arguments, `>` in top-level argument names, and `<parameter=` / `</parameter>` in raw strings.
 
@@ -157,18 +165,19 @@ const vector = await embeddings.embedQuery('a flower')
 ```
 
 Arctic Embed M returns 768 dimensions; S returns 384. Both have a 512-token input limit.
-Snowflake's query prefix is applied automatically; documents stay unprefixed. Use `BrowserWebLLMEmbeddings(page, options)` for Node.js and LangGraph semantic memory.
+Snowflake's query prefix is applied automatically; documents stay unprefixed. Set `queryPrefix: ''` to send queries unchanged. Use `BrowserWebLLMEmbeddings(page, options)` for Node.js and LangGraph semantic memory.
 WebLLM splits each request to the loaded artifact's GPU batch limit. Lower `batchSize` to reduce temporary host memory and retry scope; choose a lower-batch artifact to reduce GPU memory. `maxRetries` retries only the failed request batch.
 
 ## Native options
 
 Set generation options with `request` at construction or per call. Per-call `extra_body` replaces the configured WebLLM fields; `preserve_thinking` is retained unless overridden. WebLLM's `created` timestamp is available as `response_metadata.created` in Unix seconds. For probabilities, set `logprobs: true` and `top_logprobs: 2`; read `response_metadata.logprobs`. `onChunk` exposes unchanged native chunks and timing; async handlers are awaited in order. Do not await work on the same engine from a handler.
+Browser models may read ahead while a handler runs.
 
 For Gemma 4, `request.extra_body.preserve_thinking: true` also keeps earlier tool-call reasoning; the default keeps only the current user turn.
 
 Set `thinkingPrefilled: true` at construction if your loaded Qwen template already opens `<think>`. This only controls output parsing; it does not change the engine or prompt. See [Qwen3.5 engine setup](https://github.com/ykoh42/web-llm-adapters#qwen35-engine-setup) for WebLLM 0.2.86.
 
-Chat retries default to 0 and apply only while opening a stream. Context-limit errors use LangChain's `ContextOverflowError`, with the native cause preserved.
+Context-limit errors use LangChain's `ContextOverflowError`, with the native cause preserved.
 
 `BrowserChatWebLLM` awaits `onFailedAttempt` in Node.js before retrying; throwing stops the call. Errors preserve JSON fields and cause values, plus LangChain retry markers.
 
@@ -176,4 +185,4 @@ For custom vision models in Deep Agents, set `profile.imageInputs` and `profile.
 
 Use `withEngine(model.engine, callback)` for native APIs, or `window.webllmLangChainBridge.withEngine(callback)` inside the browser page. Finish all work and consume streams inside the callback. Calls on one engine run in order. You own model loading, the engine, workers, and page; cancellation does not unload them.
 
-With WebLLM 0.2.86, set `request.extra_body.resumable` to checkpoint chat, then call `resumeChatCompletion()` through `withEngine()`. WebLLM only resumes text-only requests without structured output or a custom logit processor; this does not restore LangChain or agent state. Gemma tool and thinking requests use raw completions and cannot resume.
+With WebLLM 0.2.86, set `request.extra_body.resumable.enabled` to `true` to checkpoint chat, then call `resumeChatCompletion()` through `withEngine()`. Set `resumable.strictPersistence` to `true` to surface storage errors. WebLLM 0.2.79–0.2.85 ignores this option. WebLLM only resumes text-only requests without structured output or a custom logit processor; this does not restore LangChain or agent state. Gemma tool and thinking requests use raw completions and cannot resume.

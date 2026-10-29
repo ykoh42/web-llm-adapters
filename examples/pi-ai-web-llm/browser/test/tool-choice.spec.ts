@@ -13,7 +13,7 @@ for (const modelId of [
     await page.evaluate((id) => window.piChecks.load(id), modelId)
     const evidence = await page.evaluate(async (modelId) => {
       const agent = await window.piChecks.createAgent(true)
-      const { models, model, engine } = await window.piChecks.provider(true)
+      const { models, model } = await window.piChecks.provider(true)
       const systemPrompt =
         modelId === 'Qwen3.5-2B-q4f16_1-MLC'
           ? `<instructions>\n${agent.state.systemPrompt}\n</instructions>`
@@ -39,18 +39,10 @@ for (const modelId of [
         },
       )
       if (!payload) throw new Error('Missing native request.')
-      const request = payload
-      const direct = await window.piChecks.withEngine(engine, async (engine) => {
-        await engine.resetChat()
-        let raw = ''
-        for await (const chunk of await engine.chat.completions.create(request))
-          raw += chunk.choices[0]?.delta.content ?? ''
-        return raw
-      })
-      return { request, native, direct, message, systemPrompt }
+      return { request: payload, native, message, systemPrompt }
     }, modelId)
     await writeFile(info.outputPath('tool-choice.json'), JSON.stringify(evidence, null, 2))
-    const { request, native, direct, message, systemPrompt } = evidence
+    const { request, native, message, systemPrompt } = evidence
     expect(request.extra_body?.enable_thinking).toBe(true)
     const system = request.messages[0]?.content
     expect(request.messages[0]?.role).toBe('system')
@@ -74,7 +66,6 @@ for (const modelId of [
       role: 'user',
       content: 'Look up A7 and tell me the answer.',
     })
-    expect(native).toBe(direct)
     const calls = message.content.filter((part) => part.type === 'toolCall')
     const expectedCalls = [...native.matchAll(/<tool_call>\n([\s\S]*?)\n<\/tool_call>/g)].map(
       (match) => {

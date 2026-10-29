@@ -3,7 +3,11 @@ import { parseJSON } from '../../../../shared/web-llm/json.js'
 import { ModelError as ProtocolError, type ToolChoice } from '../../../../shared/web-llm/types.js'
 import { ModelError, type ModelStreamEvent } from '@strands-agents/sdk'
 import type { CompletionUsage } from '@mlc-ai/web-llm'
-import type { StreamChunk } from '../../../../shared/web-llm/stream/chunks.js'
+import {
+  hasContentAfterStop,
+  type StreamChunk,
+  type ToolDelta,
+} from '../../../../shared/web-llm/stream/chunks.js'
 
 type ToolCall = {
   id?: string
@@ -14,6 +18,9 @@ type ToolCall = {
   closed: boolean
 }
 
+type Deferred =
+  { type: 'textDelta' | 'reasoningContentDelta'; text: string } | { type: 'tool'; index: number }
+
 const contentFields = [
   ['reasoningContentDelta', 'reasoning'],
   ['textDelta', 'text'],
@@ -23,8 +30,15 @@ export async function* readStream(
   chunks: AsyncIterable<StreamChunk>,
   signal?: AbortSignal,
   choice?: ToolChoice | 'none',
-  toolNames?: readonly string[],
-  progressiveTools = false,
+  {
+    toolNames,
+    progressiveTools = false,
+    orderedTools = false,
+  }: {
+    toolNames?: readonly string[]
+    progressiveTools?: boolean
+    orderedTools?: boolean
+  } = {},
 ): AsyncGenerator<ModelStreamEvent> {
   // Restricted calls must pass validation before any tool block is published.
   if (choice === 'none' || (choice && 'tool' in choice)) progressiveTools = false
@@ -32,48 +46,132 @@ export async function* readStream(
   let stopReason: StreamChunk['stop']
   let usage: CompletionUsage | undefined
   const calls = new Map<number, ToolCall>()
+  let deferred: Deferred[] | undefined
+  let deferredIndex = 0
+
+  function recordToolDelta(delta: ToolDelta): void {
+    if (orderedTools && !calls.has(delta.index)) {
+      deferred ??= []
+      deferred.push({ type: 'tool', index: delta.index })
+    }
+    const call = calls.get(delta.index) ?? {
+      name: '',
+      input: [],
+      sentParts: 0,
+      started: false,
+      closed: false,
+    }
+    if (call.started && delta.name)
+      throw new ModelError('WebLLM changed a tool name after streaming began.')
+    if (delta.id && !call.started) call.id = delta.id
+    if (delta.name) call.name += delta.name
+    if (delta.input) call.input.push(delta.input)
+    calls.set(delta.index, call)
+  }
+
+  function* closeBlock(): Generator<ModelStreamEvent> {
+    if (!block) return
+    block = undefined
+    yield { type: 'modelContentBlockStopEvent' }
+    signal?.throwIfAborted()
+  }
+
+  function* emitContent(
+    type: 'textDelta' | 'reasoningContentDelta',
+    text: string,
+  ): Generator<ModelStreamEvent> {
+    if (block !== type) {
+      yield* closeBlock()
+      block = type
+      yield { type: 'modelContentBlockStartEvent' }
+      signal?.throwIfAborted()
+    }
+    yield { type: 'modelContentBlockDeltaEvent', delta: { type, text } }
+    signal?.throwIfAborted()
+  }
+
+  function* emitDeferred(includeTools: boolean): Generator<ModelStreamEvent> {
+    while (deferred && deferredIndex < deferred.length) {
+      const part = deferred[deferredIndex++]!
+      if (part.type !== 'tool') {
+        yield* emitContent(part.type, part.text)
+        continue
+      }
+      if (!includeTools) continue
+      yield* closeBlock()
+      yield* finishTool(calls.get(part.index)!, signal)
+    }
+  }
+
+  function* finishStream(
+    stop: NonNullable<StreamChunk['stop']>,
+    usage: CompletionUsage | undefined,
+  ): Generator<ModelStreamEvent> {
+    const orderedCalls = [...calls.entries()]
+      .sort(([left], [right]) => left - right)
+      .map(([, call]) => call)
+    checkToolChoice(orderedCalls, choice, stop, toolNames)
+    if (stop !== 'maxTokens' && stop !== 'cancelled') checkToolCallIds(orderedCalls)
+    const useTools = stop !== 'maxTokens' && stop !== 'cancelled' && calls.size > 0
+    if (deferred) yield* emitDeferred(useTools)
+    else if (useTools) {
+      yield* closeBlock()
+      for (const call of orderedCalls) {
+        signal?.throwIfAborted()
+        yield* finishTool(call, signal)
+      }
+    }
+    if (useTools) stop = 'toolUse'
+    else {
+      if (!deferred) yield* closeBlock()
+      yield* closeStartedTools(calls, true)
+      if (stop === 'toolUse') throw new ModelError('WebLLM returned no tool calls.')
+    }
+    yield* closeBlock()
+    signal?.throwIfAborted()
+    if (usage) {
+      const latency = usage.extra?.e2e_latency_s
+      yield {
+        type: 'modelMetadataEvent',
+        usage: {
+          inputTokens: usage.prompt_tokens,
+          outputTokens: usage.completion_tokens,
+          totalTokens: usage.total_tokens,
+        },
+        ...(typeof latency === 'number' &&
+          latency >= 0 &&
+          Number.isFinite(latency * 1000) && {
+            metrics: { latencyMs: latency * 1000 },
+          }),
+        trace: usage.extra,
+      }
+    }
+    signal?.throwIfAborted()
+    yield { type: 'modelMessageStopEvent', stopReason: stop }
+  }
 
   yield { type: 'modelMessageStartEvent', role: 'assistant' }
   try {
     signal?.throwIfAborted()
     for await (const chunk of chunks) {
       signal?.throwIfAborted()
-      if (stopReason && (chunk.text || chunk.reasoning || chunk.calls.length || chunk.stop))
+      if (hasContentAfterStop(stopReason, chunk))
         throw new ModelError('WebLLM returned content after its stop reason.')
       if (chunk.usage) usage = chunk.usage
 
       for (const [type, field] of contentFields) {
         const value = chunk[field]
         if (!value) continue
-        if (block !== type) {
-          if (block) {
-            block = undefined
-            yield { type: 'modelContentBlockStopEvent' }
-            signal?.throwIfAborted()
-          }
-          block = type
-          yield { type: 'modelContentBlockStartEvent' }
-          signal?.throwIfAborted()
+        if (deferred) {
+          const previous = deferred.at(-1)
+          if (previous?.type === type) previous.text += value
+          else deferred.push({ type, text: value })
+          continue
         }
-        yield { type: 'modelContentBlockDeltaEvent', delta: { type, text: value } }
-        signal?.throwIfAborted()
+        yield* emitContent(type, value)
       }
 
-      for (const delta of chunk.calls) {
-        const call = calls.get(delta.index) ?? {
-          name: '',
-          input: [],
-          sentParts: 0,
-          started: false,
-          closed: false,
-        }
-        if (call.started && delta.name)
-          throw new ModelError('WebLLM changed a tool name after streaming began.')
-        if (delta.id && !call.started) call.id = delta.id
-        if (delta.name) call.name += delta.name
-        if (delta.input) call.input.push(delta.input)
-        calls.set(delta.index, call)
-      }
+      for (const delta of chunk.calls) recordToolDelta(delta)
 
       // Only stream native, non-terminal deltas. WebLLM 0.2.86 exposes parsed
       // tool calls at generation end, so those are emitted by finishTool below.
@@ -87,11 +185,7 @@ export async function* readStream(
           toolNames?.includes(firstCall.name) &&
           !toolNames.some((name) => name !== firstCall.name && name.startsWith(firstCall.name))
         ) {
-          if (block) {
-            block = undefined
-            yield { type: 'modelContentBlockStopEvent' }
-            signal?.throwIfAborted()
-          }
+          yield* closeBlock()
           firstCall.started = true
           yield {
             type: 'modelContentBlockStartEvent',
@@ -117,49 +211,13 @@ export async function* readStream(
 
     signal?.throwIfAborted()
     if (!stopReason) throw new ModelError('WebLLM ended the stream without a stop reason.')
-    if (block) {
-      block = undefined
-      yield { type: 'modelContentBlockStopEvent' }
-      signal?.throwIfAborted()
-    }
-
-    const orderedCalls = [...calls.entries()]
-      .sort(([left], [right]) => left - right)
-      .map(([, call]) => call)
-    checkToolChoice(orderedCalls, choice, stopReason, toolNames)
-    if (stopReason !== 'maxTokens' && stopReason !== 'cancelled') checkToolCallIds(orderedCalls)
-    const useTools = stopReason !== 'maxTokens' && stopReason !== 'cancelled' && calls.size > 0
-    if (useTools) {
-      for (const call of orderedCalls) {
-        signal?.throwIfAborted()
-        yield* finishTool(call, signal)
-      }
-      stopReason = 'toolUse'
-    } else {
-      yield* closeStartedTools(calls, true)
-      if (stopReason === 'toolUse') throw new ModelError('WebLLM returned no tool calls.')
-    }
-    signal?.throwIfAborted()
-    if (usage) {
-      const latency = usage.extra?.e2e_latency_s
-      yield {
-        type: 'modelMetadataEvent',
-        usage: {
-          inputTokens: usage.prompt_tokens,
-          outputTokens: usage.completion_tokens,
-          totalTokens: usage.total_tokens,
-        },
-        ...(typeof latency === 'number' &&
-          latency >= 0 &&
-          Number.isFinite(latency * 1000) && {
-            metrics: { latencyMs: latency * 1000 },
-          }),
-        trace: usage.extra,
-      }
-    }
-    signal?.throwIfAborted()
-    yield { type: 'modelMessageStopEvent', stopReason }
+    yield* finishStream(stopReason, usage)
   } catch (error) {
+    try {
+      if (!signal?.aborted) yield* emitDeferred(false)
+    } catch (cause) {
+      if (!signal?.aborted) throw cause
+    }
     if (block) yield { type: 'modelContentBlockStopEvent' }
     yield* closeStartedTools(calls, !signal?.aborted)
     if (signal?.aborted) {

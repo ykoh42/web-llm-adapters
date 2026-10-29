@@ -26,6 +26,18 @@ const call = (index: number, input: string, id = `call-${index}`) => ({
 })
 
 describe('Pi response events', () => {
+  it('preserves the message of an error-like rejection', async () => {
+    const { model } = setup()
+    const response = responseStream(model, () => {
+      throw { message: 'GPU unavailable' }
+    })
+
+    expect(await response.result()).toMatchObject({
+      stopReason: 'error',
+      errorMessage: 'GPU unavailable',
+    })
+  })
+
   it('marks AbortError failures from another realm as aborted', async () => {
     const { model } = setup()
     const response = responseStream(model, () => ({
@@ -252,6 +264,27 @@ describe('Pi response events', () => {
       'done',
     ])
     expect(await response.result()).toMatchObject({ stopReason: 'length' })
+  })
+
+  it('keeps out-of-order tool fragments when generation reaches the token limit', async () => {
+    const response = stream(
+      { calls: [call(2, '{"code":"B'), call(1, '{"code":"A')] },
+      { calls: [{ index: 2, id: undefined, name: undefined, input: '8' }], stop: 'maxTokens' },
+    )
+    const events = await collect(response)
+
+    expect(events.filter((event) => event.type === 'toolcall_delta')).toMatchObject([
+      { delta: '{"code":"A' },
+      { delta: '{"code":"B8' },
+    ])
+    expect(events.filter((event) => event.type === 'toolcall_end')).toEqual([])
+    expect(await response.result()).toMatchObject({
+      stopReason: 'length',
+      content: [
+        { type: 'toolCall', id: 'call-1', arguments: { code: 'A' } },
+        { type: 'toolCall', id: 'call-2', arguments: { code: 'B8' } },
+      ],
+    })
   })
 
   it('keeps final usage received after the stop chunk', async () => {

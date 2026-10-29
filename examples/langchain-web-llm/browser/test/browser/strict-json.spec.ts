@@ -61,6 +61,7 @@ test('strict JSON uses native schema constraints in local and browser models', a
           parsed: response.parsed,
           text: response.raw.text,
           finish: response.raw.response_metadata.finish_reason,
+          native: await window.webllmLangChainBridge!.withEngine((engine) => engine.getMessage()),
         }
       },
       { schema, prompt, config },
@@ -78,20 +79,14 @@ test('strict JSON uses native schema constraints in local and browser models', a
       parsed: browser.parsed,
       text: browser.raw.text,
       finish: browser.raw.response_metadata.finish_reason,
+      native: await page.evaluate(() =>
+        window.webllmLangChainBridge!.withEngine((engine) => engine.getMessage()),
+      ),
     })
   }
   const requests = await page.evaluate(() => window.strictJSONRequests)
-  const native = await page.evaluate(() =>
-    window.webllmLangChainBridge!.withEngine(async (engine) => {
-      await engine.resetChat()
-      let text = ''
-      for await (const chunk of await engine.chat.completions.create(window.strictJSONRequests[0]!))
-        text += chunk.choices[0]?.delta.content ?? ''
-      return text
-    }),
-  )
   const evidence = info.outputPath('strict-json.json')
-  await writeFile(evidence, JSON.stringify({ results, requests, native }, null, 2))
+  await writeFile(evidence, JSON.stringify({ results, requests }, null, 2))
   await info.attach('strict-json', { path: evidence, contentType: 'application/json' })
   expect(requests).toHaveLength(6)
   for (const request of requests) {
@@ -101,8 +96,8 @@ test('strict JSON uses native schema constraints in local and browser models', a
     expect(request.extra_body?.enable_thinking).toBe(true)
   }
   for (const result of results) {
-    expect(result.text).toBe(native)
-    expect(result.parsed).toEqual(JSON.parse(native))
+    expect(result.text).toBe(result.native)
+    expect(result.parsed).toEqual(JSON.parse(result.native))
     expect(result.parsed).toMatchObject({ answer: 42, code: 'A7', values: expect.any(Array) })
     expect(Object.keys(result.parsed).sort()).toEqual(['answer', 'code', 'values'])
     expect(result.parsed.values).toHaveLength(2)
@@ -114,14 +109,19 @@ test('strict JSON uses native schema constraints in local and browser models', a
 test(
   'structured JSON parses with thinking off and preserves literal tags',
   modelCheck('Qwen3.5-4B-q4f16_1-MLC'),
-  async ({ page }) => {
+  async ({ page }, info) => {
     const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
     await page.evaluate((id) => window.checks.load(id), modelId)
     const text = '<think>literal</think>'
+    const native: string[] = []
     const model = new BrowserChatWebLLM(page, {
       modelId,
       thinkingPrefilled: true,
       request: { max_tokens: 4096, extra_body: { enable_thinking: false } },
+      onChunk: (chunk) => {
+        const choice = chunk.choices[0]
+        if (choice && 'delta' in choice) native.push(choice.delta.content ?? '')
+      },
     })
     const result = await model
       .withStructuredOutput<{ text: string }>(
@@ -136,5 +136,15 @@ test(
       .invoke('Return the requested JSON.')
     expect(result.parsed).toEqual({ text })
     expect(JSON.parse(result.raw.text)).toEqual(result.parsed)
+    native.length = 0
+    const answer = await model.invoke('Repeat this text exactly: ' + text)
+    const raw = native.join('')
+    const prefix = '<think>\n\n</think>'
+    await info.attach('thinking-off', {
+      body: JSON.stringify({ raw, answer: answer.text }),
+      contentType: 'application/json',
+    })
+    expect(raw.startsWith(prefix + '\n\n')).toBe(true)
+    expect(answer.text).toBe(raw.slice(prefix.length))
   },
 )

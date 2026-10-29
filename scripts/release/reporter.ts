@@ -1,7 +1,8 @@
 import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import type { FullResult, Reporter, TestCase, TestResult } from '@playwright/test/reporter'
 import { format, resolveConfig } from 'prettier'
-import { checkReport, modelReport, type ModelReport } from './report.ts'
+import { checkReport, checkTests, modelReport, type ModelReport } from './report.ts'
+import { releaseTests, testName } from './tests.ts'
 import { checkClean, git, reportPath, sourceHash, webllmVersion } from './source.ts'
 import { supportClaims } from './support.ts'
 
@@ -32,7 +33,7 @@ export default class ModelReporter implements Reporter {
     try {
       this.report.tests.push({
         adapter: modelReport.shape.tests.element.shape.adapter.parse(test.parent.project()?.name),
-        name: test.titlePath().slice(2).join(' > '),
+        name: testName(test.titlePath().slice(2)),
         status: result.status,
         checks: test.annotations
           .filter((annotation) => annotation.type === 'supports')
@@ -44,6 +45,9 @@ export default class ModelReporter implements Reporter {
   }
 
   async onEnd(result: FullResult) {
+    // Setup invalidates the report before a run; a rejected preflight must leave it alone.
+    if (result.status !== 'passed' && !this.report && !this.error)
+      return { status: 'failed' as const }
     // A reporter error must fail the run; Playwright otherwise ignores reporter exceptions.
     try {
       if (this.error) throw this.error
@@ -56,6 +60,7 @@ export default class ModelReporter implements Reporter {
         webllmVersion(),
         supportClaims(readFileSync('README.md', 'utf8')),
       )
+      checkTests(this.report, releaseTests())
       writeFileSync(
         reportPath,
         await format(JSON.stringify(this.report), {

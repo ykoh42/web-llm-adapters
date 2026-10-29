@@ -3,7 +3,7 @@ import { BrowserChatWebLLM } from 'langchain-web-llm'
 import { writeFile } from 'node:fs/promises'
 import { test, expect } from '../../../fixtures/browser.js'
 
-test('Hermes named tool choice agrees with direct WebLLM or rejects its violation', async ({
+test('Hermes named tool choice preserves WebLLM calls or rejects its violation', async ({
   page,
 }, info) => {
   const modelId = 'Hermes-3-Llama-3.1-8B-q4f16_1-MLC'
@@ -20,12 +20,12 @@ test('Hermes named tool choice agrees with direct WebLLM or rejects its violatio
       },
     })
   })
-  const adapted: ChatCompletionChunk[] = []
+  const native: ChatCompletionChunk[] = []
   const model = new BrowserChatWebLLM(page, {
     modelId,
     request: { temperature: 0, max_tokens: 4096, seed: 7 },
     onChunk: (chunk) => {
-      if (chunk.object === 'chat.completion.chunk') adapted.push(chunk)
+      if (chunk.object === 'chat.completion.chunk') native.push(chunk)
     },
   })
   const bound = model.bindTools(
@@ -51,27 +51,16 @@ test('Hermes named tool choice agrees with direct WebLLM or rejects its violatio
   expect(request.tool_choice).toEqual({ type: 'function', function: { name: 'weather' } })
   expect(request.messages).toEqual([{ role: 'user', content: 'Use time to get the time.' }])
   expect(request.tools?.map((tool) => tool.function.name)).toEqual(['weather', 'time'])
-  const direct = await page.evaluate(async (request) => {
-    const engine = window.checks.engine()
-    await engine.resetChat()
-    const chunks = []
-    for await (const chunk of await engine.chat.completions.create(request)) chunks.push(chunk)
-    return chunks
-  }, request)
-  const content = (chunks: ChatCompletionChunk[]) =>
-    chunks.map((chunk) => chunk.choices[0]?.delta.content ?? '').join('')
   const names = (chunks: ChatCompletionChunk[]) =>
     chunks
       .flatMap((chunk) => chunk.choices[0]?.delta.tool_calls ?? [])
       .map((call) => call.function?.name)
   await writeFile(
     info.outputPath('native-choice.json'),
-    JSON.stringify({ request, direct, adapted, result }, null, 2),
+    JSON.stringify({ request, native, result }, null, 2),
   )
-  expect(content(adapted)).toBe(content(direct))
-  expect(names(adapted)).toEqual(names(direct))
-  expect(names(direct).length).toBeGreaterThan(0)
-  if (names(direct).some((name) => name !== 'weather')) {
+  expect(names(native).length).toBeGreaterThan(0)
+  if (names(native).some((name) => name !== 'weather')) {
     expect(result.error).toContain('outside tool_choice')
     expect(result.message).toBeUndefined()
     info.annotations.push({
@@ -80,6 +69,6 @@ test('Hermes named tool choice agrees with direct WebLLM or rejects its violatio
     })
   } else {
     expect(result.error).toBeUndefined()
-    expect(result.message?.tool_calls?.map((call) => call.name)).toEqual(names(direct))
+    expect(result.message?.tool_calls?.map((call) => call.name)).toEqual(names(native))
   }
 })

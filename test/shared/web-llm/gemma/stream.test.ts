@@ -40,3 +40,27 @@ it.each([
     ])
   },
 )
+
+it('preserves negative zero inside nested tool arguments', async () => {
+  const completion: Completion = {
+    id: 'test',
+    model: 'gemma-4-E2B-it-q4f16_1-MLC',
+    object: 'text_completion',
+    created: 0,
+    choices: [
+      {
+        index: 0,
+        text: '<|tool_call>call:lookup{values:[-0.0,0,-1e-9999]}<tool_call|>',
+        finish_reason: 'stop',
+      },
+    ],
+  }
+  const chunks = (async function* () {
+    yield completion
+  })()
+  const output = []
+  for await (const chunk of gemmaChunks(chunks, [{ name: 'lookup', description: '' }]))
+    output.push(chunk)
+  const input = JSON.parse(output.flatMap((chunk) => chunk.calls)[0]!.input!)
+  expect(input.values.map((value: number) => Object.is(value, -0))).toEqual([true, false, true])
+})

@@ -49,8 +49,7 @@ export function chatStream(
         }),
         options.cancelSignal,
         choice ?? config.request?.tool_choice,
-        options.toolSpecs?.map((tool) => tool.name) ?? [],
-        true,
+        { toolNames: options.toolSpecs?.map((tool) => tool.name) ?? [], progressiveTools: true },
       ),
     options.cancelSignal,
   )

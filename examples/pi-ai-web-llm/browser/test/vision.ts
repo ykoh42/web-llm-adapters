@@ -36,7 +36,6 @@ export async function vision() {
       context_window_size: 8192,
     })
     try {
-      const create = engine.chat.completions.create.bind(engine.chat.completions)
       let latest: ChatCompletionRequestStreaming | undefined
       engine.chat.completions.create = new Proxy(engine.chat.completions.create, {
         apply(target, self, args) {
@@ -44,34 +43,10 @@ export async function vision() {
           return Reflect.apply(target, self, args)
         },
       })
-      async function native(input: ChatCompletionRequestStreaming) {
-        await engine.resetChat()
-        let text = ''
-        let usage: CompletionUsage | undefined
-        for await (const chunk of await create(input)) {
-          text += chunk.choices[0]?.delta.content ?? ''
-          usage = chunk.usage ?? usage
-        }
-        return { text, usage }
-      }
-      const baseline = await native({
-        ...request,
-        model: modelId,
-        n: 1,
-        stream: true,
-        stream_options: { include_usage: true },
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: prompt },
-              { type: 'image_url', image_url: { url: imageUrl } },
-            ],
-          },
-        ],
-      })
       const models = createModels()
       let raw = ''
+      let usage: CompletionUsage | undefined
+      const readUsage = (): CompletionUsage | undefined => usage
       const provider = createWebLLMProvider({
         engine,
         modelId,
@@ -80,6 +55,7 @@ export async function vision() {
         onChunk: (chunk) => {
           const choice = chunk.choices[0]
           if (choice && 'delta' in choice) raw += choice.delta.content ?? ''
+          if (chunk.usage) usage = chunk.usage
         },
       })
       models.setProvider(provider)
@@ -87,10 +63,15 @@ export async function vision() {
       await engine.resetChat()
       const failed = await models.complete(model, context('AA=='))
       raw = ''
+      usage = undefined
       const response = await models.complete(model, context(image.data))
+      if (!latest) throw new Error('Pi did not send an image request.')
+      const responseRequest = latest
       const responseRaw = raw
+      const responseUsage = readUsage()
       await engine.resetChat()
       raw = ''
+      usage = undefined
       const agent = new Agent({
         initialState: { model },
         streamFn: models.streamSimple.bind(models),
@@ -100,16 +81,17 @@ export async function vision() {
       if (!answer || !latest) throw new Error('Pi did not return an assistant response.')
       const agentRequest = latest
       const agentRaw = raw
-      const agentNative = await native(agentRequest)
+      const agentUsage = readUsage()
       return {
         imageUrl,
-        baseline,
         failed,
         response,
         responseRaw,
+        responseUsage,
+        responseRequest,
         answer,
         agentRaw,
-        agentNative,
+        agentUsage,
         agentRequest,
       }
     } finally {

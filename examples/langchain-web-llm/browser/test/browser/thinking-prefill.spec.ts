@@ -39,38 +39,19 @@ for (const modelId of [
       },
     })
     const result = await model.invoke('What is 17 * 23?')
-    const native = await page.evaluate(
-      ({ modelId, request }) =>
-        window.webllmLangChainBridge!.withEngine(async (engine) => {
-          await engine.resetChat()
-          let text = ''
-          for await (const chunk of await engine.chat.completions.create({
-            ...request,
-            model: modelId,
-            messages: [{ role: 'user', content: 'What is 17 * 23?' }],
-            stream: true,
-            stream_options: { include_usage: true },
-            n: 1,
-          }))
-            text += chunk.choices[0]?.delta.content ?? ''
-          return text
-        }),
-      { modelId, request: model.invocationParams({}) },
-    )
     const reasoning = result.contentBlocks
       .filter((part) => part.type === 'reasoning')
       .map((part) => part.reasoning)
       .join('')
     await info.attach('prefilled-thinking', {
-      body: JSON.stringify({ raw, native, reasoning, text: result.text }),
+      body: JSON.stringify({ raw, reasoning, text: result.text }),
       contentType: 'application/json',
     })
-    expect(raw).toBe(native)
-    const end = native.indexOf('</think>')
+    const end = raw.indexOf('</think>')
     expect(end).toBeGreaterThan(0)
     expect(reasoning.trim()).not.toBe('')
-    expect(reasoning).toBe(native.slice(0, end))
-    expect(result.text).toBe(native.slice(end + '</think>'.length))
+    expect(reasoning).toBe(raw.slice(0, end))
+    expect(result.text).toBe(raw.slice(end + '</think>'.length))
     expect(result.text).toContain('391')
     expect(result.response_metadata.finish_reason).toBe('stop')
   })

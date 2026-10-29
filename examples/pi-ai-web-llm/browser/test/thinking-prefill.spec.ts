@@ -42,14 +42,7 @@ test('Pi reads thinking prefilled by the loaded Qwen template', async ({ page, r
         },
       )
       if (!payload) throw new Error('Missing native request.')
-      const native = await window.piChecks.withEngine(engine, async (engine) => {
-        await engine.resetChat()
-        let text = ''
-        for await (const chunk of await engine.chat.completions.create(payload!))
-          text += chunk.choices[0]?.delta.content ?? ''
-        return text
-      })
-      return { raw, native, message }
+      return { raw, payload, message }
     },
     { modelId, template },
   )
@@ -65,12 +58,12 @@ test('Pi reads thinking prefilled by the loaded Qwen template', async ({ page, r
     .filter((part) => part.type === 'text')
     .map((part) => part.text)
     .join('')
-  expect(result.raw).toBe(result.native)
-  const end = result.native.indexOf('</think>')
+  expect(result.payload.extra_body?.enable_thinking).toBe(true)
+  const end = result.raw.indexOf('</think>')
   expect(end).toBeGreaterThan(0)
   expect(reasoning.trim()).not.toBe('')
-  expect(reasoning).toBe(result.native.slice(0, end))
-  expect(text).toBe(result.native.slice(end + '</think>'.length))
+  expect(reasoning).toBe(result.raw.slice(0, end))
+  expect(text).toBe(result.raw.slice(end + '</think>'.length))
   expect(text).toContain('391')
   expect(result.message.stopReason).toBe('stop')
 })

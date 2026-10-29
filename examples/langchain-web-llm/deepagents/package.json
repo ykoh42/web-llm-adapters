@@ -7,11 +7,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "deepagents": "1.15.1",
+    "@mlc-ai/web-llm": "0.2.86",
+    "deepagents": "1.16.0",
     "langchain-web-llm": "workspace:*",
     "playwright": "1.64.1"
-  },
-  "devDependencies": {
-    "vite": "^8.3.5"
   }
 }

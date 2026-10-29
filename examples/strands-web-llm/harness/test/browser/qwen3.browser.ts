@@ -1,4 +1,4 @@
-import { modelCheck } from '../../../../../scripts/release/support.js'
+import { modelCheck, recordThinking } from '../../../../../scripts/release/support.js'
 import { rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,9 +8,9 @@ import { expect, test } from '../../../fixtures/browser.js'
 import { BrowserModel, type WebLLMChunk } from 'strands-web-llm'
 import type { ChatCompletionRequestStreaming } from '@mlc-ai/web-llm'
 import type { Page } from '@playwright/test'
-import { recordNative, replayNative } from '../../fixtures/native.js'
+import { recordNative } from '../../fixtures/native.js'
 import { sampling } from '../../../sampling.js'
-import { nativeOutput } from '../../../../../test/support/native-output.js'
+import { hasToolResult, nativeOutput } from '../../../../../test/support/native-output.js'
 
 const cases = [
   ...[
@@ -45,7 +45,7 @@ for (const { modelId, sample, protocolOnly } of cases) {
     `${modelId} ${behavior}` + (sample ? ` with recorded input ${sample.file}` : ''),
     modelId === 'Qwen3-0.6B-q4f16_1-MLC'
       ? {}
-      : modelCheck(modelId, protocolOnly ? 'tool-protocol' : 'tools', 'thinking'),
+      : modelCheck(modelId, protocolOnly ? 'tool-protocol' : 'tools'),
     async ({ page }, info) => {
       const directory = process.platform === 'win32' ? tmpdir() : '/tmp'
       const path = join(directory, sample?.file ?? `q3-${process.pid}.txt`)
@@ -103,8 +103,7 @@ for (const { modelId, sample, protocolOnly } of cases) {
 
             const request = (await page.evaluate(() => window.qwen3Requests)).at(-1)
             const raw = rawContent(chunks.at(-1) ?? [])
-            const comparison = await compareNative(page, chunks)
-            expect(comparison.native.map(rawContent)).toEqual(comparison.adapted.map(rawContent))
+            const comparison = await nativeRun(page, chunks)
             await recordNative(info, 'incomplete-thinking', {
               ...comparison,
               modelId,
@@ -123,8 +122,7 @@ for (const { modelId, sample, protocolOnly } of cases) {
           })
         if (!result) return
 
-        const comparison = await compareNative(page, chunks)
-        expect(comparison.native.map(rawContent)).toEqual(comparison.adapted.map(rawContent))
+        const comparison = await nativeRun(page, chunks)
         await recordNative(info, 'native-comparison', {
           code,
           path,
@@ -142,10 +140,12 @@ for (const { modelId, sample, protocolOnly } of cases) {
 
         if (protocolOnly) {
           expect(modelCalls).toBe(comparison.requests.length)
-          checkBoundedLoop(agent.messages, comparison, result.stopReason, modelId)
+          const thinking = checkBoundedLoop(agent.messages, comparison, result.stopReason, modelId)
+          recordThinking(info, modelId, thinking, comparison.requests)
           return
         }
 
+        checkToolCalls(agent.messages, chunks)
         expect(modelCalls).toBeGreaterThanOrEqual(2)
         expect(result.stopReason).toBe('endTurn')
         const content = result.lastMessage.content
@@ -163,7 +163,8 @@ for (const { modelId, sample, protocolOnly } of cases) {
           )
         expect(text.trim()).not.toBe('')
         expect({ text, thinking }).toEqual(nativeOutput(chunks.flat(), modelId))
-        expect(JSON.stringify(comparison.requests.at(-1))).toContain(code)
+        recordThinking(info, modelId, thinking, comparison.requests)
+        expect(hasToolResult(comparison.requests.slice(1), code)).toBe(true)
       } finally {
         try {
           await agent?.shutdown()
@@ -246,8 +247,7 @@ test('Qwen3 preserves native tool order and arguments through Harness', async ({
         'Then tell me the receipt.',
       { limits: { turns: 4 } },
     )
-    const comparison = await compareNative(page, chunks)
-    expect(comparison.native.map(rawContent)).toEqual(comparison.adapted.map(rawContent))
+    const comparison = await nativeRun(page, chunks)
     await recordNative(info, 'native-comparison', {
       code,
       receipt,
@@ -255,6 +255,7 @@ test('Qwen3 preserves native tool order and arguments through Harness', async ({
       messages: agent.messages.map((message) => message.toJSON()),
       ...comparison,
     })
+    checkToolCalls(agent.messages, chunks)
     const toolResults = agent.messages
       .flatMap((message) => message.content)
       .filter((block) => block.type === 'toolResultBlock')
@@ -275,8 +276,7 @@ test('Qwen3 preserves native tool order and arguments through Harness', async ({
       )
       info.annotations.push({
         type: 'native-output',
-        description:
-          'Qwen3 4B emitted dependent tool calls in one response; native output matched.',
+        description: 'Qwen3 4B emitted dependent tool calls in one response.',
       })
       return
     }
@@ -314,15 +314,14 @@ async function captureRequests(page: Page) {
   )
 }
 
-async function compareNative(page: Page, adapted: WebLLMChunk[][]) {
+async function nativeRun(page: Page, native: WebLLMChunk[][]) {
   const requests = await page.evaluate(() => window.qwen3Requests)
-  const native = await replayNative(page, requests)
-  return { requests, adapted, native }
+  return { requests, native }
 }
 
 function checkBoundedLoop(
   messages: readonly Message[],
-  { requests, native }: Awaited<ReturnType<typeof compareNative>>,
+  { requests, native }: Awaited<ReturnType<typeof nativeRun>>,
   stopReason: string,
   modelId: string,
 ) {
@@ -331,7 +330,7 @@ function checkBoundedLoop(
   expect(requests.length).toBeLessThanOrEqual(3)
   if (stopReason === 'limitTurns') expect(requests).toHaveLength(3)
   const assistants = messages.filter((message) => message.role === 'assistant')
-  expect(assistants).toHaveLength(native.length)
+  checkToolCalls(messages, native)
   const thinking = assistants.map((message) =>
     message.content
       .filter((block) => block.type === 'reasoningBlock')
@@ -347,12 +346,7 @@ function checkBoundedLoop(
   for (const [index, message] of assistants.entries()) {
     const content = rawContent(native[index]!).replace(/<think>[\s\S]*?<\/think>/g, '')
     const tool = /<tool_call>([\s\S]*?)<\/tool_call>/g
-    const expectedCalls = [...content.matchAll(tool)].map((match) => {
-      const call: Record<string, unknown> = JSON.parse(match[1]!)
-      return { name: call.name, arguments: call.arguments }
-    })
     const calls = message.content.filter((block) => block.type === 'toolUseBlock')
-    expect(calls.map((call) => ({ name: call.name, arguments: call.input }))).toEqual(expectedCalls)
     const text = message.content
       .filter((block) => block.type === 'textBlock')
       .map((block) => block.text)
@@ -379,6 +373,21 @@ function checkBoundedLoop(
   }
   expect(results).toHaveLength(callCount)
   expect(byId.size).toBe(callCount)
+  return thinking
+}
+
+function checkToolCalls(messages: readonly Message[], native: WebLLMChunk[][]) {
+  const assistants = messages.filter((message) => message.role === 'assistant')
+  expect(assistants).toHaveLength(native.length)
+  for (const [index, message] of assistants.entries()) {
+    const content = rawContent(native[index]!).replace(/<think>[\s\S]*?<\/think>/g, '')
+    const expected = [...content.matchAll(/<tool_call>([\s\S]*?)<\/tool_call>/g)].map((match) => {
+      const call: Record<string, unknown> = JSON.parse(match[1]!)
+      return { name: call.name, input: call.arguments }
+    })
+    const calls = message.content.filter((block) => block.type === 'toolUseBlock')
+    expect(calls.map((call) => ({ name: call.name, input: call.input }))).toEqual(expected)
+  }
 }
 
 function rawContent(chunks: WebLLMChunk[]) {

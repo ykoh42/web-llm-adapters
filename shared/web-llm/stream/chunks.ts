@@ -25,6 +25,11 @@ export interface ToolDelta {
   input: string | undefined
 }
 
+/** Detect content that arrives after a stream has stopped. */
+export function hasContentAfterStop(stop: StopReason | undefined, chunk: StreamChunk): boolean {
+  return !!(stop && (chunk.text || chunk.reasoning || chunk.calls.length || chunk.stop))
+}
+
 export const noToolCalls: readonly ToolDelta[] = Object.freeze([])
 
 /** Copy parser inputs before a native-chunk observer can mutate them. */

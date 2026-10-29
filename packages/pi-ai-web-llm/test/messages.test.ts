@@ -156,8 +156,8 @@ describe('Pi transcript conversion', () => {
     expect(format({ ...previous, stopReason: 'aborted' })).toBeUndefined()
   })
 
-  it('preserves tool errors and sends tool images after all tool results', () => {
-    const { model } = setup(undefined, { imageInputs: true })
+  it('preserves tool errors and sends tool images after all tool results', async () => {
+    const { model, models, create } = setup(undefined, { imageInputs: true })
     const input = normalizeContext({
       messages: [
         assistant([toolCall, { ...toolCall, id: 'call-2' }]),
@@ -208,6 +208,16 @@ describe('Pi transcript conversion', () => {
         ],
       },
     ])
+    const response = await models.completeSimple(model, input)
+    expect(response.stopReason).toBe('stop')
+    expect(create.mock.calls[0]?.[0].messages).toEqual(formatContext(input, model).history)
+    expect(() =>
+      postInitAndCheckFieldsChatCompletion(
+        structuredClone(create.mock.calls[0]![0]),
+        model.id,
+        ModelType.VLM,
+      ),
+    ).not.toThrow()
     expect(input).toEqual(before)
   })
 

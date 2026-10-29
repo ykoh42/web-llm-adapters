@@ -6,11 +6,55 @@ import { chunk, chunks, collect } from '../../../../fixtures/web-llm.js'
 const prefix = '<think>\n\n</think>\n\n'
 const options = { parseProtocol: false, thinkingDisabled: true }
 
+it('removes only the native prefix for a non-thinking Qwen model', async () => {
+  const options = { thinkingDisabled: true, parseThinking: false }
+  const body = '<think> is literal.'
+  const result = await collect(
+    qwenChunks(chunks(chunk({ content: prefix + body }, 'stop')), [], options),
+  )
+  expect(result.map((part) => part.text).join('')).toBe(body)
+  expect(result.map((part) => part.reasoning).join('')).toBe('')
+
+  const partial = prefix.slice(0, -1)
+  const stopped = await collect(
+    qwenChunks(chunks(chunk({ content: partial }, 'length')), [], options),
+  )
+  expect(stopped.map((part) => part.text).join('')).toBe(partial)
+})
+
 for (const [name, parse] of [
   ['JSON', qwenChunks],
   ['XML', qwen35Chunks],
 ] as const) {
   describe(`Qwen ${name} structured prefix`, () => {
+    it('keeps literal thinking tags after the disabled prefix across every split', async () => {
+      const body = 'Example: <think>literal</think>.'
+      const source = prefix + body
+      for (let at = 0; at <= source.length; at++) {
+        const input = [
+          chunk({ content: source.slice(0, at) }),
+          chunk({ content: source.slice(at) }, 'stop'),
+        ]
+        const onChunk = vi.fn()
+        const result = await collect(
+          parse(chunks(...input), [], { thinkingDisabled: true, onChunk }),
+        )
+        expect(result.map((part) => part.text).join('')).toBe('\n\n' + body)
+        expect(result.map((part) => part.reasoning).join('')).toBe('\n\n')
+        expect(onChunk.mock.calls.map(([item]) => item)).toEqual(input)
+      }
+    })
+
+    it('keeps an unfinished disabled prefix when generation ends', async () => {
+      const text = prefix.slice(0, -1)
+      const result = await collect(
+        parse(chunks(chunk({ content: text }, 'length')), [], { thinkingDisabled: true }),
+      )
+      expect(result.map((part) => part.text).join('')).toBe(text)
+      expect(result.map((part) => part.reasoning).join('')).toBe('')
+      expect(result.at(-1)?.stop).toBe('maxTokens')
+    })
+
     it.each([
       ['stop', 'endTurn'],
       ['length', 'maxTokens'],

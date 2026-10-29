@@ -11,7 +11,7 @@ import {
 import type { ChatCompletionContentPart } from '@mlc-ai/web-llm'
 import type { ProtocolMessage } from '../../../../shared/web-llm/types.js'
 import { formatUserContent } from '../../../../shared/web-llm/content.js'
-import { stringifyJSON } from '../../../../shared/web-llm/json.js'
+import { sameJSON, stringifyJSON } from '../../../../shared/web-llm/json.js'
 
 export function formatMessages(messages: BaseMessage[]): ProtocolMessage[] {
   const output: ProtocolMessage[] = []
@@ -28,82 +28,96 @@ export function formatMessages(messages: BaseMessage[]): ProtocolMessage[] {
     // Keep all tool results together before adding their images as a user turn.
     if (role !== 'tool') flushImages()
     if (role === 'system') {
-      if (message.name !== undefined)
-        throw new Error('WebLLM system messages cannot preserve names.')
-      const content = textContent(message.content)
-      const first = output[0]
-      if (first?.role === 'system' && output.length === 1) first.content += '\n\n' + content
-      else {
-        if (output.length) throw new Error('WebLLM needs system messages before the conversation.')
-        output.push({ role: 'system', content })
-      }
+      addSystemMessage(message, output)
       continue
     }
     if (role === 'human') {
-      const content =
-        typeof message.content === 'string'
-          ? message.content
-          : formatUserContent(message.content.map((part) => formatPart(part)))
-      output.push({
-        role: 'user',
-        content,
-        ...(message.name !== undefined && { name: message.name }),
-      })
+      output.push(formatUser(message))
       continue
     }
     if (role === 'tool') {
-      if (!('tool_call_id' in message) || typeof message.tool_call_id !== 'string')
-        throw new Error('A tool result needs its tool_call_id.')
-      if (message.name !== undefined && toolNames.get(message.tool_call_id) !== message.name)
-        throw new Error('A named tool result needs a matching assistant tool call.')
-      let content = ''
-      if (typeof message.content === 'string') content = message.content
-      else
-        for (const block of message.content) {
-          if (block.type === 'image' || block.type === 'image_url')
-            toolImages.push(formatPart(block))
-          else content += textBlock(block)
-        }
-      if ('status' in message && message.status === 'error')
-        content = content ? `[ERROR] ${content}` : '[ERROR]'
-      output.push({
-        role: 'tool',
-        tool_call_id: message.tool_call_id,
-        content,
-      })
+      output.push(formatToolResult(message, toolNames, toolImages))
       continue
     }
     if (role !== 'ai') throw new Error(`WebLLM cannot use a ${role} message.`)
     if (!AIMessage.isInstance(message)) throw new Error('WebLLM needs an AI message.')
-    const calls = assistantCalls(message)
-    const truncated = message.response_metadata.finish_reason === 'length'
-    if (message.invalid_tool_calls?.length && !truncated)
-      throw new Error('WebLLM cannot replay invalid tool calls.')
-    const toolCalls = calls.map((call) => {
-      if (!call.id) throw new Error('A tool call needs an ID before it can be replayed.')
-      toolNames.set(call.id, call.name)
-      return {
-        id: call.id,
-        type: 'function' as const,
-        function: { name: call.name, arguments: stringifyJSON(call.args) },
-      }
-    })
-    const reasoning = reasoningContent(message)
-    const blocks =
-      truncated && Array.isArray(message.content)
-        ? message.content.filter((block) => block.type !== 'invalid_tool_call')
-        : message.content
-    const content = textContent(blocks, true)
-    output.push({
-      role: 'assistant',
-      content,
-      ...(message.name !== undefined && { name: message.name }),
-      ...(reasoning && { reasoning }),
-      ...(toolCalls.length && { tool_calls: toolCalls }),
-    })
+    output.push(formatAssistant(message, toolNames))
   }
   flushImages()
   return output
+}
+
+function addSystemMessage(message: BaseMessage, output: ProtocolMessage[]): void {
+  if (message.name !== undefined) throw new Error('WebLLM system messages cannot preserve names.')
+  const content = textContent(message.content)
+  const first = output[0]
+  if (first?.role === 'system' && output.length === 1) first.content += '\n\n' + content
+  else {
+    if (output.length) throw new Error('WebLLM needs system messages before the conversation.')
+    output.push({ role: 'system', content })
+  }
+}
+
+function formatUser(message: BaseMessage): ProtocolMessage {
+  const content =
+    typeof message.content === 'string'
+      ? message.content
+      : formatUserContent(message.content.map((part) => formatPart(part)))
+  return {
+    role: 'user',
+    content,
+    ...(message.name !== undefined && { name: message.name }),
+  }
+}
+
+function formatToolResult(
+  message: BaseMessage,
+  toolNames: Map<string, string>,
+  images: ChatCompletionContentPart[],
+): ProtocolMessage {
+  if (!('tool_call_id' in message) || typeof message.tool_call_id !== 'string')
+    throw new Error('A tool result needs its tool_call_id.')
+  if (message.name !== undefined && toolNames.get(message.tool_call_id) !== message.name)
+    throw new Error('A named tool result needs a matching assistant tool call.')
+  let content = ''
+  if (typeof message.content === 'string') content = message.content
+  else
+    for (const block of message.content) {
+      if (block.type === 'image' || block.type === 'image_url') images.push(formatPart(block))
+      else content += textBlock(block)
+    }
+  if ('status' in message && message.status === 'error')
+    content = content ? `[ERROR] ${content}` : '[ERROR]'
+  return { role: 'tool', tool_call_id: message.tool_call_id, content }
+}
+
+function formatAssistant(message: AIMessage, toolNames: Map<string, string>): ProtocolMessage {
+  const calls = assistantCalls(message)
+  const truncated = message.response_metadata.finish_reason === 'length'
+  if (message.invalid_tool_calls?.length && !truncated)
+    throw new Error('WebLLM cannot replay invalid tool calls.')
+  const toolCalls = calls.map((call) => {
+    if (!call.id) throw new Error('A tool call needs an ID before it can be replayed.')
+    toolNames.set(call.id, call.name)
+    return {
+      id: call.id,
+      type: 'function' as const,
+      function: { name: call.name, arguments: stringifyJSON(call.args) },
+    }
+  })
+  const reasoning = reasoningContent(message)
+  const blocks =
+    truncated && Array.isArray(message.content)
+      ? message.content.filter((block) => block.type !== 'invalid_tool_call')
+      : message.content
+  const content = textContent(blocks, true)
+  return {
+    role: 'assistant',
+    content,
+    ...(message.name !== undefined && { name: message.name }),
+    ...(reasoning && { reasoning }),
+    ...(toolCalls.length && { tool_calls: toolCalls }),
+  }
 }
 
 /** Use LangChain's standard classes for supported ChatMessage roles. */
@@ -175,7 +189,11 @@ function assistantCalls(message: AIMessage): ToolCall[] {
     byId ??= indexCalls(calls)
     const previous = byId.get(block.id)
     if (previous) {
-      if (previous.name !== block.name || !deepCompareStrict(previous.args, args))
+      if (
+        previous.name !== block.name ||
+        !deepCompareStrict(previous.args, args) ||
+        !sameJSON(previous.args, args, true)
+      )
         throw new Error('WebLLM received conflicting tool call content.')
     } else {
       const call: ToolCall = { id: block.id, name: block.name, args, type: 'tool_call' }

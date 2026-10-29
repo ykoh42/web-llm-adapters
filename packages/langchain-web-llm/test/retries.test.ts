@@ -8,7 +8,8 @@ import {
   type BrowserPage,
   type ChatWebLLMOptions,
 } from '../src/index.js'
-import { chunk, chunks, pause, setup } from '../fixtures/engine.js'
+import { chunk, chunks, finishRetries, pause, setup } from '../fixtures/engine.js'
+import { SignalCaller } from '../src/chat/caller.js'
 
 const bridges: BrowserBridge[] = []
 function browser(options: Omit<ChatWebLLMOptions, 'modelId' | 'engine'> = {}) {
@@ -25,6 +26,7 @@ function browser(options: Omit<ChatWebLLMOptions, 'modelId' | 'engine'> = {}) {
   const model = new BrowserChatWebLLM(page, { modelId: 'test-model', ...options })
   return { ...result, page, model, bridge }
 }
+
 afterEach(async () => {
   try {
     await Promise.all(bridges.splice(0).map((bridge) => bridge.close()))
@@ -33,7 +35,83 @@ afterEach(async () => {
   }
 })
 
+it.each([
+  ...(['local', 'browser'] as const).flatMap((mode) => [
+    { mode, error: { message: 'Invalid request', status: 400 } },
+    { mode, error: { message: 'Invalid request', statusCode: 400 } },
+    { mode, error: { message: 'Invalid request', response: { status: 400 } } },
+    { mode, error: stampRetryable({ message: 'Do not retry' }, false) },
+  ]),
+])('$mode respects retry information in an error-like object', async ({ mode, error }) => {
+  const fixture = browser({ maxRetries: 1 })
+  fixture.create.mockRejectedValue(error)
+  const model =
+    mode === 'local'
+      ? new ChatWebLLM({ engine: fixture.engine, modelId: 'test-model', maxRetries: 1 })
+      : fixture.model
+
+  await expect(model.invoke('Hi')).rejects.toMatchObject(error)
+  expect(fixture.create).toHaveBeenCalledOnce()
+})
+
+it.each(['local', 'browser'] as const)(
+  '%s does not retry an error-like cancellation',
+  async (mode) => {
+    const fixture = browser({ maxRetries: 1 })
+    fixture.create.mockRejectedValueOnce({ name: 'AbortError', message: 'Generation cancelled.' })
+    const model =
+      mode === 'local'
+        ? new ChatWebLLM({ engine: fixture.engine, modelId: 'test-model', maxRetries: 1 })
+        : fixture.model
+
+    await expect(model.invoke('Hi')).rejects.toMatchObject({
+      name: 'AbortError',
+      message: 'Generation cancelled.',
+    })
+    expect(fixture.create).toHaveBeenCalledOnce()
+  },
+)
+
+it.each(['local', 'browser'] as const)(
+  '%s honors a call timeout during a native callback',
+  async (mode) => {
+    const hold = pause()
+    const onChunk = vi.fn().mockImplementationOnce(() => hold.wait)
+    const fixture = browser({ onChunk })
+    const model =
+      mode === 'local'
+        ? new ChatWebLLM({ engine: fixture.engine, modelId: 'test-model', onChunk })
+        : fixture.model
+    const pending = model.invoke('Hi', { timeout: 500 })
+    const rejected = expect(pending).rejects.toHaveProperty('name', 'TimeoutError')
+    try {
+      await vi.waitFor(() => expect(onChunk).toHaveBeenCalledOnce(), { interval: 10 })
+      await rejected
+      expect((await model.invoke('Recover')).text).toBe('Answer')
+    } finally {
+      hold.resume()
+      await pending.catch(() => {})
+    }
+  },
+)
+
 describe('local failed-attempt cancellation', () => {
+  it('does not start a queued failed-attempt handler after cancellation', async () => {
+    class TestCaller extends SignalCaller {
+      fail(error: Error) {
+        return this.onFailedAttempt!(error) as Promise<void>
+      }
+    }
+    const controller = new AbortController()
+    const onFailedAttempt = vi.fn()
+    const caller = new TestCaller({ onFailedAttempt }, controller.signal)
+    const pending = caller.fail(new Error('Opening failed'))
+    controller.abort()
+
+    await expect(pending).rejects.toBe(controller.signal.reason)
+    expect(onFailedAttempt).not.toHaveBeenCalled()
+  })
+
   it('keeps the default retry policy when a signal is present', async () => {
     const { engine, create } = setup(chunk({ content: 'Recovered' }, 'stop'))
     const failure = Object.assign(new Error('Invalid request'), { status: 400 })
@@ -81,7 +159,7 @@ describe('browser failed-attempt callbacks', () => {
     const evaluate = vi.spyOn(page, 'evaluate')
     create.mockRejectedValueOnce(new Error('Opening failed'))
 
-    expect((await model.invoke('Hi')).text).toBe('Answer')
+    expect((await finishRetries(() => model.invoke('Hi'))).text).toBe('Answer')
 
     expect(onFailedAttempt).toHaveBeenCalledOnce()
     expect(create).toHaveBeenCalledTimes(2)
@@ -124,6 +202,23 @@ describe('browser failed-attempt callbacks', () => {
     expect(onChunk.mock.calls.map(([value]) => value)).toEqual([
       chunk({ content: 'Answer' }, 'stop'),
     ])
+  })
+
+  it('retries when a provider error refuses property inspection', async () => {
+    const failure = new Proxy(new Error('GPU busy'), {
+      getOwnPropertyDescriptor(target, key) {
+        if (key === 'message') throw new Error('Cannot inspect provider fields')
+        return Reflect.getOwnPropertyDescriptor(target, key)
+      },
+    })
+    const onFailedAttempt = vi.fn()
+    const { model, create } = browser({ maxRetries: 1, onFailedAttempt })
+    create.mockRejectedValueOnce(failure)
+
+    expect((await finishRetries(() => model.invoke('Hi'))).text).toBe('Answer')
+    expect(onFailedAttempt).toHaveBeenCalledOnce()
+    expect(onFailedAttempt.mock.calls[0]?.[0]).toMatchObject({ message: 'GPU busy' })
+    expect(create).toHaveBeenCalledTimes(2)
   })
 
   it('handles the final failure and returns changed error fields and retry markers', async () => {
@@ -169,9 +264,11 @@ describe('browser failed-attempt callbacks', () => {
     const onFailedAttempt = vi.fn()
     const { model, create } = browser({ maxRetries: defaults, onFailedAttempt })
     create.mockRejectedValueOnce(new Error('Opening failed'))
-    const pending = model.invoke('Hi', { maxRetries: retries })
-    if (retries) expect((await pending).text).toBe('Answer')
-    else await expect(pending).rejects.toThrow('Opening failed')
+    if (retries)
+      expect((await finishRetries(() => model.invoke('Hi', { maxRetries: retries }))).text).toBe(
+        'Answer',
+      )
+    else await expect(model.invoke('Hi', { maxRetries: retries })).rejects.toThrow('Opening failed')
     expect(create).toHaveBeenCalledTimes(retries + 1)
     expect(onFailedAttempt).toHaveBeenCalledOnce()
   })
@@ -201,13 +298,50 @@ describe('browser failed-attempt callbacks', () => {
     create
       .mockRejectedValueOnce(new Error('First failure'))
       .mockRejectedValueOnce(new Error('Second failure'))
-    expect((await model.invoke('Hi')).text).toBe('Answer')
+    expect((await finishRetries(() => model.invoke('Hi'))).text).toBe('Answer')
     expect(seen).toEqual(['First failure', 'Second failure'])
     expect(create).toHaveBeenCalledTimes(3)
     expect(create.mock.calls.map(([request]) => request)).toEqual(
       Array(3).fill(create.mock.calls[0]?.[0]),
     )
   }, 10_000)
+
+  it('cancels while the browser retry response is pending', async () => {
+    const { page, bridge, create } = browser()
+    const acknowledging = pause()
+    const release = pause()
+    const stop = vi.spyOn(bridge, 'stop')
+    let count = 0
+    const delayed: BrowserPage = {
+      async evaluate(run, arg) {
+        const value = await page.evaluate(run, arg)
+        if (++count === 3) {
+          acknowledging.resume()
+          await release.wait
+        }
+        return value
+      },
+    }
+    const model = new BrowserChatWebLLM(delayed, {
+      modelId: 'test-model',
+      maxRetries: 1,
+      onFailedAttempt: () => {},
+    })
+    create.mockRejectedValueOnce(new Error('GPU busy'))
+    const controller = new AbortController()
+    const pending = model._streamResponseChunks([], { signal: controller.signal }).next()
+    const failed = vi.fn()
+    void pending.catch(failed)
+    try {
+      await acknowledging.wait
+      controller.abort()
+      await vi.waitFor(() => expect(failed).toHaveBeenCalledWith(controller.signal.reason))
+      expect(stop).toHaveBeenCalledOnce()
+    } finally {
+      release.resume()
+      await pending.catch(() => {})
+    }
+  })
 
   it('cancels a pending handler and ignores its late completion', async () => {
     const hold = pause()

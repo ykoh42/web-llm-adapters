@@ -22,12 +22,12 @@ export async function waitForCallback<T>(pending: Promise<T>, signal?: AbortSign
   let cancel!: () => void
   try {
     return await Promise.race([
-      pending,
       new Promise<never>((_, reject) => {
         cancel = () => reject(signal.reason)
         signal.addEventListener('abort', cancel, { once: true })
         if (signal.aborted) cancel()
       }),
+      pending,
     ])
   } finally {
     signal.removeEventListener('abort', cancel)

@@ -8,11 +8,26 @@ import { chunk, setup } from '../fixtures/engine.js'
 const message = 'ContextWindowSizeExceededError: input has 2000 tokens but the limit is 1024.'
 const failures = [
   Object.assign(new Error(message), { name: 'ContextWindowSizeExceededError' }),
+  { name: 'ContextWindowSizeExceededError', message },
   message,
   new Error(message),
 ]
 
 describe('LangChain errors', () => {
+  it('keeps a non-Error cause when branding a context overflow', async () => {
+    const { model, create } = setup()
+    const cause = { reason: 'context limit' }
+    const native = Object.assign(new Error('Too many tokens', { cause }), {
+      name: 'ContextOverflowError',
+    })
+    create.mockRejectedValueOnce(native)
+
+    const failure = await model.invoke('Hi').catch((error: unknown) => error)
+
+    expect(ContextOverflowError.isInstance(failure)).toBe(true)
+    expect(failure).toHaveProperty('cause', cause)
+  })
+
   it.each([undefined, null, 0, 'Worker failed'])(
     'preserves a non-Error rejection as its cause: %s',
     async (error) => {
@@ -66,6 +81,7 @@ describe('LangChain errors', () => {
       const failure = await model.invoke('Hi').catch((error: unknown) => error)
       expect(ContextOverflowError.isInstance(failure)).toBe(true)
       expect(getRetryable(failure)).toBe(false)
+      expect(failure).toHaveProperty('message', message)
       expect(failure).toHaveProperty('cause')
       expect(create).toHaveBeenCalledOnce()
     },

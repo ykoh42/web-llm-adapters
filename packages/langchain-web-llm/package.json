@@ -16,7 +16,7 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "default": "./dist/index.js"
     },
     "./runtime/gemma-4-e2b.wasm": "./dist/runtime/gemma-4-e2b.wasm",
     "./runtime/manifest.json": "./dist/runtime/manifest.json"
@@ -38,11 +38,11 @@
     "@mlc-ai/web-llm": "~0.2.79"
   },
   "devDependencies": {
-    "@langchain/core": "1.3.0",
-    "@langchain/langgraph": "^1.5.2",
+    "@langchain/core": "1.3.1",
+    "@langchain/langgraph": "^1.5.3",
     "@mlc-ai/web-llm": "0.2.86",
-    "deepagents": "^1.15.1",
-    "langchain": "^1.5.19",
+    "deepagents": "^1.16.0",
+    "langchain": "^1.6.0",
     "playwright": "1.64.1",
     "zod": "^4.6.7"
   }

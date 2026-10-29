@@ -1,4 +1,5 @@
 import { restoreBrowserError } from './errors.js'
+import { readBrowserError } from '../../../../shared/browser/errors.js'
 import { appendVectors } from '../embeddings/vectors.js'
 import { Embeddings } from '@langchain/core/embeddings'
 import type { WebLLMEmbeddingsOptions } from '../embeddings/model.js'
@@ -61,10 +62,7 @@ export class BrowserWebLLMEmbeddings extends Embeddings {
             )
           return bridge.embed(request)
         }, request)
-        if (!Array.isArray(result))
-          throw restoreBrowserError(
-            result.errorJSON === undefined ? result.error : JSON.parse(result.errorJSON),
-          )
+        if (!Array.isArray(result)) throw restoreBrowserError(readBrowserError(result))
         return result
       })
       appendVectors(vectors, batch)

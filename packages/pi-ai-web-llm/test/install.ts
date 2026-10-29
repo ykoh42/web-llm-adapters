@@ -44,6 +44,16 @@ assert.deepEqual(events,['start','text_start','text_delta','text_end','done'])
 const response = await stream.result()
 assert.equal(response.stopReason,'stop')
 assert.deepEqual(response.content,[{type:'text',text:'Hello'}])
+const any = Object.getOwnPropertyDescriptor(AbortSignal, 'any')!
+Object.defineProperty(AbortSignal, 'any', { ...any, value: undefined })
+try {
+  const result = await models.completeSimple(model, {messages:[{role:'user',content:'Hi',timestamp:0}]}, {
+    signal: new AbortController().signal, timeoutMs: 5000,
+  })
+  assert.equal(result.stopReason, 'stop')
+} finally {
+  Object.defineProperty(AbortSignal, 'any', any)
+}
 const agent = new Agent({initialState:{model},streamFn:models.streamSimple.bind(models)})
 await agent.prompt('Hello')
 assert.equal(agent.state.messages.at(-1)?.role,'assistant')
@@ -106,8 +116,20 @@ const finalChunk = {
   ...toolChunk('stop'),
   choices: [{ index: 0, delta: { content: 'Recovered' }, finish_reason: 'stop' }],
 }
+const truncatedChunk = {
+  ...toolChunk('length'),
+  choices: [{
+    index: 0,
+    delta: {
+      tool_calls: [1, 2].map(index => ({
+        index, type: 'function', function: { name: 'lookup', arguments: '{"code":"A7"}' },
+      })),
+    },
+    finish_reason: 'length',
+  }],
+}
 engine.chat.completions.create = (async () => {
-  const reply = ++inferenceCalls === 1 ? toolChunk('length') : finalChunk
+  const reply = ++inferenceCalls === 1 ? truncatedChunk : finalChunk
   return (async function* () { yield reply })()
 }) as unknown as typeof engine.chat.completions.create
 const truncatedAgent = new Agent({
@@ -127,13 +149,51 @@ const truncatedAgent = new Agent({
 await truncatedAgent.prompt('Look up A7')
 assert.equal(toolExecutions, 0)
 assert.equal(inferenceCalls, 2)
-assert.ok(truncatedAgent.state.messages.some(message => message.role === 'toolResult' && message.isError))
+const toolResults = truncatedAgent.state.messages.filter(message => message.role === 'toolResult')
+assert.equal(toolResults.length, 2)
+assert.ok(toolResults.every(result => result.isError && result.toolCallId))
+assert.equal(new Set(toolResults.map(result => result.toolCallId)).size, 2)
 const finalMessage = truncatedAgent.state.messages.at(-1)
 assert.equal(finalMessage?.role, 'assistant')
 if (finalMessage?.role === 'assistant') {
   assert.equal(finalMessage.stopReason, 'stop')
   assert.deepEqual(finalMessage.content, [{ type: 'text', text: 'Recovered' }])
 }
+
+engine.chat.completions.create = (async () => (async function* () {
+  yield {
+    id: 'test', object: 'chat.completion.chunk', created: 0, model: 'test',
+    choices: [{ index: 0, delta: { content: 'Before<tool_call>{"name":"lookup","arguments":{"code":"A7"}}</tool_call>After' }, finish_reason: 'stop' }],
+  }
+})()) as unknown as typeof engine.chat.completions.create
+const qwenProvider = createWebLLMProvider({
+  engine, modelId: 'Qwen3-4B-q4f16_1-MLC', contextWindow: 8192, providerId: 'qwen',
+})
+models.setProvider(qwenProvider)
+const qwen = qwenProvider.getModels()[0]!
+const ordered = await models.complete(qwen, toolContext)
+assert.equal(ordered.stopReason, 'toolUse')
+assert.deepEqual(ordered.content.map(part => part.type), ['text', 'toolCall', 'text'])
+
+let replay = ''
+engine.chat.completions.create = (async (request: { messages: { role: string; content?: unknown }[] }) => {
+  replay = String(request.messages.find(message => message.role === 'assistant')?.content)
+  return (async function* () {
+    yield { id: 'test', object: 'chat.completion.chunk', created: 0, model: 'test', choices: [{ index: 0, delta: { content: 'Done' }, finish_reason: 'stop' }] }
+  })()
+}) as unknown as typeof engine.chat.completions.create
+const call = ordered.content.find(part => part.type === 'toolCall')
+if (!call || call.type !== 'toolCall') throw new Error('Missing tool call.')
+call.arguments = { value: -0 }
+await models.complete(qwen, {
+  messages: [
+    ...toolContext.messages,
+    ordered,
+    { role: 'toolResult', toolCallId: call.id, toolName: call.name, content: [{ type: 'text', text: 'Done' }], isError: false, timestamp: 0 },
+  ],
+  tools: toolContext.tools,
+})
+assert(replay.includes('"value":-0'))
 
 `,
 })

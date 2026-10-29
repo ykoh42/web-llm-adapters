@@ -3,6 +3,7 @@ import type { ChatCompletionChunk } from '@mlc-ai/web-llm'
 import type { ToolDelta, ChunkOptions } from '../stream/chunks.js'
 import { readValue } from './value.js'
 import { qwenFrames } from '../qwen/frames.js'
+import { toolJSON } from '../tool-json.js'
 import { QwenTags } from './tags.js'
 import type { ArgumentSchemaCache } from './schema.js'
 
@@ -65,27 +66,35 @@ function parseCalls(
     parameter = undefined
   }
 
+  function openFunction(at: number) {
+    if (tool || source.slice(offset, at).trim())
+      throw new ModelError('Qwen3.5 returned a malformed tool call.')
+    const header = /^<function=([^>]+)>/.exec(source.slice(at))
+    if (!header) throw new ModelError('Qwen3.5 returned a malformed tool call.')
+    const name = header[1]!
+    tool = tools.find((tool) => tool.name === name)
+    if (!tool) throw new ModelError(`Qwen3.5 returned unknown tool "${name}".`)
+    input = Object.create(null)
+    offset = at + header[0].length
+  }
+
+  function openParameter(at: number, tool: ToolSpec) {
+    // A new opener may close the previous parameter, as in the recommended parser.
+    closeParameter(at, tool)
+    const header = /^<parameter=([^>]*)>/.exec(source.slice(at))
+    if (!header) throw new ModelError('Qwen3.5 returned a malformed tool parameter.')
+    parameter = { name: header[1]!, start: at + header[0].length }
+    offset = parameter.start
+  }
+
   for (const tag of tags.read(source)) {
     if (tag.marker === '<function=') {
-      if (tool || source.slice(offset, tag.index).trim())
-        throw new ModelError('Qwen3.5 returned a malformed tool call.')
-      const header = /^<function=([^>]+)>/.exec(source.slice(tag.index))
-      if (!header) throw new ModelError('Qwen3.5 returned a malformed tool call.')
-      const name = header[1]!
-      tool = tools.find((tool) => tool.name === name)
-      if (!tool) throw new ModelError(`Qwen3.5 returned unknown tool "${name}".`)
-      input = Object.create(null)
-      offset = tag.index + header[0].length
+      openFunction(tag.index)
       continue
     }
     if (!tool) throw new ModelError('Qwen3.5 returned a malformed tool call.')
     if (tag.marker === '<parameter=') {
-      // A new opener may close the previous parameter, as in the recommended parser.
-      closeParameter(tag.index, tool)
-      const header = /^<parameter=([^>]*)>/.exec(source.slice(tag.index))
-      if (!header) throw new ModelError('Qwen3.5 returned a malformed tool parameter.')
-      parameter = { name: header[1]!, start: tag.index + header[0].length }
-      offset = parameter.start
+      openParameter(tag.index, tool)
     } else if (tag.marker === '</parameter>') {
       closeParameter(tag.index, tool)
       offset = tag.end
@@ -96,7 +105,7 @@ function parseCalls(
         index: index + calls.length,
         id: crypto.randomUUID(),
         name: tool.name,
-        input: JSON.stringify(input),
+        input: toolJSON(input, source),
       })
       tool = undefined
       offset = tag.end

@@ -1,10 +1,12 @@
 import { ModelError, type ToolSpec } from '../types.js'
 import type { Completion } from '@mlc-ai/web-llm'
 import { readArguments } from './value.js'
+import { toolJSON } from '../tool-json.js'
 import { splitThinking, type GemmaStreamOptions } from './thinking.js'
 import { toolStart } from './markers.js'
 import { textEnd } from '../stream/markers.js'
 import { noToolCalls, type StreamChunk, type ToolDelta } from '../stream/chunks.js'
+import { throwStreamError } from '../stream/failure.js'
 
 const end = '<tool_call|>'
 const toolStartMarkers = [toolStart]
@@ -18,64 +20,69 @@ export async function* gemmaChunks(
   const parseTools = tools.length > 0
   let pending = ''
   let toolText = ''
+
+  function readText(chunk: Pick<StreamChunk, 'text' | 'stop' | 'usage'>): StreamChunk {
+    let content = ''
+    let calls: ToolDelta[] | undefined
+    if (!parseTools) content = chunk.text
+    else if (toolText) toolText += chunk.text
+    else {
+      pending += chunk.text
+      const at = pending.indexOf(toolStart)
+      if (at !== -1) {
+        content = pending.slice(0, at)
+        toolText = pending.slice(at)
+        pending = ''
+      } else {
+        const end = textEnd(pending, toolStartMarkers)
+        content = pending.slice(0, end)
+        pending = pending.slice(end)
+      }
+    }
+    if (chunk.stop) {
+      if (toolText) {
+        if (chunk.stop === 'endTurn') calls = readCalls(toolText, tools)
+        else content += toolText
+        toolText = ''
+      }
+      content += pending
+      pending = ''
+    }
+    return {
+      text: content,
+      reasoning: '',
+      calls: calls ?? noToolCalls,
+      stop: calls?.length ? 'toolUse' : chunk.stop,
+      usage: chunk.usage,
+    }
+  }
+
   let failure: { error: unknown } | undefined
   try {
     for await (const chunk of splitThinking(chunks, { ...options, parseTools })) {
       if (signal?.aborted) return
-      if (chunk.type === 'reasoning') {
-        if (pending) {
-          yield {
-            text: pending,
-            reasoning: '',
-            calls: noToolCalls,
-            stop: undefined,
-            usage: undefined,
-          }
-          pending = ''
-        }
-        if (chunk.text || chunk.stop || chunk.usage)
-          yield {
-            text: '',
-            reasoning: chunk.text,
-            calls: noToolCalls,
-            stop: chunk.stop,
-            usage: chunk.usage,
-          }
+      if (chunk.type !== 'reasoning') {
+        yield readText(chunk)
         continue
       }
-      let content = ''
-      let calls: ToolDelta[] | undefined
-      if (!parseTools) content = chunk.text
-      else if (toolText) toolText += chunk.text
-      else {
-        pending += chunk.text
-        const at = pending.indexOf(toolStart)
-        if (at !== -1) {
-          content = pending.slice(0, at)
-          toolText = pending.slice(at)
-          pending = ''
-        } else {
-          const end = textEnd(pending, toolStartMarkers)
-          content = pending.slice(0, end)
-          pending = pending.slice(end)
+      if (pending) {
+        yield {
+          text: pending,
+          reasoning: '',
+          calls: noToolCalls,
+          stop: undefined,
+          usage: undefined,
         }
-      }
-      if (chunk.stop) {
-        if (toolText) {
-          if (chunk.stop === 'endTurn') calls = readCalls(toolText, tools)
-          else content += toolText
-          toolText = ''
-        }
-        content += pending
         pending = ''
       }
-      yield {
-        text: content,
-        reasoning: '',
-        calls: calls ?? noToolCalls,
-        stop: calls?.length ? 'toolUse' : chunk.stop,
-        usage: chunk.usage,
-      }
+      if (chunk.text || chunk.stop || chunk.usage)
+        yield {
+          text: '',
+          reasoning: chunk.text,
+          calls: noToolCalls,
+          stop: chunk.stop,
+          usage: chunk.usage,
+        }
     }
   } catch (error) {
     failure = { error }
@@ -89,7 +96,7 @@ export async function* gemmaChunks(
       stop: undefined,
       usage: undefined,
     }
-  if (failure && !signal?.aborted) throw failure.error
+  throwStreamError(failure, signal)
 }
 
 function readCalls(source: string, tools: ToolSpec[]) {
@@ -111,7 +118,7 @@ function readCalls(source: string, tools: ToolSpec[]) {
       index: calls.length,
       id: crypto.randomUUID(),
       name,
-      input: JSON.stringify(args.input),
+      input: toolJSON(args.input, source),
     })
     rest = rest.slice(end.length).trim()
   }

@@ -4,6 +4,103 @@ import { chunk, chunks, collect } from '../../../../fixtures/web-llm.js'
 import { qwen35Chunks } from '../../../../shared/web-llm/qwen35/stream.js'
 import { formatCall } from '../../../../shared/web-llm/qwen35/tools.js'
 
+it('preserves nested arguments across stream chunk boundaries', async () => {
+  const input = {
+    text: 'Before\r\nAfter',
+    payload: { text: '<parameter=x>"</parameter>', nested: [0, 42] },
+  }
+  const tools: ToolSpec[] = [
+    {
+      name: 'lookup',
+      description: '',
+      inputSchema: {
+        type: 'object',
+        properties: { text: { type: 'string' }, payload: { type: 'object' } },
+      },
+    },
+  ]
+  const content = '<think>Plan</think>Before' + formatCall('lookup', input) + 'After'
+
+  for (let size = 1; size <= content.length; size++) {
+    const parts = Array.from({ length: Math.ceil(content.length / size) }, (_, index) =>
+      content.slice(index * size, (index + 1) * size),
+    )
+    const source = chunks(
+      ...parts.map((content, index) =>
+        chunk({ content }, index === parts.length - 1 ? 'stop' : null),
+      ),
+    )
+    const output = await collect(qwen35Chunks(source, tools))
+    expect(output.map((item) => item.text).join('')).toBe('BeforeAfter')
+    expect(output.map((item) => item.reasoning).join('')).toBe('Plan')
+    expect(output.flatMap((item) => item.calls).map((call) => JSON.parse(call.input!))).toEqual([
+      input,
+    ])
+  }
+})
+
+it.each([1, 3, 17, 512])(
+  'keeps escaped JSON and the next parameter across %i-character chunks',
+  async (size) => {
+    const input = {
+      payload: { items: [{ text: 'a \\" </parameter> <function=x>' }], nested: { done: true } },
+      text: 'next',
+    }
+    const tools: ToolSpec[] = [
+      {
+        name: 'lookup',
+        description: '',
+        inputSchema: {
+          type: 'object',
+          properties: { payload: { type: 'object' }, text: { type: 'string' } },
+        },
+      },
+    ]
+    const content = '<think>Plan</think>' + formatCall('lookup', input) + 'After'
+    const parts = Array.from({ length: Math.ceil(content.length / size) }, (_, index) =>
+      content.slice(index * size, (index + 1) * size),
+    )
+    const output = await collect(
+      qwen35Chunks(
+        chunks(
+          ...parts.map((content, index) =>
+            chunk({ content }, index === parts.length - 1 ? 'stop' : null),
+          ),
+        ),
+        tools,
+      ),
+    )
+    expect(output.map((item) => item.reasoning).join('')).toBe('Plan')
+    expect(output.map((item) => item.text).join('')).toBe('After')
+    expect(output.flatMap((item) => item.calls).map((call) => JSON.parse(call.input!))).toEqual([
+      input,
+    ])
+  },
+)
+
+it('reads usage after the current text has been delivered', async () => {
+  const response = chunk({ content: 'Hello' })
+  const usage = {
+    prompt_tokens: 1,
+    completion_tokens: 2,
+    total_tokens: 3,
+    extra: {
+      e2e_latency_s: 1,
+      prefill_tokens_per_s: 1,
+      decode_tokens_per_s: 1,
+      time_to_first_token_s: 1,
+      time_per_output_token_s: 1,
+    },
+  }
+  const stream = qwen35Chunks(chunks(response), [])
+
+  expect((await stream.next()).value).toMatchObject({ text: 'Hello' })
+  queueMicrotask(() => {
+    response.usage = usage
+  })
+  expect((await stream.next()).value).toMatchObject({ usage })
+})
+
 it.each(['\n', '\r\n'])(
   'preserves trailing carriage returns with %j line endings',
   async (lineEnding) => {

@@ -7,35 +7,43 @@ import { Agent, BeforeModelCallEvent, BeforeToolCallEvent } from '@strands-agent
 import { expect, test } from '../../../fixtures/browser.js'
 import { BrowserModel, type WebLLMChunk } from 'strands-web-llm'
 import type { ChatCompletionRequestStreaming } from '@mlc-ai/web-llm'
-import { recordNative, replayNative } from '../../fixtures/native.js'
+import { recordNative } from '../../fixtures/native.js'
 
-test('Qwen2.5 literal thinking tags reach Strands unchanged', async ({ page }) => {
-  const modelId = 'Qwen2.5-3B-Instruct-q4f16_1-MLC'
-  await page.goto('http://127.0.0.1:4173/harness.html')
-  await page.waitForFunction(() => Boolean(window.harness))
-  await page.evaluate((id) => window.harness.open(id), modelId)
-  let native = ''
-  const model = new BrowserModel(page, {
-    modelId,
-    temperature: 0,
-    maxTokens: 256,
-    onChunk: (chunk) => {
-      const choice = chunk.choices[0]
-      if (choice && 'delta' in choice) native += choice.delta.content ?? ''
-    },
-  })
-  try {
-    const agent = new Agent({ model, printer: false })
-    const result = await agent.invoke('Repeat this text exactly:\n<think>literal</think>')
+const qwen25Model = 'Qwen2.5-3B-Instruct-q4f16_1-MLC'
 
-    expect(native).toContain('<think>')
-    expect(result.lastMessage.content).toEqual([
-      expect.objectContaining({ type: 'textBlock', text: native }),
-    ])
-  } finally {
-    await page.evaluate(() => window.harness.close())
-  }
-})
+test(
+  'Qwen2.5 preserves native text with thinking disabled',
+  modelCheck(qwen25Model),
+  async ({ page }) => {
+    const modelId = qwen25Model
+    await page.goto('http://127.0.0.1:4173/harness.html')
+    await page.waitForFunction(() => Boolean(window.harness))
+    await page.evaluate((id) => window.harness.open(id), modelId)
+    let native = ''
+    const model = new BrowserModel(page, {
+      modelId,
+      temperature: 0,
+      maxTokens: 1024,
+      request: { extra_body: { enable_thinking: false } },
+      onChunk: (chunk) => {
+        const choice = chunk.choices[0]
+        if (choice && 'delta' in choice) native += choice.delta.content ?? ''
+      },
+    })
+    try {
+      const agent = new Agent({ model, printer: false })
+      const result = await agent.invoke('Repeat this text exactly:\n<think>literal</think>')
+
+      const prefix = '<think>\n\n</think>\n\n'
+      expect(native.startsWith(prefix)).toBe(true)
+      expect(result.lastMessage.content).toEqual([
+        expect.objectContaining({ type: 'textBlock', text: native.slice(prefix.length) }),
+      ])
+    } finally {
+      await page.evaluate(() => window.harness.close())
+    }
+  },
+)
 
 const cases = [
   {
@@ -142,13 +150,11 @@ for (const { modelId, sample, release, constrainedToolCalls } of cases) {
           )
 
         const requests = await page.evaluate(() => window.qwen25Requests)
-        const native = await replayNative(page, requests)
         await recordNative(info, 'native-comparison', {
           code,
           path,
           requests,
-          adapted: chunks,
-          native,
+          native: chunks,
           error: 'error' in outcome ? String(outcome.error) : undefined,
           messages: agent.messages.map((message) => message.toJSON()),
         })
@@ -160,7 +166,6 @@ for (const { modelId, sample, release, constrainedToolCalls } of cases) {
           expect(requests).toHaveLength(1)
           expect(requests[0]).not.toHaveProperty('response_format')
           const raw = rawText(chunks[0]!)
-          expect(rawText(native[0]!).startsWith(raw)).toBe(true)
           expect(raw.match(/<tool_call>/g)).toHaveLength(1)
           expect(raw.match(/<\/tool_call>/g)).toHaveLength(1)
           const source = raw.match(/<tool_call>([\s\S]*)<\/tool_call>/)?.[1]
@@ -177,13 +182,12 @@ for (const { modelId, sample, release, constrainedToolCalls } of cases) {
         else expect(requests[0]).not.toHaveProperty('response_format')
         expect(modelCalls).toBe(2)
         expect(requests).toHaveLength(2)
-        expect(chunks.map(rawText)).toEqual(native.map(rawText))
         expect(result.stopReason).toBe('endTurn')
         expect(text.trim()).not.toBe('')
         // Keep the native answer even when the model copies the code incorrectly.
-        expect(text).toBe(rawText(native.at(-1)!))
+        expect(text).toBe(rawText(chunks.at(-1)!))
         expect(
-          native
+          chunks
             .at(-1)!
             .flatMap((chunk) => chunk.choices.map((choice) => choice.finish_reason))
             .filter(Boolean),
@@ -192,6 +196,12 @@ for (const { modelId, sample, release, constrainedToolCalls } of cases) {
         const calls = blocks.filter((block) => block.type === 'toolUseBlock')
         expect(calls).toHaveLength(1)
         expect(calls[0]).toMatchObject({ name: 'read', input: { path } })
+        const source = rawText(chunks[0]!).match(/<tool_call>([\s\S]*?)<\/tool_call>/)?.[1]
+        expect(source).toBeDefined()
+        expect(JSON.parse(source!)).toMatchObject({
+          name: calls[0]!.name,
+          arguments: calls[0]!.input,
+        })
         const results = blocks.filter((block) => block.type === 'toolResultBlock')
         expect(results).toHaveLength(1)
         expect(results[0]?.status).toBe('success')

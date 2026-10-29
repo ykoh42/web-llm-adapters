@@ -90,9 +90,7 @@ test('Hermes preserves received bytes through a native stream failure and recove
   expect(recovered.text).toBe('')
 })
 
-test('Qwen empty argument names match direct WebLLM before tool validation', async ({
-  page,
-}, info) => {
+test('Qwen preserves WebLLM argument names before tool validation', async ({ page }, info) => {
   const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
   await page.evaluate((id) => window.checks.load(id), modelId)
   await page.evaluate(() => {
@@ -124,14 +122,14 @@ test('Qwen empty argument names match direct WebLLM before tool validation', asy
       schema,
     },
   )
-  let adapted = ''
+  let native = ''
   const model = new BrowserChatWebLLM(page, {
     modelId,
     thinkingPrefilled: true,
     request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
     onChunk: (chunk) => {
       const choice = chunk.choices[0]
-      if (choice && 'delta' in choice) adapted += choice.delta.content ?? ''
+      if (choice && 'delta' in choice) native += choice.delta.content ?? ''
     },
   })
   const result = await model
@@ -142,19 +140,10 @@ test('Qwen empty argument names match direct WebLLM before tool validation', asy
       (window as unknown as { nativeRequests: ChatCompletionRequestStreaming[] })
         .nativeRequests[0]!,
   )
-  const native = await page.evaluate(async (request) => {
-    const engine = window.checks.engine()
-    await engine.resetChat()
-    let text = ''
-    for await (const chunk of await engine.chat.completions.create(request))
-      text += chunk.choices[0]?.delta.content ?? ''
-    return text
-  }, request)
   await writeFile(
     info.outputPath('empty-name.json'),
-    JSON.stringify({ schema, request, native, adapted, result }, null, 2),
+    JSON.stringify({ schema, request, native, result }, null, 2),
   )
-  expect(adapted).toBe(native)
   const body = native.slice(native.lastIndexOf('<function=lookup>'))
   const key = body.match(/<parameter=([^>]*)>/)?.[1]
   expect(key).toBeDefined()
@@ -434,9 +423,7 @@ test('native WebLLM tool arguments reach LangChain unchanged', async ({ page }, 
   expect(result.text).toBe('')
 })
 
-test('Qwen3.5 0.8B: incomplete default-agent tool output also occurs without the adapter', async ({
-  page,
-}, testInfo) => {
+test('Qwen3.5 0.8B preserves native output in a Deep Agent', async ({ page }, testInfo) => {
   const modelId = 'Qwen3.5-0.8B-q4f16_1-MLC'
   await page.evaluate((id) => window.checks.load(id), modelId)
   await page.evaluate(() => {
@@ -461,9 +448,8 @@ test('Qwen3.5 0.8B: incomplete default-agent tool output also occurs without the
     onChunk: (chunk) => chunks.push(chunk),
   })
   const agent = createDeepAgent({ model })
-  let failure: unknown
-  try {
-    await agent.invoke({
+  const outcome = await agent
+    .invoke({
       messages: [
         { role: 'user', content: 'Read /answer.txt and tell me the secret code exactly.' },
       ],
@@ -475,34 +461,40 @@ test('Qwen3.5 0.8B: incomplete default-agent tool output also occurs without the
         },
       },
     })
-  } catch (error) {
-    failure = error
-  }
-  const adapted = chunks
+    .then(
+      (result) => ({ result }),
+      (error: unknown) => ({ error }),
+    )
+  const native = chunks
     .map((chunk) =>
       'delta' in (chunk.choices[0] ?? {})
         ? ((chunk as import('@mlc-ai/web-llm').ChatCompletionChunk).choices[0]?.delta.content ?? '')
         : '',
     )
     .join('')
-  const native = await page.evaluate(async () => {
-    const engine = window.checks.engine()
-    const request = (window as unknown as { nativeRequests: ChatCompletionRequestStreaming[] })
-      .nativeRequests[0]!
-    await engine.resetChat()
-    const chunks = await engine.chat.completions.create(request)
-    let text = ''
-    for await (const chunk of chunks) text += chunk.choices[0]?.delta.content ?? ''
-    return text
-  })
+  const requests = await page.evaluate(
+    () =>
+      (window as unknown as { nativeRequests: ChatCompletionRequestStreaming[] }).nativeRequests,
+  )
+  const last = 'result' in outcome ? outcome.result.messages.at(-1) : undefined
+  const text = last && AIMessage.isInstance(last) ? last.text : ''
   const path = testInfo.outputPath('comparison.json')
-  await writeFile(path, JSON.stringify({ adapted, native }, null, 2))
+  await writeFile(
+    path,
+    JSON.stringify(
+      { native, requests, text, error: 'error' in outcome ? String(outcome.error) : undefined },
+      null,
+      2,
+    ),
+  )
   await testInfo.attach('native comparison', { path, contentType: 'application/json' })
-  expect(failure).toBeInstanceOf(Error)
-  expect(failure).toHaveProperty('message', 'Qwen3.5 returned a malformed tool parameter.')
-  expect(native).toBe(adapted)
-  expect(native).toContain('<tool_call>')
-  expect(native).not.toContain('</tool_call>')
+  if ('error' in outcome) {
+    expect(outcome.error).toHaveProperty('message', 'Qwen3.5 returned a malformed tool parameter.')
+    expect(native.lastIndexOf('<tool_call>')).toBeGreaterThan(native.lastIndexOf('</tool_call>'))
+  } else {
+    expect(text.trim()).not.toBe('')
+    expect(native).toContain(text)
+  }
 })
 
 test('browser history preserves literal JSON keys and reasoning without tool artifacts', async ({

@@ -17,6 +17,7 @@ const wasm = new URL(import.meta.resolve(`${name}/runtime/gemma-4-e2b.wasm`))
 const bytes = await readFile(wasm)
 assert.ok(WebAssembly.validate(bytes))
 const manifest = JSON.parse(await readFile(new URL('manifest.json', wasm), 'utf8'))
+assert.equal('sha256-' + createHash('sha256').update(bytes).digest('base64'), manifest.integrity)
 for (const [file, hash] of Object.entries(manifest.files)) {
   const data = await readFile(new URL(file, wasm))
   assert.equal(createHash('sha256').update(data).digest('hex'), hash, file)

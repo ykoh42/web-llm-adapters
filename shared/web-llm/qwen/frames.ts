@@ -9,6 +9,7 @@ import {
   type ChunkOptions,
   noToolCalls,
 } from '../stream/chunks.js'
+import { throwStreamError } from '../stream/failure.js'
 import { textEnd } from '../stream/markers.js'
 import { QwenOutput } from './output.js'
 import { callChunkCallback } from '../callback.js'
@@ -28,6 +29,143 @@ interface ToolReader {
   markers?: string[]
   /** Reject a normal stop when the tool call has no closing tag. */
   unclosedError(): string
+}
+
+interface FrameOptions {
+  parseProtocol: boolean
+  parseThinking: boolean
+  thinkingPrefilled: boolean
+  thinkingDisabled: boolean
+  parseTools: boolean
+  stopRequested: boolean
+}
+
+function createFrameParser(
+  reader: ToolReader,
+  {
+    parseProtocol,
+    parseThinking,
+    thinkingPrefilled,
+    thinkingDisabled,
+    parseTools,
+    stopRequested,
+  }: FrameOptions,
+) {
+  const textMarkers: string[] = []
+  if (parseThinking && !thinkingDisabled) textMarkers.push(thinkStart)
+  if (parseTools) textMarkers.push(callStart)
+  let mode: 'text' | 'thinking' | 'tool' =
+    parseProtocol && parseThinking && thinkingPrefilled ? 'thinking' : 'text'
+  let readingPrefix = thinkingDisabled
+  let pending = ''
+  let toolText = ''
+  const output = new QwenOutput()
+  let callIndex = 0
+  let failure: { error: unknown } | undefined
+
+  function readPrefix(): void {
+    if (pending.startsWith(emptyThinking)) {
+      pending = pending.slice(emptyThinking.length)
+      if (parseProtocol && parseThinking) {
+        output.add('reasoning', '\n\n')
+        pending = '\n\n' + pending
+      }
+      readingPrefix = false
+    } else if (!emptyThinking.startsWith(pending)) readingPrefix = false
+  }
+
+  function readTool(): boolean {
+    const end = textEnd(pending, reader.markers ?? toolEndMarkers)
+    const at = reader.end(pending, end)
+    if (at === -1) {
+      toolText += pending.slice(0, end)
+      pending = pending.slice(end)
+      return false
+    }
+    toolText += pending.slice(0, at)
+    pending = pending.slice(at + callEnd.length)
+    mode = 'text'
+    if (!failure) {
+      try {
+        const parsed = reader.parse(toolText, callIndex)
+        output.finishTool(parsed)
+        callIndex += parsed.length
+      } catch (error) {
+        // Keep framing the received tail without publishing any failed call.
+        failure = { error }
+      }
+    }
+    toolText = ''
+    return true
+  }
+
+  function readText(): boolean {
+    if (mode === 'text' && (!parseProtocol || !textMarkers.length)) {
+      output.add('text', pending)
+      pending = ''
+      return false
+    }
+    const markers = mode === 'thinking' ? thinkingMarkers : textMarkers
+    const at = earliest(pending, markers)
+    if (at === undefined) {
+      const end = textEnd(pending, markers)
+      const value = pending.slice(0, end)
+      output.add(mode === 'thinking' ? 'reasoning' : 'text', value)
+      pending = pending.slice(end)
+      return false
+    }
+    const value = pending.slice(0, at.index)
+    output.add(mode === 'thinking' ? 'reasoning' : 'text', value)
+    pending = pending.slice(at.index + at.marker.length)
+    if (mode === 'thinking') mode = 'text'
+    else if (at.marker === thinkStart) mode = 'thinking'
+    else {
+      output.add('tool', callStart)
+      mode = 'tool'
+    }
+    return true
+  }
+
+  function readPending(): void {
+    while (pending && !readingPrefix) {
+      if (mode === 'tool' ? !readTool() : !readText()) break
+    }
+  }
+
+  function finish(stop: NonNullable<StreamChunk['stop']>): void {
+    readingPrefix = false
+    if (mode === 'tool') {
+      if (stop !== 'maxTokens' && stop !== 'cancelled') throw new ModelError(reader.unclosedError())
+      pending = ''
+      toolText = ''
+      mode = 'text'
+    }
+    output.add(mode === 'thinking' ? 'reasoning' : 'text', pending)
+    pending = ''
+    if (mode === 'thinking' && stop !== 'maxTokens' && stop !== 'cancelled' && !stopRequested)
+      throw new ModelError('Qwen ended inside a thinking block.')
+    mode = 'text'
+  }
+
+  return {
+    output,
+    get failure() {
+      return failure
+    },
+    write(choice: ChatCompletionChunk['choices'][number] | undefined) {
+      pending += choice?.delta.content ?? ''
+      // WebLLM echoes this fixed block even when the decoder constrains the answer.
+      if (readingPrefix) readPrefix()
+      readPending()
+      if (failure) throw failure.error
+      const stop = stopReason(choice?.finish_reason)
+      if (stop) finish(stop)
+      return stop
+    },
+    flush() {
+      output.add(mode === 'thinking' ? 'reasoning' : mode, pending)
+    },
+  }
 }
 
 /** Shared Qwen text/thinking framing; tool boundaries and syntax belong to each dialect. */
@@ -53,133 +191,35 @@ export async function* qwenFrames(
     stopRequested?: boolean
   },
 ): AsyncGenerator<StreamChunk> {
-  const textMarkers: string[] = []
-  if (parseThinking) textMarkers.push(thinkStart)
-  if (parseTools) textMarkers.push(callStart)
-  let mode: 'text' | 'thinking' | 'tool' =
-    parseProtocol && parseThinking && thinkingPrefilled ? 'thinking' : 'text'
-  let readingPrefix = !parseProtocol && thinkingDisabled
-  let pending = ''
-  let toolText = ''
-  const output = new QwenOutput()
-  let callIndex = 0
+  const parser = createFrameParser(reader, {
+    parseProtocol,
+    parseThinking,
+    thinkingPrefilled,
+    thinkingDisabled,
+    parseTools,
+    stopRequested,
+  })
   let failure: { error: unknown } | undefined
   try {
     for await (const chunk of chunks) {
       if (signal?.aborted) return
       const parserChunk = onChunk && onChunkMayMutate ? snapshotChatChunk(chunk) : chunk
-      const callbackResult = onChunk ? callChunkCallback(onChunk, chunk, signal) : undefined
+      const callbackResult = onChunk && callChunkCallback(onChunk, chunk, signal)
       if (callbackResult) await callbackResult
       if (signal?.aborted) return
       const choice = singleChoice(parserChunk.choices)
-      pending += choice?.delta.content ?? ''
-      let calls: ToolDelta[] | undefined
-
-      // WebLLM echoes this fixed block even when the decoder constrains the answer.
-      if (readingPrefix) {
-        if (pending.startsWith(emptyThinking)) {
-          pending = pending.slice(emptyThinking.length)
-          readingPrefix = false
-        } else if (!emptyThinking.startsWith(pending)) readingPrefix = false
-      }
-
-      while (pending && !readingPrefix) {
-        if (mode === 'tool') {
-          const end = textEnd(pending, reader.markers ?? toolEndMarkers)
-          const at = reader.end(pending, end)
-          if (at === -1) {
-            toolText += pending.slice(0, end)
-            pending = pending.slice(end)
-            break
-          }
-          toolText += pending.slice(0, at)
-          pending = pending.slice(at + callEnd.length)
-          mode = 'text'
-          if (!failure) {
-            try {
-              const parsed = reader.parse(toolText, callIndex)
-              if (parsed.length) {
-                calls ??= []
-                calls.push(...parsed)
-                callIndex += parsed.length
-              }
-            } catch (error) {
-              // Keep framing the received tail without publishing any failed call.
-              failure = { error }
-            }
-          }
-          toolText = ''
-          continue
-        }
-
-        if (mode === 'text' && (!parseProtocol || !textMarkers.length)) {
-          output.add('text', pending)
-          pending = ''
-          break
-        }
-
-        const markers = mode === 'thinking' ? thinkingMarkers : textMarkers
-        const at = earliest(pending, markers)
-        if (at !== undefined) {
-          const value = pending.slice(0, at.index)
-          if (mode === 'thinking') output.add('reasoning', value)
-          else output.add('text', value)
-          pending = pending.slice(at.index + at.marker.length)
-          if (mode === 'thinking') mode = 'text'
-          else if (at.marker === thinkStart) mode = 'thinking'
-          else {
-            output.add('tool', callStart)
-            mode = 'tool'
-          }
-          continue
-        }
-        const end = textEnd(pending, markers)
-        const value = pending.slice(0, end)
-        if (mode === 'thinking') output.add('reasoning', value)
-        else output.add('text', value)
-        pending = pending.slice(end)
-        break
-      }
-
-      if (failure) throw failure.error
-      const stop = stopReason(choice?.finish_reason)
-      if (stop) {
-        readingPrefix = false
-        if (mode === 'tool') {
-          if (stop !== 'maxTokens' && stop !== 'cancelled')
-            throw new ModelError(reader.unclosedError())
-          pending = ''
-          toolText = ''
-          mode = 'text'
-        }
-        if (mode === 'thinking') {
-          output.add('reasoning', pending)
-          pending = ''
-          if (stop !== 'maxTokens' && stop !== 'cancelled' && !stopRequested)
-            throw new ModelError('Qwen ended inside a thinking block.')
-        } else {
-          output.add('text', pending)
-          pending = ''
-        }
-        mode = 'text'
-      }
-      yield* output.read(stop)
-      if (calls?.length || stop || parserChunk.usage)
-        yield {
-          text: '',
-          reasoning: '',
-          calls: calls ?? noToolCalls,
-          stop,
-          usage: parserChunk.usage,
-        }
+      const stop = parser.write(choice)
+      yield* parser.output.read(stop)
+      const metadata = metadataChunk(stop, parserChunk)
+      if (metadata) yield metadata
     }
   } catch (error) {
-    failure ??= { error }
+    failure = parser.failure ?? { error }
   }
   if (signal?.aborted) return
-  output.add(mode === 'thinking' ? 'reasoning' : mode, pending)
-  yield* output.read('incomplete')
-  if (failure && !signal?.aborted) throw failure.error
+  parser.flush()
+  yield* parser.output.read('incomplete')
+  throwStreamError(failure, signal)
 }
 
 function earliest(text: string, markers: string[]) {
@@ -189,4 +229,12 @@ function earliest(text: string, markers: string[]) {
     if (index !== -1 && (!found || index < found.index)) found = { index, marker }
   }
   return found
+}
+
+function metadataChunk(
+  stop: StreamChunk['stop'],
+  chunk: Pick<ChatCompletionChunk, 'usage'>,
+): StreamChunk | undefined {
+  if (!stop && !chunk.usage) return undefined
+  return { text: '', reasoning: '', calls: noToolCalls, stop, usage: chunk.usage }
 }

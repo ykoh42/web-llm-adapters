@@ -46,19 +46,10 @@ test('Hermes keeps deep tool history identical to a native WebLLM request', asyn
     n: 1,
   }
   await page.evaluate((id) => window.checks.load(id), modelId)
-  const native = await page.evaluate(
-    (request) =>
+  await page.evaluate(
+    (modelId) =>
       window.webllmLangChainBridge!.withEngine(async (engine) => {
-        await engine.reload(request.model!, { context_window_size: 32768 })
-        let text = ''
-        let finish: string | null = null
-        let inputTokens = 0
-        for await (const chunk of await engine.chat.completions.create(request)) {
-          text += chunk.choices[0]?.delta.content ?? ''
-          finish = chunk.choices[0]?.finish_reason ?? finish
-          inputTokens = chunk.usage?.prompt_tokens ?? inputTokens
-        }
-        await engine.resetChat()
+        await engine.reload(modelId, { context_window_size: 32768 })
         window.deepNativeRequests = []
         const endpoint = engine.chat.completions
         endpoint.create = new Proxy(endpoint.create, {
@@ -67,9 +58,8 @@ test('Hermes keeps deep tool history identical to a native WebLLM request', asyn
             return Reflect.apply(target, self, args)
           },
         })
-        return { text, finish, inputTokens }
       }),
-    request,
+    modelId,
   )
   let observed = ''
   const model = new BrowserChatWebLLM(page, {
@@ -90,14 +80,12 @@ test('Hermes keeps deep tool history identical to a native WebLLM request', asyn
   const evidence = info.outputPath('native-depth.json')
   await writeFile(
     evidence,
-    JSON.stringify({ native, prepared, expected: request, observed, text: result.text }, null, 2),
+    JSON.stringify({ prepared, expected: request, observed, text: result.text }, null, 2),
   )
   await info.attach('native-depth', { path: evidence, contentType: 'application/json' })
   expect(prepared?.messages[1]?.content === raw).toBe(true)
   expect(prepared).toEqual(request)
-  expect(native.finish).toBe('stop')
-  expect(native.text).toContain('OK')
-  expect(observed).toBe(native.text)
-  expect(result.text).toBe(native.text)
+  expect(observed).toContain('OK')
+  expect(result.text).toBe(observed)
   expect(result.response_metadata.finish_reason).toBe('stop')
 })

@@ -1,5 +1,5 @@
-import { expect, it } from 'vitest'
-import { parseJSON, sameJSON } from '../../shared/web-llm/json.js'
+import { expect, it, vi } from 'vitest'
+import { parseJSON, sameJSON, stringifyJSON } from '../../shared/web-llm/json.js'
 
 it('compares JSON objects without depending on key order', () => {
   expect(
@@ -15,6 +15,15 @@ it('compares JSON objects without depending on key order', () => {
 it('compares optional values as JSON serialization does', () => {
   expect(sameJSON({ schema: undefined }, {})).toBe(true)
   expect(sameJSON([undefined], [null])).toBe(true)
+})
+
+it('can distinguish negative zero inside nested values', () => {
+  const negative = { values: [1, { number: -0 }] }
+  const positive = { values: [1, { number: 0 }] }
+  expect(sameJSON(negative, negative, true)).toBe(true)
+  expect(sameJSON(negative, structuredClone(negative), true)).toBe(true)
+  expect(sameJSON(negative, positive)).toBe(true)
+  expect(sameJSON(negative, positive, true)).toBe(false)
 })
 
 it.each([
@@ -70,4 +79,92 @@ it('validates deeply nested arrays without using the call stack', () => {
   const source = wrap('42')
   expect(JSON.stringify(parseJSON(source)) === source).toBe(true)
   expect(() => parseJSON(wrap('1e999'))).toThrow('finite numbers')
+})
+
+it.each(['native', 'without rawJSON'] as const)(
+  'preserves negative zero while respecting JSON serialization (%s)',
+  (mode) => {
+    if (mode === 'without rawJSON')
+      vi.stubGlobal('JSON', Object.assign(Object.create(JSON), { rawJSON: undefined }))
+    try {
+      let reads = 0
+      const shared = { value: -0 }
+      const input = {
+        first: shared,
+        second: shared,
+        omitted: undefined,
+        array: [undefined, -0, 0, { nested: -0 }],
+        escaped: 'a "quote" and \n newline',
+        converted: { toJSON: () => ({ value: -0 }) },
+        get read() {
+          reads++
+          return -0
+        },
+        ['__proto__']: { nested: -0 },
+      }
+      const result = JSON.parse(stringifyJSON(input))
+      expect(reads).toBe(1)
+      expect(Object.is(result.first.value, -0)).toBe(true)
+      expect(Object.is(result.second.value, -0)).toBe(true)
+      expect(result.array.map((value: unknown) => Object.is(value, -0))).toEqual([
+        false,
+        true,
+        false,
+        false,
+      ])
+      expect(result.array[0]).toBeNull()
+      expect(Object.is(result.array[3].nested, -0)).toBe(true)
+      expect(Object.is(result.converted.value, -0)).toBe(true)
+      expect(Object.is(result.read, -0)).toBe(true)
+      expect(Object.is(result.__proto__.nested, -0)).toBe(true)
+      expect(Object.getPrototypeOf(result)).toBe(Object.prototype)
+      expect(result).not.toHaveProperty('omitted')
+      expect(result.escaped).toBe(input.escaped)
+      expect(Object.is(JSON.parse(stringifyJSON(-0)), -0)).toBe(true)
+      expect(() => stringifyJSON({ value: Infinity })).toThrow('finite numbers')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  },
+)
+
+it('matches native negative-zero serialization without rawJSON', () => {
+  const raw = Reflect.get(JSON, 'rawJSON') as (value: string) => unknown
+  const values = Array.from({ length: 256 }, (_, index) => ({
+    id: index,
+    values: [index % 2 ? -0 : 0, index - 128, null, index % 3 === 0],
+    nested: Object.fromEntries([
+      ['__proto__', { value: index % 5 ? -0 : 0 }],
+      ['text', `서울 ${index} "\\\n`],
+      ['array', [undefined, -0, [index / 10]]],
+    ]),
+  }))
+  const expected = values.map((value) =>
+    JSON.stringify(value, (_key, item: unknown) => (Object.is(item, -0) ? raw('-0') : item)),
+  )
+  vi.stubGlobal('JSON', Object.assign(Object.create(JSON), { rawJSON: undefined }))
+  try {
+    expect(values.map(stringifyJSON)).toEqual(expected)
+  } finally {
+    vi.unstubAllGlobals()
+  }
+})
+
+it('keeps literal marker strings and keys when JSON.rawJSON is unavailable', () => {
+  const raw = Reflect.get(JSON, 'rawJSON') as (value: string) => unknown
+  const marker = '\u0000'
+  const input = {
+    [marker]: marker,
+    values: [marker, -0, raw(JSON.stringify(marker)), { [marker]: -0 }, marker, -0],
+    text: 'a "\\u0000" string',
+  }
+  const expected = JSON.stringify(input, (_key, value: unknown) =>
+    Object.is(value, -0) ? raw('-0') : value,
+  )
+  vi.stubGlobal('JSON', Object.assign(Object.create(JSON), { rawJSON: undefined }))
+  try {
+    expect(stringifyJSON(input)).toBe(expected)
+  } finally {
+    vi.unstubAllGlobals()
+  }
 })

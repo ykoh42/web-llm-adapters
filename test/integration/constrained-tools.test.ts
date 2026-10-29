@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { Message, TextBlock } from '@strands-agents/sdk'
 import { HumanMessage } from '@langchain/core/messages'
 import { createModels } from '@earendil-works/pi-ai/models'
@@ -22,6 +22,51 @@ const nativeTool = {
   type: 'function',
   function: { name: spec.name, description: spec.description, parameters },
 }
+
+it.each(
+  clients.flatMap((client) =>
+    ['Qwen3-0.6B-q4f16_1-MLC', 'gemma-4-E2B-it-q4f16_1-MLC'].map((modelId) => ({
+      client,
+      modelId,
+    })),
+  ),
+)('$client rejects constraints for $modelId before inference', async ({ client, modelId }) => {
+  const { engine, create } = setupEngine()
+  const completion = vi.spyOn(engine.completions, 'create')
+  const request = { constrainedToolCalls: true }
+  const error = 'Constrained tool calls are not verified'
+
+  if (client === 'strands') {
+    const model = new WebLLMModel({ engine, modelId, request })
+    await expect(
+      collect(
+        model.stream([new Message({ role: 'user', content: [new TextBlock('Find 001.')] })], {
+          toolSpecs: [spec],
+        }),
+      ),
+    ).rejects.toThrow(error)
+  } else if (client === 'langchain') {
+    const model = new ChatWebLLM({ engine, modelId, request }).bindTools([nativeTool])
+    await expect(model.invoke('Find 001.')).rejects.toThrow(error)
+  } else {
+    const provider = createWebLLMProvider({ engine, modelId, request, contextWindow: 8192 })
+    const registry = createModels()
+    registry.setProvider(provider)
+    const response = await registry.complete(
+      provider.getModels()[0]!,
+      normalizeContext({
+        messages: [{ role: 'user', content: 'Find 001.', timestamp: 0 }],
+        tools: [{ name: spec.name, description: spec.description, parameters }],
+      }),
+    )
+    expect(response).toMatchObject({
+      stopReason: 'error',
+      errorMessage: expect.stringContaining(error),
+    })
+  }
+  expect(create).not.toHaveBeenCalled()
+  expect(completion).not.toHaveBeenCalled()
+})
 
 for (const client of clients) {
   it.each(
@@ -277,7 +322,7 @@ it.each(clients)('%s constrains an object-or-null tool argument', async (client)
 })
 
 it.each(models)(
-  '%s honors framework required choices without changing tool instructions',
+  '%s sends the same required tool request from Strands and LangChain',
   async (modelId) => {
     const output = modelId.startsWith('Qwen3.5-')
       ? '<tool_call><function=lookup><parameter=code>001</parameter></function></tool_call>'
@@ -294,6 +339,9 @@ it.each(models)(
     const second = new ChatWebLLM({ engine, modelId, request })
     await second.bindTools([nativeTool], { tool_choice: 'required' }).invoke('Find 001.')
     expect(create.mock.calls[1]![0]).toEqual(create.mock.calls[0]![0])
+    expect(create.mock.calls[0]![0].messages[0]?.content).toContain(
+      'You must call at least one function.',
+    )
     expect(create.mock.calls[0]![0]).not.toHaveProperty('tool_choice')
     expect(create.mock.calls[0]![0].response_format).toMatchObject({
       structural_tag: { format: { type: 'sequence' } },

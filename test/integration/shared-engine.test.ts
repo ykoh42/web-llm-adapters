@@ -22,14 +22,17 @@ async function read(
   text: string,
   signal?: AbortSignal,
   onChunk?: () => void,
+  onStop?: (reason: string) => void,
 ) {
   let output = ''
   if (client === 'strands') {
     const model = new WebLLMModel({ engine, modelId: 'test-model', ...(onChunk && { onChunk }) })
     const messages = [new Message({ role: 'user', content: [new TextBlock(text)] })]
-    for await (const event of model.stream(messages, signal ? { cancelSignal: signal } : {}))
+    for await (const event of model.stream(messages, signal ? { cancelSignal: signal } : {})) {
       if (event.type === 'modelContentBlockDeltaEvent' && event.delta.type === 'textDelta')
         output += event.delta.text
+      if (event.type === 'modelMessageStopEvent') onStop?.(event.stopReason)
+    }
   } else if (client === 'langchain') {
     const model = new ChatWebLLM({ engine, modelId: 'test-model', ...(onChunk && { onChunk }) })
     for await (const chunk of model._streamResponseChunks(
@@ -71,6 +74,45 @@ function settle(pending: Promise<string>) {
 function turn() {
   return new Promise<void>((resolve) => setImmediate(resolve))
 }
+
+it('cancels a shared signal across independent engines and leaves each usable', async () => {
+  const controller = new AbortController()
+  const strandsStop = vi.fn()
+  const entries = clients.map((client) => {
+    const native = setupEngine(chunk({ content: 'recovered' }, 'stop'))
+    const opened = pause()
+    const hold = pause()
+    native.create.mockResolvedValueOnce(
+      (async function* () {
+        opened.resume()
+        yield chunk({ content: 'active' })
+        await hold.wait
+        yield chunk({}, 'stop')
+      })(),
+    )
+    native.stop.mockImplementation(async () => hold.resume())
+    return { client, ...native, opened, hold }
+  })
+  const active = entries.map(({ client, engine }) =>
+    settle(read(client, engine, 'active', controller.signal, undefined, strandsStop)),
+  )
+  try {
+    await Promise.all(entries.map(({ opened }) => opened.wait))
+    const reason = new Error('Cancel all calls')
+    controller.abort(reason)
+    const results = await Promise.all(active)
+    expect(results[0]).toMatchObject({ text: expect.any(String) })
+    expect(strandsStop).toHaveBeenCalledExactlyOnceWith('cancelled')
+    expect(results.slice(1)).toEqual([{ error: reason }, { error: reason }])
+    for (const { client, engine, stop } of entries) {
+      expect(stop).toHaveBeenCalledOnce()
+      expect(await read(client, engine, 'later')).toBe('recovered')
+    }
+  } finally {
+    for (const { hold } of entries) hold.resume()
+    await Promise.all(active)
+  }
+})
 
 for (const { client, other } of pairs) {
   it(`${client} leaves an independent ${other} engine free to run`, async () => {
@@ -278,6 +320,40 @@ for (const { client, other } of pairs) {
     } finally {
       opening.resume()
       hold.resume()
+      await Promise.all([active, waiting])
+    }
+  })
+
+  it(`${client} reserves the engine for a cancelled read before queued ${other} work starts`, async () => {
+    const { engine, create } = setupEngine(chunk({ content: 'recovered' }, 'stop'))
+    const reading = pause()
+    const release = pause()
+    create.mockResolvedValueOnce({
+      [Symbol.asyncIterator]: () => ({
+        next: async () => {
+          reading.resume()
+          await release.wait
+          return { done: false as const, value: chunk({ content: 'late' }, 'stop') }
+        },
+        return: async () => ({ done: true as const, value: undefined }),
+      }),
+    })
+    const controller = new AbortController()
+    const active = settle(read(client, engine, 'active', controller.signal))
+    const finished = vi.fn()
+    void active.then(finished)
+    await reading.wait
+    controller.abort(new Error('Stopped'))
+    const waiting = settle(read(other, engine, 'recovered'))
+    try {
+      await vi.waitFor(() => expect(finished).toHaveBeenCalledOnce())
+      expect(await active).not.toEqual({ text: 'late' })
+      expect(create).toHaveBeenCalledOnce()
+      release.resume()
+      expect(await waiting).toEqual({ text: 'recovered' })
+      expect(create).toHaveBeenCalledTimes(2)
+    } finally {
+      release.resume()
       await Promise.all([active, waiting])
     }
   })

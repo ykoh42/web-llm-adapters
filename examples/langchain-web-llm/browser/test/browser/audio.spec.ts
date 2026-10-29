@@ -8,7 +8,7 @@ import { BrowserChatWebLLM } from 'langchain-web-llm'
 import { test, expect } from '../../../fixtures/browser.js'
 
 test(
-  'Float32 PCM matches native WebLLM through local and browser LangChain models',
+  'PCM and WAV audio reach WebLLM through local and browser LangChain models',
   modelCheck('gemma-4-E2B-it-q4f16_1-MLC', 'audio'),
   async ({ page }) => {
     const modelId = 'gemma-4-E2B-it-q4f16_1-MLC'
@@ -19,9 +19,17 @@ test(
       { length: 16000 },
       (_, index) => 0.1 * Math.sin((2 * Math.PI * 440 * index) / 16000),
     )
-    const native = await page.evaluate(
-      async ({ prompt, samples, request, modelId }) => {
+    const local = await page.evaluate(
+      async ({ prompt, samples, request }) => {
         const engine = window.checks.engine()
+        window.audioRequests = []
+        const endpoint = engine.chat.completions
+        endpoint.create = new Proxy(endpoint.create, {
+          apply(target, self, args) {
+            window.audioRequests.push(structuredClone(args[0]))
+            return Reflect.apply(target, self, args)
+          },
+        })
         const messages = [
           {
             role: 'user' as const,
@@ -39,28 +47,28 @@ test(
           },
         ]
         await engine.resetChat()
-        let text = ''
-        let usage
-        for await (const chunk of await engine.chat.completions.create({
-          ...request,
-          model: modelId,
-          messages,
-          n: 1,
-          stream: true,
-          stream_options: { include_usage: true },
-        })) {
-          text += chunk.choices[0]?.delta.content ?? ''
-          usage = chunk.usage ?? usage
+        const result = await window.checks.model(false).invoke(messages, { request })
+        return {
+          text: result.text,
+          usage: result.usage_metadata,
+          native: await engine.getMessage(),
         }
-        await engine.resetChat()
-        const local = await window.checks.model(false).invoke(messages, { request })
-        return { text, usage, local: { text: local.text, usage: local.usage_metadata } }
       },
-      { prompt, samples: [...samples], request, modelId },
+      { prompt, samples: [...samples], request },
     )
 
     await page.evaluate(() => window.checks.engine().resetChat())
-    const model = new BrowserChatWebLLM(page, { modelId, request })
+    let native = ''
+    let usage: { prompt_tokens: number; completion_tokens: number } | undefined
+    const model = new BrowserChatWebLLM(page, {
+      modelId,
+      request,
+      onChunk: (chunk) => {
+        const choice = chunk.choices[0]
+        if (choice && 'delta' in choice) native += choice.delta.content ?? ''
+        if (chunk.usage) usage = chunk.usage
+      },
+    })
     const remote = await model.invoke([
       new HumanMessage({
         content: [
@@ -73,13 +81,69 @@ test(
       }),
     ])
 
-    expect(native.text.length).toBeGreaterThan(0)
-    expect(native.usage?.prompt_tokens).toBeGreaterThan(0)
-    for (const result of [native.local, { text: remote.text, usage: remote.usage_metadata }]) {
-      expect(result.text).toBe(native.text)
-      expect(result.usage?.input_tokens).toBe(native.usage?.prompt_tokens)
-      expect(result.usage?.output_tokens).toBe(native.usage?.completion_tokens)
-    }
+    expect(local.text).toBe(local.native)
+    expect(local.text.length).toBeGreaterThan(0)
+    expect(local.usage?.input_tokens).toBeGreaterThan(0)
+    expect(remote.text).toBe(native)
+    expect(usage?.prompt_tokens).toBeGreaterThan(0)
+    expect(remote.usage_metadata?.input_tokens).toBe(usage?.prompt_tokens)
+    expect(remote.usage_metadata?.output_tokens).toBe(usage?.completion_tokens)
+    const wav = await page.evaluate(() => {
+      const content = window.audioRequests[1]?.messages[0]?.content
+      if (!Array.isArray(content)) throw new Error('Expected audio content.')
+      const audio = content.find((part) => part.type === 'input_audio')
+      if (audio?.type !== 'input_audio' || audio.input_audio.format !== 'wav')
+        throw new Error('Expected WAV audio.')
+      return audio.input_audio.data
+    })
+    const url = 'DATA:audio/wav;base64,' + wav
+    const message = new HumanMessage({
+      content: [
+        { type: 'text', text: prompt },
+        { type: 'audio', url },
+      ],
+    })
+    await page.evaluate(() => window.checks.engine().resetChat())
+    await model.invoke([message], { request: { ...request, max_tokens: 1 } })
+    expect(message.content).toEqual([
+      { type: 'text', text: prompt },
+      { type: 'audio', url },
+    ])
+    const inputs = await page.evaluate(() =>
+      window.audioRequests.map((request) => {
+        const content = request.messages[0]?.content
+        if (!Array.isArray(content)) throw new Error('Expected audio content.')
+        const part = content.find((part) => part.type === 'input_audio')
+        if (part?.type !== 'input_audio') throw new Error('Expected an audio input.')
+        if (part.input_audio.format === 'wav') {
+          const encoded = part.input_audio.data.replace(
+            /^data:audio\/(?:wav|wave|x-wav);base64,/i,
+            '',
+          )
+          const bytes = Uint8Array.from(atob(encoded), (value) => value.charCodeAt(0))
+          const view = new DataView(bytes.buffer)
+          if (view.getUint16(20, true) !== 3 || view.getUint16(22, true) !== 1)
+            throw new Error('Expected mono Float32 WAV.')
+          return {
+            format: 'wav',
+            sampleRate: view.getUint32(24, true),
+            samples: Array.from({ length: view.getUint32(52, true) / 4 }, (_, index) =>
+              view.getFloat32(56 + index * 4, true),
+            ),
+          }
+        }
+        return {
+          format: part.input_audio.format,
+          sampleRate: part.input_audio.sample_rate,
+          samples: Array.from(part.input_audio.data),
+        }
+      }),
+    )
+    expect(inputs).toEqual([
+      { format: 'pcm_f32', sampleRate: 16000, samples: [...samples] },
+      { format: 'wav', sampleRate: 16000, samples: [...samples] },
+      { format: 'wav', sampleRate: 16000, samples: [...samples] },
+    ])
   },
 )
 
@@ -146,6 +210,7 @@ test('Hermes keeps unsupported tool audio out of its next native request', async
 
 declare global {
   interface Window {
+    audioRequests: ChatCompletionRequestStreaming[]
     hermesAudioRequests: ChatCompletionRequestStreaming[]
   }
 }

@@ -55,6 +55,17 @@ export class WebLLMModel extends WebLLMModelBase {
     let responseId: string | undefined
     let responseModel: string | undefined
     let responseCreated: number | undefined
+    function finishEvent(event: Extract<ModelStreamEvent, { type: 'modelMessageStopEvent' }>) {
+      const additionalModelResponseFields: JSONValue = {
+        ...(responseId !== undefined && { id: responseId }),
+        ...(responseModel !== undefined && { model: responseModel }),
+        ...(responseCreated !== undefined && { created: responseCreated }),
+        ...(logprobs && { logprobs: jsonLogprobs(logprobs) }),
+      }
+      return Object.keys(additionalModelResponseFields).length
+        ? { ...event, additionalModelResponseFields }
+        : event
+    }
     try {
       validateToolNames(options.toolSpecs ?? [])
       const onChunk = (chunk: WebLLMChunk) => {
@@ -78,15 +89,7 @@ export class WebLLMModel extends WebLLMModelBase {
           yield event
           continue
         }
-        const additionalModelResponseFields: JSONValue = {
-          ...(responseId !== undefined && { id: responseId }),
-          ...(responseModel !== undefined && { model: responseModel }),
-          ...(responseCreated !== undefined && { created: responseCreated }),
-          ...(logprobs && { logprobs: jsonLogprobs(logprobs) }),
-        }
-        yield Object.keys(additionalModelResponseFields).length
-          ? { ...event, additionalModelResponseFields }
-          : event
+        yield finishEvent(event)
       }
     } catch (error) {
       if (signal?.aborted) throw error

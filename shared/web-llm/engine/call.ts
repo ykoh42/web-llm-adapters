@@ -1,5 +1,7 @@
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
 import { takeTurn } from './queue.js'
+import { waitForCallback } from '../callback.js'
+import { trackCleanup } from './cleanup.js'
 
 /** Own the native stream until it closes, even if a caller abandons its iterator on abort. */
 export async function startCall<T>(
@@ -20,6 +22,7 @@ export async function startCall<T>(
     })
     .then((chunks) => chunks[Symbol.asyncIterator]())
   let closing: Promise<void> | undefined
+  let reading: Promise<IteratorResult<T>> | undefined
   function close(interrupt: boolean) {
     closing ??= (async () => {
       try {
@@ -30,6 +33,7 @@ export async function startCall<T>(
           })(),
           source.then((iterator) => iterator.return?.()),
         ])
+        if (reading) results.push(...(await Promise.allSettled([reading])))
         for (const result of results) {
           if (result.status === 'rejected') throw result.reason
         }
@@ -42,16 +46,20 @@ export async function startCall<T>(
   }
   function cancel() {
     // close() keeps the rejection for a consuming caller. An abandoned iterator has no caller.
-    void close(true).catch(() => {})
+    const cleanup = close(true)
+    if (signal) trackCleanup(signal, cleanup)
+    void cleanup.catch(() => {})
   }
   signal?.addEventListener('abort', cancel, { once: true })
   if (signal?.aborted) cancel()
   try {
-    const iterator = await source
+    const iterator = await waitForCallback(source, signal)
     signal?.throwIfAborted()
     async function* chunks() {
       while (true) {
-        const result = await iterator.next()
+        reading = iterator.next()
+        const result = signal ? await waitForCallback(reading, signal) : await reading
+        reading = undefined
         if (result.done) {
           await close(false)
           return
@@ -61,7 +69,8 @@ export async function startCall<T>(
     }
     return { chunks: chunks(), close }
   } catch (error) {
-    await close(false).catch(() => {})
+    if (signal?.aborted) void close(false).catch(() => {})
+    else await close(false).catch(() => {})
     throw error
   }
 }
@@ -83,7 +92,8 @@ export async function* streamCall<T, R>(
     failed = true
     throw error
   } finally {
-    if (failed) await call.close(true).catch(() => {})
+    if (signal?.aborted) void call.close(true).catch(() => {})
+    else if (failed) await call.close(true).catch(() => {})
     else await call.close(!done)
   }
 }

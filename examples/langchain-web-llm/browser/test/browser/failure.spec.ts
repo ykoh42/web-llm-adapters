@@ -3,6 +3,38 @@ import { test, expect } from '../../../fixtures/browser.js'
 import { sampling } from '../../../sampling.js'
 import { breakToolStream, expectedOutput } from '../../../../../test/support/stream-failure.js'
 
+test('browser preserves a provider error status and can use the engine again', async ({ page }) => {
+  const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
+  await page.evaluate((id) => window.checks.load(id), modelId)
+  await page.evaluate(() => {
+    const state = window as typeof window & { errorAttempts: number }
+    state.errorAttempts = 0
+    const engine = window.checks.engine()
+    for (const endpoint of [engine.chat.completions, engine.completions]) {
+      endpoint.create = new Proxy(endpoint.create, {
+        apply(target, self, args) {
+          if (++state.errorAttempts === 1)
+            return Promise.reject({ message: 'Invalid request', status: 400 })
+          return Reflect.apply(target, self, args)
+        },
+      })
+    }
+  })
+  const model = new BrowserChatWebLLM(page, {
+    modelId,
+    maxRetries: 1,
+    request: { ...sampling(modelId, false), max_tokens: 128 },
+  })
+  await expect(model.invoke('Hello')).rejects.toMatchObject({
+    message: 'Invalid request',
+    status: 400,
+  })
+  expect(
+    await page.evaluate(() => (window as typeof window & { errorAttempts: number }).errorAttempts),
+  ).toBe(1)
+  expect((await model.invoke('What is 3 + 3? Reply briefly.')).text).toContain('6')
+})
+
 for (const modelId of [
   'Qwen3.5-4B-q4f16_1-MLC',
   'Qwen3-4B-q4f16_1-MLC',

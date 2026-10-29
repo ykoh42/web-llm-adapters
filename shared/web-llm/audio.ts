@@ -1,3 +1,5 @@
+import { isFloat32Array } from './typed-array.js'
+
 const littleEndian = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1
 // Match WebLLM's WAV and PCM input limit.
 const maxSampleRate = 384_000
@@ -10,6 +12,7 @@ export function checkSampleRate(sampleRate: number) {
 /** Encode mono Float32 PCM as WAV without changing samples or sample rate. */
 export function pcmWav(samples: Float32Array, sampleRate: number): Uint8Array {
   checkSampleRate(sampleRate)
+  if (!isFloat32Array(samples)) throw new TypeError('Audio samples must be a Float32Array.')
   const count = samples.length
   if (!count) throw new RangeError('Audio must contain finite samples.')
   for (let index = 0; index < count; index++) {

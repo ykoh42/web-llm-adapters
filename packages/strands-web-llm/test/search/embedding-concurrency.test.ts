@@ -6,6 +6,37 @@ import { pause } from '../../fixtures/engine.js'
 const encoder = new TextEncoder()
 
 describe('WebLLMEmbeddingSearchStrategy', () => {
+  it('keeps an old in-flight index out of the cleared cache', async () => {
+    const storage = new InMemoryStorage()
+    const data = encoder.encode('note')
+    await storage.write('note', data)
+    const hold = pause()
+    let first = true
+    const embed = vi.fn<EmbedTexts>(async (texts, type) => {
+      if (type === 'document' && first) {
+        first = false
+        await hold.wait
+        return texts.map(() => [1, 0])
+      }
+      return texts.map(() => [0, 1])
+    })
+    const strategy = new WebLLMEmbeddingSearchStrategy({ embed, includeData: false })
+    const indexing = strategy.index(storage, 'note', data)
+
+    try {
+      await vi.waitFor(() => expect(embed).toHaveBeenCalledOnce())
+      strategy.clearCache()
+      const search = strategy.search(storage, 'query')
+      hold.resume()
+      await indexing
+      expect(await search).toEqual([{ key: 'note', score: 1 }])
+      expect(embed.mock.calls.filter(([, type]) => type === 'document')).toHaveLength(2)
+    } finally {
+      hold.resume()
+      await indexing
+    }
+  })
+
   it('finishes open reads before reporting a failure and can search again', async () => {
     const storage = new InMemoryStorage()
     await storage.write('bad', encoder.encode('bad note'))

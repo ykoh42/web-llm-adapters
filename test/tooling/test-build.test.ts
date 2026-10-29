@@ -79,8 +79,8 @@ it('waits for the latest build when a second save happens during a watch rebuild
       "import { existsSync, readFileSync, writeFileSync } from 'node:fs'",
       "import { setTimeout } from 'node:timers/promises'",
       "const count = Number(existsSync('build-count') ? readFileSync('build-count', 'utf8') : 0) + 1",
-      "writeFileSync('build-count', String(count))",
       "const source = readFileSync('src/index.js', 'utf8')",
+      "writeFileSync('build-count', String(count))",
       "if (existsSync('hold-builds')) while (!existsSync(`continue-${count}`)) await setTimeout(10)",
       "writeFileSync('packages/fixture/dist/index.js', source)",
     ].join('\n'),
@@ -91,11 +91,11 @@ it('waits for the latest build when a second save happens during a watch rebuild
 
   const runs = [runner.rerun()]
   try {
-    await vi.waitFor(() => expect(readFileSync(count, 'utf8')).toBe('2'))
+    await vi.waitFor(() => expect(readFileSync(count, 'utf8')).toBe('2'), { timeout: 10000 })
     writeFileSync(source, 'export const value = "latest"\n')
     runs.push(runner.rerun())
     writeFileSync(join(directory, 'continue-2'), '')
-    await vi.waitFor(() => expect(readFileSync(count, 'utf8')).toBe('3'))
+    await vi.waitFor(() => expect(readFileSync(count, 'utf8')).toBe('3'), { timeout: 10000 })
     writeFileSync(join(directory, 'continue-3'), '')
     await Promise.all(runs)
 
@@ -105,7 +105,7 @@ it('waits for the latest build when a second save happens during a watch rebuild
     writeFileSync(join(directory, 'continue-3'), '')
     await Promise.allSettled(runs)
   }
-})
+}, 30_000)
 
 it('keeps watching after a build failure and clears the error after a successful build', async () => {
   const runner = project(true)

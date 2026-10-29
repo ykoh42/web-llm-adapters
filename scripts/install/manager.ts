@@ -9,6 +9,7 @@ interface Consumer {
   archive: string
   dependencies: string[]
   source: string
+  commonJS: string
 }
 
 /** Exercise the packed package outside the repository with each consumer layout. */
@@ -19,6 +20,7 @@ export async function checkManagerInstall({
   archive,
   dependencies,
   source,
+  commonJS,
 }: Consumer): Promise<void> {
   const consumer = join(directory, 'consumer')
   await mkdir(consumer)
@@ -51,6 +53,7 @@ export async function checkManagerInstall({
       packageManager,
       scripts: {
         smoke: 'node consumer.ts',
+        commonjs: 'node commonjs.cjs',
         assets: `node assets.ts ${name} ${manager}`,
         types: `node check-types.ts ${name}`,
         build: 'vite build',
@@ -59,6 +62,7 @@ export async function checkManagerInstall({
     }),
   )
   await writeFile(join(consumer, 'consumer.ts'), source)
+  await writeFile(join(consumer, 'commonjs.cjs'), commonJS)
   await copyFile(new URL('./assets.ts', import.meta.url), join(consumer, 'assets.ts'))
   await writeFile(
     join(consumer, 'check-types.ts'),
@@ -103,7 +107,7 @@ Object.assign(globalThis, { adapter, engine: new MLCEngine(), wasm, manifest })
   // Adding dependencies creates the fresh lockfile; the next install must preserve it.
   execute(['add', '-D', '-E', 'typescript@5.9.3', '@types/node@26.6.5', 'vite@8.3.5'])
   execute(['install', yarn ? '--immutable' : '--frozen-lockfile'])
-  for (const script of ['smoke', 'assets', 'types', 'build']) execute(['run', script])
+  for (const script of ['smoke', 'commonjs', 'assets', 'types', 'build']) execute(['run', script])
   console.log(
     `${name}: ${manager} ${version} install, API, assets, types, and browser build passed.`,
   )

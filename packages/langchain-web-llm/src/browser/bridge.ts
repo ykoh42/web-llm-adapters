@@ -13,6 +13,7 @@ import { browserCalls, type BrowserCall } from '../../../../shared/browser/calls
 import { markChunkCallbackNonMutating } from '../../../../shared/web-llm/callback.js'
 import { failedAttempts, type FailedAttempt } from './failed-attempts.js'
 import { serializeBrowserError, type BrowserError } from './errors.js'
+import { negativeZeros } from './tool-calls.js'
 
 /** Serve a caller-owned engine on a private browser page. Closing does not unload it. */
 export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
@@ -72,6 +73,7 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
           if (!AIMessageChunk.isInstance(chunk.message))
             throw new Error('WebLLM returned a non-AI chunk.')
           const message = chunk.message as AIMessageChunk<StandardMessageStructure>
+          const zeros = message.tool_calls?.length ? negativeZeros(message.tool_calls) : []
           yield {
             text: chunk.text,
             message: {
@@ -82,6 +84,10 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
               ...(message.usage_metadata && { usage_metadata: message.usage_metadata }),
               response_metadata: message.response_metadata,
             },
+            ...(message.tool_calls?.length && {
+              toolCallsJSON: JSON.stringify(message.tool_calls),
+            }),
+            ...(zeros.length && { toolCallNegativeZeros: zeros }),
             ...(chunk.generationInfo && { generationInfo: chunk.generationInfo }),
           }
         }
@@ -102,10 +108,10 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
       try {
         if (!call) throw new Error('Unknown browser call.')
         const result = await active.read(call)
-        if (result.done) calls.delete(id)
+        if (result.done && !call.closing) calls.delete(id)
         return result
       } catch (error) {
-        calls.delete(id)
+        if (!call?.closing) calls.delete(id)
         const chunks = call?.takeChunks?.()
         const packet = {
           error: serializeBrowserError(error),

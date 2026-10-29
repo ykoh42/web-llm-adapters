@@ -3,10 +3,13 @@ import type { ChatGenerationChunk } from '@langchain/core/outputs'
 import type { ChatModelStreamEvent, FinishReason } from '@langchain/core/language_models/event'
 import { parseJSON } from '../../../../shared/web-llm/json.js'
 
+type ToolChunk = NonNullable<AIMessageChunk['tool_call_chunks']>[number]
+type ToolBlock = { type: 'tool_call_chunk'; id?: string; name: string; args: string }
+
 type EventBlock =
   | { type: 'text'; text: string }
   | { type: 'reasoning'; reasoning: string }
-  | { type: 'tool_call_chunk'; id?: string; name: string; args: string }
+  | ToolBlock
   | { type: 'tool_call'; id?: string; name: string; args: unknown }
   | { type: 'invalid_tool_call'; name: string; args: string }
 
@@ -40,6 +43,37 @@ export async function* readEvents(
     return mapped
   }
 
+  function toolBlockIndex(id: string | undefined, index: string | undefined): number {
+    return (
+      (id ? toolBlocks.get(id) : undefined) ??
+      (index ? toolBlocks.get(index) : undefined) ??
+      nextBlockIndex()
+    )
+  }
+
+  function updateToolBlock(toolChunk: ToolChunk) {
+    const idKey = toolChunk.id ? `id:${toolChunk.id}` : undefined
+    const indexKey = toolChunk.index !== undefined ? `index:${toolChunk.index}` : undefined
+    if (!idKey && !indexKey) throw new Error('WebLLM returned a tool call without an index or ID.')
+    const blockIndex = toolBlockIndex(idKey, indexKey)
+    let block = blocks.get(blockIndex)
+    const isNew = !block
+    if (!block) {
+      block = { type: 'tool_call_chunk', name: '', args: '' }
+      blocks.set(blockIndex, block)
+    }
+    if (idKey) toolBlocks.set(idKey, blockIndex)
+    if (indexKey) toolBlocks.set(indexKey, blockIndex)
+    if (block.type !== 'tool_call_chunk')
+      throw new Error(`WebLLM reused tool call ${idKey ?? indexKey} for another block.`)
+    if (toolChunk.id && block.id && toolChunk.id !== block.id)
+      throw new Error('WebLLM changed a tool call ID.')
+    if (toolChunk.id && !block.id) block.id = toolChunk.id
+    if (toolChunk.name) block.name = toolChunk.name
+    if (toolChunk.args) block.args += toolChunk.args
+    return { blockIndex, block, isNew }
+  }
+
   for await (const chunk of chunks) {
     signal?.throwIfAborted()
     const message = chunk.message
@@ -68,6 +102,7 @@ export async function* readEvents(
           typeof part.reasoning === 'string' &&
           part.reasoning
         ) {
+          lastTextIndex = undefined
           yield* appendContent(
             blocks,
             contentBlockIndex(part.index),
@@ -79,58 +114,16 @@ export async function* readEvents(
       }
     }
 
+    if (message.tool_call_chunks?.length) lastTextIndex = undefined
     for (const toolChunk of message.tool_call_chunks ?? []) {
-      const idKey = toolChunk.id ? `id:${toolChunk.id}` : undefined
-      const indexKey = toolChunk.index !== undefined ? `index:${toolChunk.index}` : undefined
-      if (!idKey && !indexKey)
-        throw new Error('WebLLM returned a tool call without an index or ID.')
-      let blockIndex = idKey ? toolBlocks.get(idKey) : undefined
-      blockIndex ??= indexKey ? toolBlocks.get(indexKey) : undefined
-      let block = blockIndex === undefined ? undefined : blocks.get(blockIndex)
-      const isNew = !block
-      if (!block) {
-        blockIndex = nextBlockIndex()
-        block = { type: 'tool_call_chunk', name: '', args: '' }
-        blocks.set(blockIndex, block)
-      }
-      if (blockIndex === undefined) throw new Error('WebLLM returned a tool call without an index.')
-      if (idKey) toolBlocks.set(idKey, blockIndex)
-      if (indexKey) toolBlocks.set(indexKey, blockIndex)
-      if (block.type !== 'tool_call_chunk')
-        throw new Error(`WebLLM reused tool call ${idKey ?? indexKey} for another block.`)
-      if (toolChunk.id && block.id && toolChunk.id !== block.id)
-        throw new Error('WebLLM changed a tool call ID.')
-      if (toolChunk.id && !block.id) block.id = toolChunk.id
-      if (toolChunk.name) block.name = toolChunk.name
-      if (toolChunk.args) block.args += toolChunk.args
+      const { blockIndex, block, isNew } = updateToolBlock(toolChunk)
 
       if (isNew) {
-        yield {
-          event: 'content-block-start',
-          index: blockIndex,
-          content: {
-            type: 'tool_call_chunk',
-            ...(block.id && { id: block.id }),
-            ...(block.name && { name: block.name }),
-            index: blockIndex,
-          },
-        }
+        yield toolStartEvent(blockIndex, block)
         signal?.throwIfAborted()
       }
       if ((!isNew && toolChunk.name) || toolChunk.args || toolChunk.id) {
-        yield {
-          event: 'content-block-delta',
-          index: blockIndex,
-          delta: {
-            type: 'block-delta',
-            fields: {
-              type: 'tool_call_chunk',
-              ...(!isNew && toolChunk.name && { name: block.name }),
-              ...(toolChunk.args && { args: block.args }),
-              ...(toolChunk.id && { id: block.id }),
-            },
-          },
-        }
+        yield toolDeltaEvent(blockIndex, block, isNew, toolChunk)
         signal?.throwIfAborted()
       }
     }
@@ -159,6 +152,35 @@ export async function* readEvents(
     ...(usage && { usage }),
     responseMetadata,
   }
+}
+
+function toolStartEvent(index: number, block: ToolBlock) {
+  return {
+    event: 'content-block-start',
+    index,
+    content: {
+      type: 'tool_call_chunk',
+      ...(block.id && { id: block.id }),
+      ...(block.name && { name: block.name }),
+      index,
+    },
+  } as const
+}
+
+function toolDeltaEvent(index: number, block: ToolBlock, isNew: boolean, toolChunk: ToolChunk) {
+  return {
+    event: 'content-block-delta',
+    index,
+    delta: {
+      type: 'block-delta',
+      fields: {
+        type: 'tool_call_chunk',
+        ...(!isNew && toolChunk.name && { name: block.name }),
+        ...(toolChunk.args && { args: block.args }),
+        ...(toolChunk.id && { id: block.id }),
+      },
+    },
+  } as const
 }
 
 function finishBlock(block: EventBlock, reason: FinishReason): EventBlock {

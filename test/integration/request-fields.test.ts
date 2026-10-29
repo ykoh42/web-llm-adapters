@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { Message, TextBlock } from '@strands-agents/sdk'
+import type { ChatCompletionRequestBase } from '@mlc-ai/web-llm'
 import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
 import {
   BrowserChatWebLLM,
@@ -29,6 +30,75 @@ const fields = [
 const clients = ['langchain', 'langchain-browser', 'pi', 'strands', 'strands-browser'] as const
 
 afterEach(() => vi.unstubAllGlobals())
+
+it.each(clients.flatMap((client) => [false, true].map((zero) => ({ client, zero }))))(
+  '$client forwards native generation options (zero values: $zero)',
+  async ({ client, zero }) => {
+    const { engine, create } = setupEngine(chunk({ content: 'Done' }, 'stop'))
+    const bridge = createBrowserBridge(engine)
+    const strandsBridge = createStrandsBridge(engine)
+    vi.stubGlobal('window', { webllmLangChainBridge: bridge, webllmBridge: strandsBridge })
+    const page: BrowserPage = {
+      async evaluate(run, arg) {
+        const result = await run(structuredClone(arg))
+        return result === undefined ? result : JSON.parse(JSON.stringify(result))
+      },
+    }
+    const request = {
+      frequency_penalty: zero ? 0 : 0.1,
+      presence_penalty: zero ? 0 : 0.2,
+      repetition_penalty: 1.1,
+      max_tokens: 64,
+      stop: ['done'],
+      temperature: zero ? 0 : 0.4,
+      top_p: 0.9,
+      logit_bias: { '7': -2 },
+      logprobs: !zero,
+      top_logprobs: zero ? null : 2,
+      seed: zero ? 0 : 7,
+      response_format: { type: 'json_object' },
+      ignore_eos: false,
+      stream_options: { include_usage: false },
+      extra_body: { enable_thinking: zero ? false : null, enable_latency_breakdown: !zero },
+    } satisfies Required<
+      Omit<
+        ChatCompletionRequestBase,
+        'messages' | 'model' | 'stream' | 'tools' | 'tool_choice' | 'n'
+      >
+    >
+    const options = { modelId: 'test-model', request }
+    try {
+      if (client === 'pi') {
+        const provider = createWebLLMProvider({ engine, contextWindow: 8192, ...options })
+        const result = await provider
+          .stream(
+            provider.getModels()[0]!,
+            normalizeContext({ messages: [{ role: 'user', content: 'Hello', timestamp: 0 }] }),
+          )
+          .result()
+        expect(result.stopReason).toBe('stop')
+      } else if (client === 'strands' || client === 'strands-browser') {
+        const model =
+          client === 'strands'
+            ? new WebLLMModel({ engine, ...options })
+            : new BrowserModel(page, options)
+        await collect(
+          model.stream([new Message({ role: 'user', content: [new TextBlock('Hello')] })]),
+        )
+      } else {
+        const model =
+          client === 'langchain'
+            ? new ChatWebLLM({ engine, ...options })
+            : new BrowserChatWebLLM(page, options)
+        expect((await model.invoke('Hello')).text).toBe('Done')
+      }
+      expect(create).toHaveBeenCalledOnce()
+      expect(create.mock.calls[0]?.[0]).toMatchObject(request)
+    } finally {
+      await Promise.all([bridge.close(), strandsBridge.close()])
+    }
+  },
+)
 
 for (const client of clients) {
   it.each(fields.flatMap((field) => ['defaults', 'call'].map((scope) => ({ ...field, scope }))))(

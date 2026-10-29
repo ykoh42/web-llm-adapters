@@ -14,6 +14,7 @@ import { WebLLMModel } from '../../packages/strands-web-llm/src/index.js'
 import { ChatWebLLM } from '../../packages/langchain-web-llm/src/index.js'
 import { createWebLLMProvider } from '../../packages/pi-ai-web-llm/src/index.js'
 import { chunk, collect, setupEngine } from '../../fixtures/web-llm.js'
+import { hasToolResult } from '../support/native-output.js'
 
 const ids = [
   'Qwen3.5-9B-q4f16_1-MLC',
@@ -214,9 +215,11 @@ describe('shared model protocols', () => {
     if (modelId.startsWith('gemma-')) {
       expect(raw.mock.calls[1]?.[0]).toEqual(raw.mock.calls[0]?.[0])
       expect(raw.mock.calls[2]?.[0]).toEqual(raw.mock.calls[0]?.[0])
+      for (const [request] of raw.mock.calls) expect(hasToolResult([request], '42')).toBe(true)
     } else {
       expect(create.mock.calls[1]?.[0]).toEqual(create.mock.calls[0]?.[0])
       expect(create.mock.calls[2]?.[0]).toEqual(create.mock.calls[0]?.[0])
+      for (const [request] of create.mock.calls) expect(hasToolResult([request], '42')).toBe(true)
     }
   })
 })

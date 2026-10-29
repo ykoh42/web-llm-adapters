@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Reject Qwen and Gemma tool settings, and Gemma thinking, added through `onPayload`.
+- Remove WebLLM's empty thinking prefix from Qwen2.5 answers.
+- Preserve literal Qwen thinking tags in answers when thinking is disabled.
+- Cancel requests promptly while WebLLM opens or streams a response.
+- Return promptly when closing a cancelled stream; keep the engine reserved for cleanup.
+- Preserve negative zero in tool calls and conversation history.
+- Honor timeouts and cancellation without `AbortSignal.any()`.
+- Support `require()` in Node.js CommonJS.
 - Allow a tool-call ID to be reused after its earlier call has a result.
 - Reject edits to generated Qwen tool constraints made by `onPayload`.
 - Stop requests cancelled during payload preparation before opening WebLLM.

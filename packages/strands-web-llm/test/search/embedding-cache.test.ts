@@ -367,6 +367,33 @@ describe('WebLLMEmbeddingSearchStrategy', () => {
     expect(embed.mock.calls.filter(([, type]) => type === 'document')).toHaveLength(2)
   })
 
+  it('rebuilds cached vectors after changing to a model with the same dimensions', async () => {
+    let changed = false
+    const embed = vi.fn<EmbedTexts>(async (texts, type) =>
+      texts.map((text) => {
+        if (type === 'query') return [1, 0]
+        return (text === 'apple') !== changed ? [1, 0] : [0, 1]
+      }),
+    )
+    const strategy = new WebLLMEmbeddingSearchStrategy({ embed, includeData: false })
+    const storage = new InMemoryStorage({ searchStrategy: strategy })
+    const other = new InMemoryStorage({ searchStrategy: strategy })
+    await storage.write('a', encoder.encode('apple'))
+    await storage.write('b', encoder.encode('bread'))
+    await other.write('c', encoder.encode('apple'))
+    expect(await storage.search('query')).toEqual([{ key: 'a', score: 1 }])
+    expect(await other.search('query')).toEqual([{ key: 'c', score: 1 }])
+
+    changed = true
+    strategy.clearCache()
+
+    expect(await storage.search('query')).toEqual([{ key: 'b', score: 1 }])
+    expect(await other.search('query')).toEqual([])
+    expect(
+      embed.mock.calls.filter(([, type]) => type === 'document').map(([texts]) => texts),
+    ).toEqual([['apple'], ['bread'], ['apple'], ['apple', 'bread'], ['apple']])
+  })
+
   it('refreshes an indexed document whose dimension differs from the query', async () => {
     const storage = new InMemoryStorage()
     const text = encoder.encode('apple')

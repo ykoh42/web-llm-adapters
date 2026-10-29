@@ -1,3 +1,4 @@
+import { runInNewContext } from 'node:vm'
 import { afterEach, expect, it, vi } from 'vitest'
 import {
   Agent,
@@ -5,6 +6,7 @@ import {
   CachePointBlock,
   ContextWindowOverflowError,
   GuardContentBlock,
+  ImageBlock,
   Message,
   ModelError,
   TextBlock,
@@ -22,6 +24,141 @@ import { chunk, chunks, collect, pause, setup } from '../../fixtures/engine.js'
 
 afterEach(() => vi.unstubAllGlobals())
 const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+
+it.each(['image', 'audio', 'tool image'] as const)(
+  'rejects transferred %s bytes before sending a browser request',
+  async (kind) => {
+    const { model, page, bridge, create } = open()
+    const evaluate = vi.spyOn(page, 'evaluate')
+    const bytes = new Uint8Array([1, 2, 3])
+    const image = new ImageBlock({ format: 'png', source: { bytes } })
+    const content =
+      kind === 'audio'
+        ? [new AudioBlock({ format: 'wav', source: { bytes } })]
+        : kind === 'tool image'
+          ? [new ToolResultBlock({ toolUseId: 'call', status: 'success', content: [image] })]
+          : [image]
+    const message = new Message({ role: 'user', content })
+    structuredClone(bytes, { transfer: [bytes.buffer] })
+    try {
+      await expect(collect(model.stream([message]))).rejects.toThrow(TypeError)
+      expect(evaluate).not.toHaveBeenCalled()
+      expect(create).not.toHaveBeenCalled()
+    } finally {
+      await bridge.close()
+    }
+  },
+)
+
+it('preserves image bytes across the browser boundary', async () => {
+  const { model, bridge, create } = open()
+  const message = new Message({
+    role: 'user',
+    content: [new ImageBlock({ format: 'png', source: { bytes: new Uint8Array([1, 2, 3]) } })],
+  })
+  try {
+    await collect(model.stream([message]))
+    expect(create.mock.calls[0]?.[0].messages[0]?.content).toEqual([
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,AQID' } },
+    ])
+  } finally {
+    await bridge.close()
+  }
+})
+
+it.each(['image', 'audio'] as const)(
+  'preserves %s bytes from another realm across the browser boundary',
+  async (kind) => {
+    const { model, bridge, create } = open()
+    const bytes = runInNewContext('new Uint8Array([0, 1, 2, 3, 4]).subarray(1, 4)') as Uint8Array
+    const block =
+      kind === 'image'
+        ? new ImageBlock({ format: 'png', source: { bytes } })
+        : new AudioBlock({ format: 'wav', source: { bytes } })
+    const message = new Message({ role: 'user', content: [block] })
+    try {
+      await collect(model.stream([message]))
+      expect(create.mock.calls[0]?.[0].messages[0]?.content).toEqual([
+        kind === 'image'
+          ? { type: 'image_url', image_url: { url: 'data:image/png;base64,AQID' } }
+          : { type: 'input_audio', input_audio: { format: 'wav', data: 'AQID' } },
+      ])
+    } finally {
+      await bridge.close()
+    }
+  },
+)
+
+it('preserves a tool image from another realm across the browser boundary', async () => {
+  const { model, bridge, create } = open()
+  const bytes = runInNewContext('new Uint8Array([0, 1, 2, 3, 4]).subarray(1, 4)') as Uint8Array
+  const result = new ToolResultBlock({
+    toolUseId: 'call',
+    status: 'success',
+    content: [new ImageBlock({ format: 'png', source: { bytes } })],
+  })
+  try {
+    await collect(model.stream([new Message({ role: 'user', content: [result] })]))
+    expect(create.mock.calls[0]?.[0].messages[1]?.content).toEqual([
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,AQID' } },
+    ])
+  } finally {
+    await bridge.close()
+  }
+})
+
+it('respects custom image serialization for bytes from another realm', async () => {
+  class CustomImage extends ImageBlock {
+    override toJSON() {
+      return { image: { format: 'png' as const, source: { bytes: 'BAUG' } } }
+    }
+  }
+  const { model, bridge, create } = open()
+  const bytes = runInNewContext('new Uint8Array([1, 2, 3])') as Uint8Array
+  const image = new CustomImage({ format: 'png', source: { bytes } })
+  try {
+    await collect(model.stream([new Message({ role: 'user', content: [image] })]))
+    expect(create.mock.calls[0]?.[0].messages[0]?.content).toEqual([
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,BAUG' } },
+    ])
+  } finally {
+    await bridge.close()
+  }
+})
+
+it('respects custom message serialization for bytes from another realm', async () => {
+  class CustomMessage extends Message {
+    override toJSON() {
+      return new Message({ role: 'user', content: [new TextBlock('Custom')] }).toJSON()
+    }
+  }
+  const { model, bridge, create } = open()
+  const bytes = runInNewContext('new Uint8Array([1, 2, 3])') as Uint8Array
+  const message = new CustomMessage({
+    role: 'user',
+    content: [new ImageBlock({ format: 'png', source: { bytes } })],
+  })
+  try {
+    await collect(model.stream([message]))
+    expect(create.mock.calls[0]?.[0].messages[0]?.content).toBe('Custom')
+  } finally {
+    await bridge.close()
+  }
+})
+
+it('preserves an error-like cancellation across the browser bridge', async () => {
+  const { model, bridge, create } = open()
+  create.mockRejectedValueOnce({ name: 'AbortError', message: 'Generation interrupted.' })
+
+  try {
+    await expect(collect(model.stream(messages))).rejects.toMatchObject({
+      name: 'AbortError',
+      message: 'Generation interrupted.',
+    })
+  } finally {
+    await bridge.close()
+  }
+})
 
 it('delivers native tool chunks while the model is still generating arguments', async () => {
   const { page, bridge, create } = open()
@@ -710,6 +847,114 @@ it('stops an abandoned browser iterator on abort and releases the shared engine'
   await first.return(undefined)
 })
 
+it('cancels while the browser start response is pending', async () => {
+  const { page, bridge, create } = open()
+  const started = pause()
+  const release = pause()
+  const stop = vi.spyOn(bridge, 'stop')
+  let first = true
+  const delayed: BrowserPage = {
+    async evaluate(run, arg) {
+      const value = await page.evaluate(run, arg)
+      if (first) {
+        first = false
+        started.resume()
+        await release.wait
+      }
+      return value
+    },
+  }
+  const model = new BrowserModel(delayed, { modelId: 'test-model' })
+  const controller = new AbortController()
+  const pending = model.stream(messages, { cancelSignal: controller.signal }).next()
+  const failed = vi.fn()
+  void pending.catch(failed)
+  try {
+    await started.wait
+    controller.abort()
+    await vi.waitFor(() => expect(failed).toHaveBeenCalledWith(controller.signal.reason))
+    release.resume()
+    await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce())
+    expect(create).not.toHaveBeenCalled()
+  } finally {
+    release.resume()
+    await pending.catch(() => {})
+    await bridge.close()
+  }
+})
+
+it('cancels while a browser read response is pending', async () => {
+  const { page, bridge } = open()
+  const reading = pause()
+  const release = pause()
+  const stop = vi.spyOn(bridge, 'stop')
+  let count = 0
+  const delayed: BrowserPage = {
+    async evaluate(run, arg) {
+      const value = await page.evaluate(run, arg)
+      if (++count === 2) {
+        reading.resume()
+        await release.wait
+      }
+      return value
+    },
+  }
+  const model = new BrowserModel(delayed, { modelId: 'test-model' })
+  const controller = new AbortController()
+  const pending = model.stream(messages, { cancelSignal: controller.signal }).next()
+  const failed = vi.fn()
+  void pending.catch(failed)
+  try {
+    await reading.wait
+    controller.abort()
+    await vi.waitFor(() => expect(failed).toHaveBeenCalledWith(controller.signal.reason))
+    expect(stop).toHaveBeenCalledOnce()
+  } finally {
+    release.resume()
+    await pending.catch(() => {})
+    await bridge.close()
+  }
+})
+
+it('returns cancellation without waiting for the browser to stop', async () => {
+  const { model, bridge, create } = open()
+  const reading = pause()
+  const release = pause()
+  const stopping = pause()
+  const releaseStop = pause()
+  const stop = bridge.stop.bind(bridge)
+  vi.spyOn(bridge, 'stop').mockImplementation(async (id) => {
+    stopping.resume()
+    await releaseStop.wait
+    await stop(id)
+  })
+  create.mockResolvedValueOnce({
+    [Symbol.asyncIterator]: () => ({
+      next: async () => {
+        reading.resume()
+        await release.wait
+        return { done: true as const, value: undefined }
+      },
+      return: async () => ({ done: true as const, value: undefined }),
+    }),
+  })
+  const controller = new AbortController()
+  const pending = collect(model.stream(messages, { cancelSignal: controller.signal }))
+  const failed = vi.fn()
+  void pending.catch(failed)
+  try {
+    await reading.wait
+    controller.abort()
+    await stopping.wait
+    await vi.waitFor(() => expect(failed).toHaveBeenCalledWith(controller.signal.reason))
+  } finally {
+    release.resume()
+    releaseStop.resume()
+    await pending.catch(() => {})
+    await bridge.close()
+  }
+})
+
 it('does not start a pre-cancelled request', async () => {
   const { model, bridge } = open()
   const start = vi.spyOn(bridge, 'start')
@@ -726,6 +971,22 @@ it('explains how to set up the browser bridge when it is missing', async () => {
     'Expose createBrowserBridge(engine) as window.webllmBridge before using BrowserModel.',
   )
 })
+
+it.each(['next', 'stop'] as const)(
+  'explains when the browser bridge disappears before %s',
+  async (operation) => {
+    const { model, bridge } = open()
+    const stream = model.stream(messages)
+    await stream.next()
+    vi.stubGlobal('window', {})
+    try {
+      const result = operation === 'next' ? stream.next() : stream.return(undefined)
+      await expect(result).rejects.toThrow('The WebLLM browser bridge is no longer available.')
+    } finally {
+      await bridge.close()
+    }
+  },
+)
 
 it('cleans up after early consumer return', async () => {
   const { model, stop } = open()

@@ -1,4 +1,5 @@
 import type { WebLLMChunk } from 'pi-ai-web-llm'
+import { nativeOutput } from '../../../../test/support/native-output.js'
 import { test, expect } from './browser.js'
 import type {} from './checks.js'
 
@@ -13,34 +14,50 @@ for (const modelId of ['Qwen3.5-4B-q4f16_1-MLC', 'gemma-4-E2B-it-q4f16_1-MLC']) 
       const context = {
         messages: [{ role: 'user' as const, content: 'What is 17 * 23?', timestamp: 0 }],
       }
-      const baseline = await models.complete(model, context, { reasoning: 'low' })
-      const native: { id?: string; model?: string; reason?: string } = {}
+      const chunks: WebLLMChunk[] = []
+      let prompt = ''
       const response = await models.complete(model, context, {
         reasoning: 'low',
+        onPayload: (payload) => {
+          if (payload && typeof payload === 'object' && 'prompt' in payload)
+            prompt = typeof payload.prompt === 'string' ? payload.prompt : ''
+        },
         onProviderStreamEvent: (event) => {
-          const chunk = event as WebLLMChunk
-          native.id = chunk.id
-          native.model = chunk.model
-          const reason = chunk.choices[0]?.finish_reason
-          if (reason) native.reason = reason
+          chunks.push(event as WebLLMChunk)
         },
       })
-      return { baseline, response, native }
+      return { response, chunks, prompt }
     })
 
-    expect(result.native.id).toBeTruthy()
-    expect(result.native.model).toBe(modelId)
-    expect(result.native.reason).toBe('stop')
+    const last = result.chunks.at(-1)!
+    const finish = result.chunks
+      .flatMap((chunk) => chunk.choices.map((choice) => choice.finish_reason))
+      .find(Boolean)
+    expect(last.id).toBeTruthy()
+    expect(last.model).toBe(modelId)
+    expect(last.usage).toBeDefined()
+    expect(finish).toBe('stop')
     expect(result.response).toMatchObject({
-      responseId: result.native.id,
-      responseModel: result.native.model,
-      rawStopReason: result.native.reason,
+      responseId: last.id,
+      responseModel: last.model,
+      rawStopReason: finish,
       stopReason: 'stop',
-      content: result.baseline.content,
-      usage: result.baseline.usage,
+      usage: { input: last.usage?.prompt_tokens, output: last.usage?.completion_tokens },
     })
-    expect(result.response.content.some((part) => part.type === 'thinking' && part.thinking)).toBe(
-      true,
-    )
+    const text = result.response.content
+      .filter((part) => part.type === 'text')
+      .map((part) => part.text)
+      .join('')
+    const thinking = result.response.content
+      .filter((part) => part.type === 'thinking')
+      .map((part) => part.thinking)
+      .join('')
+    const prefix = modelId.startsWith('Qwen3.5-')
+      ? '<think>'
+      : result.prompt.endsWith('<|channel>thought\n')
+        ? '<|channel>thought\n'
+        : ''
+    expect(thinking).not.toBe('')
+    expect({ text, thinking: [thinking] }).toEqual(nativeOutput(result.chunks, modelId, prefix))
   })
 }

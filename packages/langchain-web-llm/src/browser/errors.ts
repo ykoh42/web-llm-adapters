@@ -72,24 +72,32 @@ export function applyBrowserError(error: Error, snapshot: BrowserError): void {
   }
   setField(error, 'name', snapshot.name)
   setField(error, 'message', snapshot.message)
-  if (
-    JSON.stringify(previous.causes) !== JSON.stringify(snapshot.causes) ||
-    JSON.stringify(previous.causeValue) !== JSON.stringify(snapshot.causeValue)
-  ) {
-    if (snapshot.causes?.length || snapshot.causeValue)
-      setField(error, 'cause', restoreError(snapshot).cause)
-    else {
-      const descriptor = Object.getOwnPropertyDescriptor(error, 'cause')
-      if (descriptor && Object.hasOwn(descriptor, 'value')) Reflect.deleteProperty(error, 'cause')
-    }
-  }
+  applyCause(error, previous, snapshot)
   if (snapshot.retryable !== undefined) stampRetryable(error, snapshot.retryable)
 }
 
-function setField(error: Error, key: string, value: unknown): void {
-  const descriptor = Object.getOwnPropertyDescriptor(error, key)
-  if (descriptor && !Object.hasOwn(descriptor, 'value')) return
+function applyCause(error: Error, previous: BrowserError, snapshot: BrowserError): void {
+  if (
+    JSON.stringify(previous.causes) === JSON.stringify(snapshot.causes) &&
+    JSON.stringify(previous.causeValue) === JSON.stringify(snapshot.causeValue)
+  )
+    return
+  if (snapshot.causes?.length || snapshot.causeValue) {
+    setField(error, 'cause', restoreError(snapshot).cause)
+    return
+  }
   try {
+    const descriptor = Object.getOwnPropertyDescriptor(error, 'cause')
+    if (descriptor && Object.hasOwn(descriptor, 'value')) Reflect.deleteProperty(error, 'cause')
+  } catch {
+    // A provider error may refuse property inspection.
+  }
+}
+
+function setField(error: Error, key: string, value: unknown): void {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(error, key)
+    if (descriptor && !Object.hasOwn(descriptor, 'value')) return
     Object.defineProperty(error, key, {
       configurable: true,
       enumerable: true,
@@ -98,6 +106,6 @@ function setField(error: Error, key: string, value: unknown): void {
       value,
     })
   } catch {
-    // A non-writable provider field cannot accept callback edits.
+    // A protected provider field cannot accept callback edits.
   }
 }

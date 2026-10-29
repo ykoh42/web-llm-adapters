@@ -31,18 +31,19 @@ export async function checkInstall({
   compatibilityDependencies,
   consumerDependencies = [],
 }: InstallCheck): Promise<void> {
-  const manager = process.argv[2]
-  if (
-    manager !== undefined &&
-    manager !== 'yarn-pnp' &&
-    manager !== 'yarn-node-modules' &&
-    manager !== 'pnpm'
-  )
-    throw new Error(`Unknown consumer package manager: ${manager}`)
+  const manager = installManager()
   const directory = fileURLToPath(root)
   const { name }: { name: string } = JSON.parse(
     await readFile(join(directory, 'package.json'), 'utf8'),
   )
+  const specifier = JSON.stringify(name)
+  const commonJS = `
+    const assert = require('node:assert/strict')
+    const cjs = require(${specifier})
+    import(${specifier}).then((esm) => {
+      for (const key of Object.keys(esm)) assert.equal(cjs[key], esm[key])
+    })
+  `
   const temporary = await mkdtemp(join(tmpdir(), `${name}-`))
   const run = (cmd: string, args: string[], cwd = temporary) =>
     execFileSync(cmd, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
@@ -65,6 +66,7 @@ export async function checkInstall({
         archive: resolve(temporary, pack.filename),
         dependencies,
         source,
+        commonJS,
       })
       return
     }
@@ -74,6 +76,10 @@ export async function checkInstall({
     )
     const packageRoot = join(temporary, 'node_modules', name)
     await writeFile(join(temporary, 'consumer.ts'), source)
+    await writeFile(
+      join(temporary, 'consumer.cts'),
+      `import * as adapter from ${specifier}; export = adapter`,
+    )
 
     for (const dependencies of compatibilityDependencies) {
       run('npm', [
@@ -97,6 +103,7 @@ export async function checkInstall({
           .map((specifier) => `await import(${JSON.stringify(specifier)})`)
           .join(';'),
       ])
+      run(process.execPath, ['--input-type=commonjs', '--eval', commonJS])
       run(process.execPath, ['--experimental-strip-types', 'consumer.ts'])
       const audit = JSON.parse(run('npm', ['audit', '--omit=dev', '--json']))
       if (audit.metadata.vulnerabilities.total)
@@ -127,6 +134,18 @@ export async function checkInstall({
         '--eval',
         `import { checkTypes } from ${JSON.stringify(checker.href)}; checkTypes(${JSON.stringify(temporary)}, ${JSON.stringify(name)});`,
       ])
+      run(process.execPath, [
+        join(temporary, 'node_modules/typescript/bin/tsc'),
+        '--noEmit',
+        '--skipLibCheck',
+        '--target',
+        'es2022',
+        '--module',
+        'nodenext',
+        '--moduleResolution',
+        'nodenext',
+        'consumer.cts',
+      ])
       console.log(`${name}: public types passed TypeScript ${version}.`)
     }
     run(process.execPath, ['--experimental-strip-types', 'consumer.ts'])
@@ -136,6 +155,18 @@ export async function checkInstall({
   } finally {
     await rm(temporary, { recursive: true, force: true })
   }
+}
+
+function installManager() {
+  const manager = process.argv[2]
+  if (
+    manager !== undefined &&
+    manager !== 'yarn-pnp' &&
+    manager !== 'yarn-node-modules' &&
+    manager !== 'pnpm'
+  )
+    throw new Error(`Unknown consumer package manager: ${manager}`)
+  return manager
 }
 
 async function checkDependencyVersions(directory: string, dependencies: string[]): Promise<void> {
@@ -190,6 +221,8 @@ async function checkRuntime(directory: string): Promise<void> {
     if (createHash('sha256').update(bytes).digest('hex') !== hash)
       throw new Error('Runtime hash mismatch: ' + name)
   }
-  if (!WebAssembly.validate(await readFile(join(runtime, 'gemma-4-e2b.wasm'))))
-    throw new Error('Invalid Wasm module.')
+  const wasm = await readFile(join(runtime, 'gemma-4-e2b.wasm'))
+  if (!WebAssembly.validate(wasm)) throw new Error('Invalid Wasm module.')
+  const integrity = 'sha256-' + createHash('sha256').update(wasm).digest('base64')
+  if (integrity !== manifest.integrity) throw new Error('Runtime integrity mismatch.')
 }

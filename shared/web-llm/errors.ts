@@ -60,29 +60,10 @@ export function serializeError(error: unknown): ErrorInfo {
       const nativeError = error as Error
       const name = nativeError.name
       if (typeof name === 'string') info.name = name
-      let parent = nativeError
-      let cause = parent.cause
-      let causeType = errorType(cause)
-      while (causeType === true && causes.length < 5 && isError(cause)) {
-        const name = cause.name
-        causes.push({ name: typeof name === 'string' ? name : 'Error', message: errorText(cause) })
-        parent = cause
-        cause = parent.cause
-        causeType = errorType(cause)
-      }
-      if (causeType === undefined) {
-        const name = errorField(cause, 'name')
-        const message = errorField(cause, 'message')
-        if (typeof name === 'string' && typeof message === 'string') causes.push({ name, message })
-      }
-      if (causeType === false && 'cause' in parent) {
-        try {
-          info.causeValue = cause === undefined ? {} : { value: JSON.parse(stringifyJSON(cause)) }
-        } catch {
-          // Keep the error chain when a non-Error cause cannot be serialized.
-        }
-      }
-    } else if (type === undefined) readErrorFields(error, info)
+      readCauses(nativeError, info, causes)
+    } else if (type === undefined || typeof errorField(error, 'message') === 'string') {
+      readErrorFields(error, info)
+    }
   } catch {
     // Proxies may reject prototype or error-field inspection.
     readErrorFields(error, info)
@@ -91,14 +72,37 @@ export function serializeError(error: unknown): ErrorInfo {
   return info
 }
 
+function readCauses(error: Error, info: ErrorInfo, causes: NonNullable<ErrorInfo['causes']>): void {
+  let parent = error
+  let cause = parent.cause
+  let causeType = errorType(cause)
+  while (causeType === true && causes.length < 5 && isError(cause)) {
+    const name = cause.name
+    causes.push({ name: typeof name === 'string' ? name : 'Error', message: errorText(cause) })
+    parent = cause
+    cause = parent.cause
+    causeType = errorType(cause)
+  }
+  if (causeType === undefined) {
+    const name = errorField(cause, 'name')
+    const message = errorField(cause, 'message')
+    if (typeof name === 'string' && typeof message === 'string') causes.push({ name, message })
+  }
+  if (causeType === false && 'cause' in parent) {
+    try {
+      info.causeValue = cause === undefined ? {} : { value: JSON.parse(stringifyJSON(cause)) }
+    } catch {
+      // Keep the error chain when a non-Error cause cannot be serialized.
+    }
+  }
+}
+
 export function errorText(error: unknown): string {
   try {
     const type = errorType(error)
     if (type === true) return String((error as Error).message)
-    if (type === undefined) {
-      const message = errorField(error, 'message')
-      if (typeof message === 'string') return message
-    }
+    const message = errorField(error, 'message')
+    if (typeof message === 'string') return message
     return String(error)
   } catch {
     const message = errorField(error, 'message')

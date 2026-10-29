@@ -6,7 +6,7 @@ type Sampling = Pick<
   'temperature' | 'top_p' | 'presence_penalty' | 'repetition_penalty' | 'extra_body'
 >
 
-/** Model-card settings available in WebLLM. top_k and min_p are not exposed. */
+/** Published model settings supported by WebLLM. top_k and min_p are not exposed. */
 function nativeSampling(modelId: string, thinking: boolean): Sampling {
   const request = { repetition_penalty: 1, extra_body: { enable_thinking: thinking } }
   if (modelId.startsWith('Qwen3.5-'))

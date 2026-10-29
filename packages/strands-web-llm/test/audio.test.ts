@@ -1,3 +1,4 @@
+import { runInNewContext } from 'node:vm'
 import { Agent, Message, TextBlock } from '@strands-agents/sdk'
 import { expect, it } from 'vitest'
 import { pcmAudio } from '../src/index.js'
@@ -37,6 +38,23 @@ it('preserves subarray bounds, negative zero, and subnormal samples as little-en
   ])
   expect(samples).toEqual(new Float32Array([-0, 1e-45, 1 / 3, -1e-45]))
 })
+
+it('accepts Float32 PCM from another realm', () => {
+  const samples = runInNewContext(
+    'new Float32Array([9, 0.5, -0.5, 9]).subarray(1, 3)',
+  ) as Float32Array
+  const audio = pcmAudio(samples, 16000)
+  if (audio.source.type !== 'audioSourceBytes') throw new Error('Expected audio bytes')
+  const view = new DataView(audio.source.bytes.buffer, audio.source.bytes.byteOffset)
+  expect([view.getFloat32(56, true), view.getFloat32(60, true)]).toEqual([0.5, -0.5])
+})
+
+it.each([new Float64Array([0.5]), new Uint8Array([1, 2, 3, 4])])(
+  'rejects non-Float32 PCM samples',
+  (samples) => {
+    expect(() => pcmAudio(samples as unknown as Float32Array, 16000)).toThrow(TypeError)
+  },
+)
 
 it.each([0, -1, 1.5, NaN, Infinity, 0x40000000])('rejects invalid sample rate %s', (rate) => {
   expect(() => pcmAudio(new Float32Array([0]), rate)).toThrow('Sample rate')

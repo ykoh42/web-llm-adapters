@@ -4,7 +4,7 @@ const key = Symbol.for('web-llm-adapters.engine-queue.v1')
 const registry = globalThis as typeof globalThis & {
   [key]?: WeakMap<MLCEngineInterface, Promise<void>>
 }
-// Bundled adapters still share one queue when they use the same engine.
+// WebLLM's interrupt signal is shared across models; bundled adapters share this queue.
 const tails = (registry[key] ??= new WeakMap<MLCEngineInterface, Promise<void>>())
 
 /** Reserve one engine turn. A cancelled waiter keeps its place until earlier work closes. */

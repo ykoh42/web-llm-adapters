@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { ContextOverflowError, getRetryable } from '@langchain/core/errors'
 import { InMemoryStore } from '@langchain/langgraph'
 import { WebLLMEmbeddings, withEngine } from '../src/index.js'
-import { pause, setup } from '../fixtures/engine.js'
+import { finishRetries, pause, setup } from '../fixtures/engine.js'
 
 function embedding(values: number[][]) {
   return {
@@ -183,7 +183,7 @@ describe('LangChain embeddings', () => {
       batchSize: 1,
       maxRetries: 1,
     })
-    expect(await model.embedDocuments(['One', 'Two', 'Three'])).toEqual([
+    expect(await finishRetries(() => model.embedDocuments(['One', 'Two', 'Three']))).toEqual([
       [3, 1],
       [3, 1],
       [5, 1],

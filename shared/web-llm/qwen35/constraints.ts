@@ -86,38 +86,60 @@ function parameterFormat(
 ) {
   if (Array.isArray(schema.enum) && !schema.enum.length) return
   const values = Object.hasOwn(schema, 'const') ? [schema.const] : schema.enum
-  let types = Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : []
-  if (!types.length) {
-    if (
-      Array.isArray(values) &&
-      values.length &&
-      !values.some((value) => typeof value === 'string')
-    ) {
-      const inferred = argumentSchema(tool, name, cache).types
-      if (
-        isJsonValue(values) &&
-        inferred?.length &&
-        inferred.every((type) => jsonValueTypes.has(type))
-      )
-        return { type: 'json_schema', json_schema: schema }
-      return
-    }
-    if (!Array.isArray(values) || !values.length) {
-      const hasTypeUnion =
-        (Array.isArray(schema.anyOf) && schema.anyOf.length > 0) ||
-        (Array.isArray(schema.oneOf) && schema.oneOf.length > 0)
-      if (!hasTypeUnion) return
-      const inferred = argumentSchema(tool, name, cache).types
-      if (inferred?.length && inferred.every((type) => jsonValueTypes.has(type)))
-        return { type: 'json_schema', json_schema: schema }
-      return
-    }
-    types = values.includes(null) ? ['string', 'null'] : ['string']
-  }
+  const types = Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : []
+  if (!types.length) return untypedParameterFormat(schema, tool, name, cache, values)
   if (!types.includes('string')) {
     if (!schema.type) return
     return { type: 'json_schema', json_schema: schema }
   }
+  return stringParameterFormat(schema, types, values)
+}
+
+function untypedParameterFormat(
+  schema: JSONSchema,
+  tool: ToolSpec,
+  name: string,
+  cache: ArgumentSchemaCache,
+  values: readonly unknown[] | undefined,
+) {
+  if (Array.isArray(values) && values.length) {
+    if (!values.some((value) => typeof value === 'string'))
+      return inferredJsonFormat(schema, tool, name, cache, values)
+    return stringParameterFormat(
+      schema,
+      values.includes(null) ? ['string', 'null'] : ['string'],
+      values,
+    )
+  }
+  const hasTypeUnion =
+    (Array.isArray(schema.anyOf) && schema.anyOf.length > 0) ||
+    (Array.isArray(schema.oneOf) && schema.oneOf.length > 0)
+  if (!hasTypeUnion) return
+  return inferredJsonFormat(schema, tool, name, cache)
+}
+
+function inferredJsonFormat(
+  schema: JSONSchema,
+  tool: ToolSpec,
+  name: string,
+  cache: ArgumentSchemaCache,
+  values?: readonly unknown[],
+) {
+  const inferred = argumentSchema(tool, name, cache).types
+  if (
+    (values === undefined || isJsonValue(values)) &&
+    inferred?.length &&
+    inferred.every((type) => jsonValueTypes.has(type))
+  )
+    return { type: 'json_schema', json_schema: schema }
+  return undefined
+}
+
+function stringParameterFormat(
+  schema: JSONSchema,
+  types: string[],
+  values: readonly unknown[] | undefined,
+) {
   if (
     types.some((type) => type !== 'string' && type !== 'null') ||
     Object.keys(schema).some((key) => !stringKeys.has(key))

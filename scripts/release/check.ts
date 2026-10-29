@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
-import { checkReport } from './report.ts'
+import { checkReport, checkTests } from './report.ts'
+import { releaseTests } from './tests.ts'
 import { checkClean, git, reportPath, sourceHash, webllmVersion } from './source.ts'
 import { supportClaims } from './support.ts'
 
@@ -10,5 +11,6 @@ const report = checkReport(
   webllmVersion(),
   supportClaims(readFileSync('README.md', 'utf8')),
 )
+checkTests(report, releaseTests())
 git('merge-base', '--is-ancestor', report.commit, 'HEAD')
 console.log(`Real models: ${report.tests.length} tests passed with WebLLM ${report.webllm}.`)

@@ -24,6 +24,8 @@ export interface BrowserRequest {
 export interface BrowserChunk {
   text: string
   message: AIMessageChunkFields<StandardMessageStructure>
+  toolCallsJSON?: string
+  toolCallNegativeZeros?: string[][]
   generationInfo?: Record<string, unknown>
 }
 type BrowserResult = (

@@ -2,6 +2,7 @@ import { ModelError, type ToolSpec } from '../types.js'
 import type { ChatCompletionChunk } from '@mlc-ai/web-llm'
 import type { ToolDelta, ChunkOptions } from '../stream/chunks.js'
 import { parseJSON } from '../json.js'
+import { toolJSON } from '../tool-json.js'
 import { qwenFrames } from './frames.js'
 import { isQwen35 } from '../models.js'
 import { qwen35Chunks } from '../qwen35/stream.js'
@@ -76,7 +77,7 @@ function parseCall(text: string, tools: ToolSpec[], index: number): ToolDelta {
     index,
     id: crypto.randomUUID(),
     name: value.name,
-    input: JSON.stringify(value.arguments),
+    input: toolJSON(value.arguments, source),
   }
 }
 

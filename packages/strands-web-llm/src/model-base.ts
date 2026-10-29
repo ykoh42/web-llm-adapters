@@ -7,6 +7,8 @@ import { isGemma, isQwen, isQwen35 } from '../../../shared/web-llm/models.js'
 import type { WebLLMModelConfig } from './types.js'
 import { checkRequest, preserveThinking } from '../../../shared/web-llm/request.js'
 import { checkThinkingPrefill } from '../../../shared/web-llm/qwen/prefill.js'
+import { qwenSystemPrompt, qwen35SystemPrompt } from './qwen/request.js'
+import { qwen25SystemPrompt } from '../../../shared/web-llm/qwen/history.js'
 
 /** Shared Strands configuration and token counting for browser and local models. */
 export abstract class WebLLMModelBase extends Model<WebLLMModelConfig> {
@@ -38,22 +40,38 @@ export abstract class WebLLMModelBase extends Model<WebLLMModelConfig> {
     this.config = next
   }
 
-  override async countTokens(
-    messages: Message[],
-    options: CountTokensOptions = {},
-  ): Promise<number> {
+  override async countTokens(messages: Message[], options?: CountTokensOptions): Promise<number> {
+    // Strands omits options when estimating newly added messages.
+    const fullRequest = options !== undefined
+    options ??= {}
     const read = this.getConfig
     const config = read === defaultGetConfig ? this.config : read.call(this)
     const { modelId } = config
     const preserve = preserveThinking(modelId, config.request ?? {})
-    if (isQwen(modelId) || isQwen35(modelId))
-      return super.countTokens(trimQwenThoughts(messages, !modelId.startsWith('Qwen2.5-')), options)
+    if (isQwen(modelId) || isQwen35(modelId)) {
+      const history = trimQwenThoughts(messages, !modelId.startsWith('Qwen2.5-'))
+      if (!options.toolSpecs?.length) {
+        if (fullRequest && modelId.startsWith('Qwen2.5-') && options.systemPrompt === undefined)
+          return super.countTokens(history, { ...options, systemPrompt: qwen25SystemPrompt })
+        return super.countTokens(history, options)
+      }
+      const systemPrompt = isQwen35(modelId)
+        ? qwen35SystemPrompt(options)
+        : qwenSystemPrompt(!modelId.startsWith('Qwen2.5-'), options)
+      const [conversation, original, formatted] = await Promise.all([
+        super.countTokens(history),
+        super.countTokens([], options),
+        super.countTokens([], systemPrompt === undefined ? {} : { systemPrompt }),
+      ])
+      // Tool schemas may need more tokens than the SDK's text heuristic estimates.
+      return conversation + Math.max(original, formatted)
+    }
     if (!isGemma(modelId)) return super.countTokens(messages, options)
     const thinking = config.request?.extra_body?.enable_thinking === true
     try {
       return (
         (await super.countTokens(trimThoughts(messages, 0, preserve))) +
-        promptTokens(options, thinking)
+        (fullRequest ? promptTokens(options, thinking) : 0)
       )
     } catch (error) {
       throw modelError(error)

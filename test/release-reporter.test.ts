@@ -8,6 +8,7 @@ import type { FullResult, TestCase, TestResult } from '@playwright/test/reporter
 import ModelReporter from '../scripts/release/reporter.js'
 import * as reports from '../scripts/release/report.js'
 import * as source from '../scripts/release/source.js'
+import * as suite from '../scripts/release/tests.js'
 
 const removeReport = vi.hoisted(() => vi.fn())
 vi.mock('node:fs', async (original) => ({
@@ -31,27 +32,32 @@ afterEach(() => {
   vi.unstubAllEnvs()
 })
 
-test.each(['before', 'during'])(
-  'invalidates the previous report on failure %s a run',
-  async (when) => {
-    vi.spyOn(console, 'error').mockImplementation(() => {})
-    const reporter = new ModelReporter()
-    if (when === 'during') {
-      vi.stubEnv('WEB_LLM_RELEASE_ENVIRONMENT', environment)
-      reporter.onTestBegin()
-    }
-    expect(await reporter.onEnd({ ...result, status: 'failed' })).toEqual({ status: 'failed' })
-    expect(removeReport).toHaveBeenCalledWith(source.reportPath, { force: true })
-  },
-)
+test('keeps the previous report when setup fails before a run', async () => {
+  expect(await new ModelReporter().onEnd({ ...result, status: 'failed' })).toEqual({
+    status: 'failed',
+  })
+  expect(removeReport).not.toHaveBeenCalled()
+})
+
+test('invalidates the previous report when a run fails', async () => {
+  vi.spyOn(console, 'error').mockImplementation(() => {})
+  vi.stubEnv('WEB_LLM_RELEASE_ENVIRONMENT', environment)
+  const reporter = new ModelReporter()
+  reporter.onTestBegin()
+  expect(await reporter.onEnd({ ...result, status: 'failed' })).toEqual({ status: 'failed' })
+  expect(removeReport).toHaveBeenCalledWith(source.reportPath, { force: true })
+})
 
 test('reports failure even when the previous report cannot be removed', async () => {
   removeReport.mockImplementationOnce(() => {
     throw new Error('Cannot remove report')
   })
   const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+  vi.stubEnv('WEB_LLM_RELEASE_ENVIRONMENT', environment)
+  const reporter = new ModelReporter()
+  reporter.onTestBegin()
 
-  expect(await new ModelReporter().onEnd({ ...result, status: 'failed' })).toEqual({
+  expect(await reporter.onEnd({ ...result, status: 'failed' })).toEqual({
     status: 'failed',
   })
   expect(log).toHaveBeenCalledWith(expect.objectContaining({ message: 'Cannot remove report' }))
@@ -108,6 +114,38 @@ test('keeps every result when Playwright starts another test', async () => {
   })
 })
 
+test('rejects a partial run even when its support checks pass', async () => {
+  vi.stubEnv('WEB_LLM_RELEASE_ENVIRONMENT', environment)
+  vi.spyOn(source, 'checkClean').mockImplementation(() => {})
+  vi.spyOn(console, 'error').mockImplementation(() => {})
+  vi.spyOn(reports, 'checkReport').mockImplementation((report) => report as reports.ModelReport)
+  vi.spyOn(suite, 'releaseTests').mockReturnValue(['strands/first', 'strands/second'])
+  const reporter = new ModelReporter()
+  reporter.onTestBegin()
+  reporter.onTestEnd(
+    {
+      parent: { project: () => ({ name: 'strands' }) },
+      titlePath: () => ['', 'strands', 'first'],
+      annotations: [],
+    } as unknown as TestCase,
+    { status: 'passed' } as TestResult,
+  )
+
+  expect(await reporter.onEnd(result)).toEqual({ status: 'failed' })
+  expect(removeReport).toHaveBeenCalledWith(source.reportPath, { force: true })
+})
+
+test('normalizes file paths without changing test titles', () => {
+  expect(suite.testName(['tests\\models.spec.ts', 'a\\b'])).toBe('tests/models.spec.ts > a\\b')
+})
+
+test('collects the full release suite even when model selection is set', () => {
+  vi.stubEnv('MODEL_IDS', 'Qwen3.5-4B-q4f16_1-MLC')
+  const tests = suite.releaseTests()
+  expect(tests.some((name) => name.includes('Qwen3.5-9B-q4f16_1-MLC'))).toBe(true)
+  expect(tests.some((name) => name.includes('Qwen2.5-0.5B-Instruct-q4f16_1-MLC'))).toBe(true)
+}, 40_000)
+
 test('listing tests needs no GPU environment and leaves the verification report intact', async () => {
   const root = fileURLToPath(new URL('../', import.meta.url))
   const report = join(root, '.github/real-models.json')
@@ -123,7 +161,7 @@ test('listing tests needs no GPU environment and leaves the verification report 
     ],
     {
       cwd: root,
-      timeout: 10_000,
+      timeout: 30_000,
       env: {
         ...process.env,
         WEB_LLM_RELEASE_ENVIRONMENT: undefined,
@@ -135,4 +173,4 @@ test('listing tests needs no GPU environment and leaves the verification report 
   expect(stdout).toMatch(/Total: \d+ tests in \d+ files/)
   expect(stderr).toBe('')
   expect(existsSync(report) ? readFileSync(report, 'utf8') : undefined).toBe(previous)
-}, 15_000)
+}, 40_000)

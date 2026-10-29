@@ -8,7 +8,10 @@ export class SignalCaller extends AsyncCaller {
     this.onFailedAttempt = (error: unknown) => {
       signal.throwIfAborted()
       return waitForCallback(
-        Promise.resolve().then(() => onFailedAttempt?.(error)),
+        Promise.resolve().then(() => {
+          signal.throwIfAborted()
+          return onFailedAttempt?.(error)
+        }),
         signal,
       )
     }

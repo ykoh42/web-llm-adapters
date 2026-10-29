@@ -43,3 +43,14 @@ export function checkReport(value: unknown, source: string, webllm: string, clai
   if (missing.length) throw new Error(`Missing real-model checks:\n${missing.join('\n')}`)
   return report
 }
+
+/** Require every release test, including tests that do not add a support-table claim. */
+export function checkTests(report: ModelReport, expected: readonly string[]) {
+  const actual = report.tests.map((test) => `${test.adapter}/${test.name}`)
+  const names = new Set(actual)
+  const missing = expected.filter((name) => !names.has(name))
+  if (missing.length || actual.length !== expected.length || names.size !== actual.length)
+    throw new Error(
+      `Real-model results must include every release test. Missing:\n${missing.join('\n')}`,
+    )
+}

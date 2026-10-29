@@ -4,6 +4,22 @@ import { describe, expect, it, vi } from 'vitest'
 import { base64Data } from '../../../shared/web-llm/base64.js'
 
 describe('base64Data', () => {
+  it('rejects detached bytes instead of sending an empty value', () => {
+    const bytes = new Uint8Array([1, 2, 3])
+    structuredClone(bytes, { transfer: [bytes.buffer] })
+
+    expect(() => base64Data(bytes)).toThrow(TypeError)
+    expect(base64Data(new Uint8Array())).toBe('')
+  })
+
+  it('rejects a view outside a resized buffer', () => {
+    const buffer = Reflect.construct(ArrayBuffer, [4, { maxByteLength: 8 }]) as ArrayBuffer
+    const bytes = new Uint8Array(buffer, 2, 2)
+    Reflect.apply(Reflect.get(buffer, 'resize'), buffer, [1])
+
+    expect(() => base64Data(bytes)).toThrow(TypeError)
+  })
+
   it('encodes Uint8Array values from another realm', () => {
     const bytes: unknown = runInNewContext('new Uint8Array([1, 2, 3])')
 

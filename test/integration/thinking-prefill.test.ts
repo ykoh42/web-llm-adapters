@@ -169,6 +169,19 @@ async function read(client: Client, modelId: string, source: string, options: Op
 }
 
 for (const client of clients) {
+  it(`${client} removes WebLLM's disabled-thinking prefix from Qwen2.5 answers`, async () => {
+    const modelId = 'Qwen2.5-3B-Instruct-q4f16_1-MLC'
+    const body = 'The literal marker is <think>.'
+    const request = { extra_body: { enable_thinking: false } }
+    const result = await read(client, modelId, '<think>\n\n</think>\n\n' + body, {
+      request,
+      tools: true,
+    })
+    expect(result.text).toBe(body)
+    expect(result.thinking).toBe('')
+    expect(result.tools).toEqual([])
+  })
+
   it.each(models)(
     `${client} separates a declared prefilled thought on %s without changing native input`,
     async (modelId) => {
@@ -194,6 +207,36 @@ for (const client of clients) {
       })
       expect(result.thinking).toBe('\n\n')
       expect(result.text).toBe('\n\n42')
+    },
+  )
+
+  it.each(models)(
+    `${client} keeps literal thinking tags in a %s answer when thinking is disabled`,
+    async (modelId) => {
+      const body = 'The example is <think>literal</think>.'
+      const request = { extra_body: { enable_thinking: false } }
+      const result = await read(client, modelId, '<think>\n\n</think>\n\n' + body, {
+        request,
+        tools: true,
+      })
+      expect(result.thinking).toBe('\n\n')
+      expect(result.text).toBe('\n\n' + body)
+      expect(result.tools).toEqual([])
+
+      const withoutPrefix = await read(client, modelId, body, { request })
+      expect(withoutPrefix.thinking).toBe('')
+      expect(withoutPrefix.text).toBe(body)
+
+      const call = modelId.startsWith('Qwen3.5-')
+        ? '<tool_call><function=lookup><parameter=code>A7</parameter></function></tool_call>'
+        : '<tool_call>{"name":"lookup","arguments":{"code":"A7"}}</tool_call>'
+      const withCall = await read(client, modelId, '<think>\n\n</think>\n\n' + body + call, {
+        request,
+        tools: true,
+      })
+      expect(withCall.thinking).toBe('\n\n')
+      expect(withCall.text).toBe('\n\n' + body)
+      expect(withCall.tools).toEqual([{ name: 'lookup', input: { code: 'A7' } }])
     },
   )
 

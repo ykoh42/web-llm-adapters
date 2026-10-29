@@ -26,6 +26,37 @@ export function gemmaPrompt(
   prompt += '<turn|>\n'
   const pending = new Map<string, string>()
   let modelOpen = false
+
+  function addToolResult(message: Extract<ProtocolMessage, { role: 'tool' }>) {
+    const name = pending.get(message.tool_call_id)
+    if (!name || !modelOpen)
+      throw new ModelError('Gemma received a tool result without a matching call.')
+    prompt += toolResponse(message, name)
+    pending.delete(message.tool_call_id)
+  }
+
+  function addUser(message: Extract<ProtocolMessage, { role: 'user' }>) {
+    if (pending.size) throw new ModelError('Gemma is missing a tool result.')
+    if (typeof message.content !== 'string')
+      throw new ModelError('Gemma protocol mode supports text and tool results only.')
+    if (modelOpen) prompt += '<turn|>\n'
+    prompt += '<|turn>user\n' + message.content.trim() + '<turn|>\n'
+    modelOpen = false
+  }
+
+  function addAssistant(message: Extract<ProtocolMessage, { role: 'assistant' }>, index: number) {
+    if (pending.size) throw new ModelError('Gemma is missing a tool result.')
+    if (!modelOpen) prompt += '<|turn>model\n'
+    modelOpen = true
+    if (message.reasoning) prompt += '<|channel>thought\n' + message.reasoning + '\n<channel|>'
+    prompt += message.content ?? ''
+    prompt += toolCalls(message.tool_calls ?? [], pending)
+    if (!message.tool_calls?.length && history[index + 1]?.role !== 'assistant') {
+      prompt += '<turn|>\n'
+      modelOpen = false
+    }
+  }
+
   for (let index = start; index < history.length; index++) {
     const message = history[index]!
     if (
@@ -34,49 +65,37 @@ export function gemmaPrompt(
       (message.role !== 'assistant' || message.name !== 'model')
     )
       throw new ModelError('Gemma protocol mode cannot preserve message names.')
-    if (message.role === 'tool') {
-      const name = pending.get(message.tool_call_id)
-      if (!name || !modelOpen)
-        throw new ModelError('Gemma received a tool result without a matching call.')
-      // Gemma puts JSON object fields directly in the response.
-      let response = message.response !== undefined ? message.response : message.content
-      if (message.context !== undefined) response = { context: message.context, value: response }
-      else if (response === null || typeof response !== 'object' || Array.isArray(response))
-        response = { value: response }
-      prompt += '<|tool_response>response:' + name + writeValue(response) + '<tool_response|>'
-      pending.delete(message.tool_call_id)
-      continue
-    }
-    if (message.role === 'user') {
-      if (pending.size) throw new ModelError('Gemma is missing a tool result.')
-      if (typeof message.content !== 'string')
-        throw new ModelError('Gemma protocol mode supports text and tool results only.')
-      if (modelOpen) prompt += '<turn|>\n'
-      prompt += '<|turn>user\n' + message.content.trim() + '<turn|>\n'
-      modelOpen = false
-      continue
-    }
-    if (message.role !== 'assistant')
-      throw new ModelError('Gemma received an unexpected system message.')
-    if (pending.size) throw new ModelError('Gemma is missing a tool result.')
-    if (!modelOpen) prompt += '<|turn>model\n'
-    modelOpen = true
-    if (message.reasoning) prompt += '<|channel>thought\n' + message.reasoning + '\n<channel|>'
-    prompt += message.content ?? ''
-    for (const call of message.tool_calls ?? []) {
-      validateToolName(call.function.name)
-      if (pending.has(call.id)) throw new ModelError('Gemma received a duplicate tool call ID.')
-      const input: unknown = JSON.parse(call.function.arguments)
-      prompt += '<|tool_call>call:' + call.function.name + writeValue(input) + '<tool_call|>'
-      pending.set(call.id, call.function.name)
-    }
-    if (!message.tool_calls?.length && history[index + 1]?.role !== 'assistant') {
-      prompt += '<turn|>\n'
-      modelOpen = false
-    }
+    if (message.role === 'tool') addToolResult(message)
+    else if (message.role === 'user') addUser(message)
+    else if (message.role === 'assistant') addAssistant(message, index)
+    else throw new ModelError('Gemma received an unexpected system message.')
   }
   if (pending.size) throw new ModelError('Gemma is missing a tool result.')
   if (!modelOpen) prompt += '<|turn>model\n'
   // WebLLM's Gemma artifact loader supplies the BOS token itself.
   return prompt
+}
+
+function toolCalls(
+  calls: NonNullable<Extract<ProtocolMessage, { role: 'assistant' }>['tool_calls']>,
+  pending: Map<string, string>,
+): string {
+  let text = ''
+  for (const call of calls) {
+    validateToolName(call.function.name)
+    if (pending.has(call.id)) throw new ModelError('Gemma received a duplicate tool call ID.')
+    const input: unknown = JSON.parse(call.function.arguments)
+    text += '<|tool_call>call:' + call.function.name + writeValue(input) + '<tool_call|>'
+    pending.set(call.id, call.function.name)
+  }
+  return text
+}
+
+function toolResponse(message: Extract<ProtocolMessage, { role: 'tool' }>, name: string): string {
+  // Gemma puts JSON object fields directly in the response.
+  let response = message.response !== undefined ? message.response : message.content
+  if (message.context !== undefined) response = { context: message.context, value: response }
+  else if (response === null || typeof response !== 'object' || Array.isArray(response))
+    response = { value: response }
+  return '<|tool_response>response:' + name + writeValue(response) + '<tool_response|>'
 }

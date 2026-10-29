@@ -10,6 +10,7 @@ import {
 import { toolStart } from './markers.js'
 import { textEnd } from '../stream/markers.js'
 import { callChunkCallback } from '../callback.js'
+import { throwStreamError } from '../stream/failure.js'
 
 const channelStart = '<|channel>'
 const channelEnd = '<channel|>'
@@ -129,5 +130,5 @@ export async function* splitThinking(
   }
   if (signal?.aborted) return
   if (received && (pending || mode === 'header')) yield piece(pending)
-  if (failure && !signal?.aborted) throw failure.error
+  throwStreamError(failure, signal)
 }

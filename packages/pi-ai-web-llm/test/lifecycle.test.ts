@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
+import { isContextOverflow } from '@earendil-works/pi-ai/utils/overflow'
 import { Agent } from '@earendil-works/pi-agent-core'
 import type { ChatCompletionChunk } from '@mlc-ai/web-llm'
 import { chunk, chunks, setup } from './helpers.js'
@@ -7,6 +8,45 @@ import { chunk, chunks, setup } from './helpers.js'
 const context = { messages: [{ role: 'user' as const, content: 'Hello', timestamp: 0 }] }
 
 describe('Pi provider lifecycle', () => {
+  it.each(['direct', 'worker', 'wrapped worker'] as const)(
+    'lets Pi recognize WebLLM context overflow from %s',
+    async (kind) => {
+      const { models, model, create } = setup()
+      const message =
+        'Prompt tokens exceed context window size: number of prompt tokens: 8193; context window size: 8192'
+      const workerError = `ContextWindowSizeExceededError: ${message}`
+      const error =
+        kind === 'direct'
+          ? Object.assign(new Error(message), { name: 'ContextWindowSizeExceededError' })
+          : kind === 'worker'
+            ? workerError
+            : new Error(workerError)
+      create.mockRejectedValueOnce(error)
+
+      const result = await models.completeSimple(model, context)
+
+      expect(result.stopReason).toBe('error')
+      expect(result.errorMessage).toContain(message)
+      expect(isContextOverflow(result)).toBe(true)
+      expect((await models.completeSimple(model, context)).stopReason).toBe('stop')
+    },
+  )
+
+  it('keeps cancellation separate from an overflow-shaped reason', async () => {
+    const { provider, model, create } = setup()
+    const error = Object.assign(new Error('Cancelled'), { name: 'ContextWindowSizeExceededError' })
+    const controller = new AbortController()
+    controller.abort(error)
+
+    const result = await provider
+      .streamSimple(model, normalizeContext(context), { signal: controller.signal })
+      .result()
+
+    expect(result).toMatchObject({ stopReason: 'aborted', errorMessage: error.message })
+    expect(isContextOverflow(result)).toBe(false)
+    expect(create).not.toHaveBeenCalled()
+  })
+
   it.each([false, true])(
     'closes a native stream aborted during creation (observer=%s)',
     async (observe) => {
@@ -54,6 +94,26 @@ describe('Pi provider lifecycle', () => {
     ])
   })
 
+  it('runs a non-reasoning model with Pi Agent thinking off', async () => {
+    const { models, model, create } = setup(undefined, {
+      modelId: 'Qwen2.5-3B-Instruct-q4f16_1-MLC',
+    })
+    const agent = new Agent({
+      initialState: { model, thinkingLevel: 'off' },
+      streamFn: models.streamSimple.bind(models),
+    })
+
+    await agent.prompt('Hello')
+
+    expect(agent.state.messages.at(-1)).toMatchObject({
+      role: 'assistant',
+      stopReason: 'stop',
+      content: [{ type: 'text', text: 'Hello' }],
+    })
+    expect(create).toHaveBeenCalledOnce()
+    expect(create.mock.calls[0]?.[0].extra_body?.enable_thinking).toBeUndefined()
+  })
+
   it('preserves native thinking defaults for full stream calls', async () => {
     const { models, model, create } = setup(undefined, {
       modelId: 'Qwen3-8B-q4f16_1-MLC',
@@ -66,6 +126,19 @@ describe('Pi provider lifecycle', () => {
       false,
     ])
   })
+
+  it.each(['Qwen3-custom', 'Qwen3.5-custom'])(
+    'allows disabling default Pi thinking controls for %s',
+    async (modelId) => {
+      const defaults = setup(undefined, { modelId })
+      const disabled = setup(undefined, { modelId, reasoning: false })
+      await defaults.models.completeSimple(defaults.model, context)
+      await disabled.models.completeSimple(disabled.model, context)
+
+      expect(defaults.create.mock.calls[0]?.[0].extra_body?.enable_thinking).toBe(false)
+      expect(disabled.create.mock.calls[0]?.[0].extra_body?.enable_thinking).toBeUndefined()
+    },
+  )
 
   it('awaits payload transformations and native chunk observers in order', async () => {
     const { models, model, create } = setup()

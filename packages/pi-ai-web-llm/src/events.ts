@@ -7,8 +7,8 @@ import type {
 } from '@earendil-works/pi-ai'
 import { parseStreamingJson } from '@earendil-works/pi-ai/utils/json-parse'
 import { createAssistantMessageEventStream } from '@earendil-works/pi-ai/utils/event-stream'
-import type { StreamChunk } from '../../../shared/web-llm/stream/chunks.js'
-import { errorText } from '../../../shared/web-llm/errors.js'
+import { hasContentAfterStop, type StreamChunk } from '../../../shared/web-llm/stream/chunks.js'
+import { errorText, isContextOverflow } from '../../../shared/web-llm/errors.js'
 import { textBlocks } from './text.js'
 import { toolCalls, type ToolCallUpdate, type ToolPolicy } from './tools.js'
 
@@ -19,6 +19,7 @@ export function responseStream(
     toolPolicy: ToolPolicy
   },
   signal?: AbortSignal,
+  cleanup?: () => void,
 ): AssistantMessageEventStream {
   const stream = createAssistantMessageEventStream()
   const message: AssistantMessage = {
@@ -103,30 +104,7 @@ export function responseStream(
       }
     }
 
-    try {
-      signal?.throwIfAborted()
-      const { chunks, toolPolicy } = generate(message)
-      stream.push({ type: 'start', partial: message })
-      for await (const chunk of chunks) {
-        signal?.throwIfAborted()
-        if (stop && (chunk.text || chunk.reasoning || chunk.calls.length || chunk.stop))
-          throw new Error('WebLLM returned content after its stop reason.')
-        if (chunk.usage) {
-          message.usage.input = chunk.usage.prompt_tokens
-          message.usage.output = chunk.usage.completion_tokens
-          message.usage.totalTokens = chunk.usage.total_tokens
-        }
-        blocks.append('thinking', chunk.reasoning)
-        blocks.append('text', chunk.text)
-        appendCalls(chunk.calls)
-        if (chunk.stop) stop = chunk.stop
-      }
-      signal?.throwIfAborted()
-      if (!stop) throw new Error('WebLLM ended the stream without a stop reason.')
-      if (stop === 'cancelled')
-        throw new DOMException('WebLLM generation was interrupted.', 'AbortError')
-      blocks.close()
-      const complete = calls.finish(stop, toolPolicy)
+    function finishCalls(complete: ReturnType<typeof calls.finish>) {
       // Publish only complete, validated calls; partial arguments never become executable.
       for (const { index, call, delta } of complete) {
         signal?.throwIfAborted()
@@ -147,14 +125,58 @@ export function responseStream(
           partial: message,
         })
       }
+    }
+
+    function appendChunk(chunk: StreamChunk) {
+      if (hasContentAfterStop(stop, chunk))
+        throw new Error('WebLLM returned content after its stop reason.')
+      if (chunk.usage) {
+        message.usage.input = chunk.usage.prompt_tokens
+        message.usage.output = chunk.usage.completion_tokens
+        message.usage.totalTokens = chunk.usage.total_tokens
+      }
+      blocks.append('thinking', chunk.reasoning)
+      blocks.append('text', chunk.text)
+      appendCalls(chunk.calls)
+      if (chunk.stop) stop = chunk.stop
+    }
+
+    function finishPartialCalls() {
+      for (const [, update] of [...pendingCalls].sort(([left], [right]) => left - right))
+        appendCall({ ...update, argumentsDelta: update.argumentsText })
+      for (const { call } of partialCalls.values()) call.id ||= crypto.randomUUID()
+    }
+
+    try {
+      signal?.throwIfAborted()
+      const { chunks, toolPolicy } = generate(message)
+      stream.push({ type: 'start', partial: message })
+      for await (const chunk of chunks) {
+        signal?.throwIfAborted()
+        appendChunk(chunk)
+      }
+      signal?.throwIfAborted()
+      if (!stop) throw new Error('WebLLM ended the stream without a stop reason.')
+      if (stop === 'cancelled')
+        throw new DOMException('WebLLM generation was interrupted.', 'AbortError')
+      blocks.close()
+      const complete = calls.finish(stop, toolPolicy)
+      if (stop === 'maxTokens') finishPartialCalls()
+      finishCalls(complete)
       message.stopReason = stop === 'maxTokens' ? 'length' : complete.length ? 'toolUse' : 'stop'
       stream.push({ type: 'done', reason: message.stopReason, message })
     } catch (error) {
       blocks.close()
       message.stopReason = signal?.aborted || isAbortError(error) ? 'aborted' : 'error'
-      message.errorMessage = errorText(error)
+      const text = errorText(error)
+      // Pi detects context overflow from the error message.
+      message.errorMessage =
+        message.stopReason === 'error' && isContextOverflow(error)
+          ? `Prompt is too long: ${text}`
+          : text
       stream.push({ type: 'error', reason: message.stopReason, error: message })
     } finally {
+      cleanup?.()
       stream.end()
     }
   }

@@ -9,7 +9,7 @@ import {
 } from '@mlc-ai/web-llm'
 import { ChatWebLLM, withEngine } from '../src/index.js'
 import { withEngine as withStrandsEngine } from '../../strands-web-llm/src/index.js'
-import { chunk, chunks, collect, pause, setup } from '../fixtures/engine.js'
+import { chunk, chunks, collect, finishRetries, pause, setup } from '../fixtures/engine.js'
 
 describe('engine ownership', () => {
   it.each([
@@ -20,9 +20,11 @@ describe('engine ownership', () => {
     create.mockRejectedValueOnce(new Error('Opening failed'))
     const model = new ChatWebLLM({ engine, modelId: 'test-model', maxRetries: defaults })
 
-    const result = model.invoke('Hi', { maxRetries: retries })
-    if (retries) expect((await result).text).toBe('Okay')
-    else await expect(result).rejects.toThrow('Opening failed')
+    if (retries)
+      expect((await finishRetries(() => model.invoke('Hi', { maxRetries: retries }))).text).toBe(
+        'Okay',
+      )
+    else await expect(model.invoke('Hi', { maxRetries: retries })).rejects.toThrow('Opening failed')
     expect(create).toHaveBeenCalledTimes(retries + 1)
   })
 
@@ -42,17 +44,16 @@ describe('engine ownership', () => {
       )
     })
     const model = new ChatWebLLM({ engine, modelId, maxRetries: 1 })
-    const result = await model
-      .bindTools([
-        {
-          type: 'function',
-          function: {
-            name: 'lookup',
-            parameters: { type: 'object', properties: { code: { type: 'string' } } },
-          },
+    const bound = model.bindTools([
+      {
+        type: 'function',
+        function: {
+          name: 'lookup',
+          parameters: { type: 'object', properties: { code: { type: 'string' } } },
         },
-      ])
-      .invoke('Look up A7.')
+      },
+    ])
+    const result = await finishRetries(() => bound.invoke('Look up A7.'))
 
     expect(result.tool_calls).toMatchObject([{ name: 'lookup', args: { code: 'A7' } }])
     expect(attempts).toHaveLength(2)
@@ -341,7 +342,7 @@ it('honors explicit opening retries without retrying a partial response', async 
   const { engine, create } = setup(chunk({ content: 'Okay' }, 'stop'))
   create.mockRejectedValueOnce(new Error('Opening failed'))
   const model = new ChatWebLLM({ engine, modelId: 'test-model', maxRetries: 1 })
-  expect((await model.invoke('Hi')).text).toBe('Okay')
+  expect((await finishRetries(() => model.invoke('Hi'))).text).toBe('Okay')
   expect(create).toHaveBeenCalledTimes(2)
   create.mockResolvedValueOnce(
     (async function* () {

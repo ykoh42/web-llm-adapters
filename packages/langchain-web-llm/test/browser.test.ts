@@ -13,11 +13,36 @@ import {
   type BrowserPage,
   type WebLLMChunk,
 } from '../src/index.js'
-import { chunk, chunks, collect, pause } from '../fixtures/engine.js'
+import { chunk, chunks, collect, finishRetries, pause } from '../fixtures/engine.js'
 
 afterEach(() => vi.unstubAllGlobals())
 
 describe('browser transport', () => {
+  it('checks duplicate tool arguments without losing negative zero in history', async () => {
+    const { page, create, bridge } = browser(chunk({ content: 'Answer' }, 'stop'))
+    const model = new BrowserChatWebLLM(page, { modelId: 'test-model' })
+    const history = (value: number) => [
+      new HumanMessage('Look up the value.'),
+      new AIMessage({
+        content: [{ type: 'tool_use', id: 'call', name: 'lookup', input: { value } }],
+        tool_calls: [{ id: 'call', name: 'lookup', args: { value: -0 } }],
+      }),
+      new ToolMessage({ tool_call_id: 'call', content: 'Done' }),
+    ]
+
+    try {
+      await expect(model.invoke(history(0))).rejects.toThrow('conflicting tool call content')
+      expect(create).not.toHaveBeenCalled()
+      expect((await model.invoke(history(-0))).text).toBe('Answer')
+      const messages = create.mock.calls[0]![0].messages
+      const assistant = messages.find((message) => message.role === 'assistant')
+      const value = JSON.parse(assistant!.tool_calls![0]!.function.arguments).value
+      expect(Object.is(value, -0)).toBe(true)
+    } finally {
+      await bridge.close()
+    }
+  })
+
   it('reads buffered responses in one browser round trip', async () => {
     const { page, model, bridge } = browser(chunk({ content: 'Answer' }, 'stop'))
     const evaluate = vi.spyOn(page, 'evaluate')
@@ -112,6 +137,79 @@ describe('browser transport', () => {
     }
   })
 
+  it('cancels while the browser start response is pending', async () => {
+    const { page, bridge, create } = browser()
+    const started = pause()
+    const release = pause()
+    const stop = vi.spyOn(bridge, 'stop')
+    let first = true
+    const delayed: BrowserPage = {
+      async evaluate(run, arg) {
+        const value = await page.evaluate(run, arg)
+        if (first) {
+          first = false
+          started.resume()
+          await release.wait
+        }
+        return value
+      },
+    }
+    const model = new BrowserChatWebLLM(delayed, { modelId: 'test-model' })
+    const controller = new AbortController()
+    const pending = model
+      ._streamResponseChunks([new HumanMessage('Hi')], { signal: controller.signal })
+      .next()
+    const failed = vi.fn()
+    void pending.catch(failed)
+    try {
+      await started.wait
+      controller.abort()
+      await vi.waitFor(() => expect(failed).toHaveBeenCalledWith(controller.signal.reason))
+      release.resume()
+      await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce())
+      expect(create).not.toHaveBeenCalled()
+    } finally {
+      release.resume()
+      await pending.catch(() => {})
+      await bridge.close()
+    }
+  })
+
+  it('cancels while a browser read response is pending', async () => {
+    const { page, bridge } = browser()
+    const reading = pause()
+    const release = pause()
+    const stop = vi.spyOn(bridge, 'stop')
+    let count = 0
+    const delayed: BrowserPage = {
+      async evaluate(run, arg) {
+        const value = await page.evaluate(run, arg)
+        if (++count === 2) {
+          reading.resume()
+          await release.wait
+        }
+        return value
+      },
+    }
+    const model = new BrowserChatWebLLM(delayed, { modelId: 'test-model' })
+    const controller = new AbortController()
+    const pending = model
+      ._streamResponseChunks([new HumanMessage('Hi')], { signal: controller.signal })
+      .next()
+    const failed = vi.fn()
+    void pending.catch(failed)
+    try {
+      await reading.wait
+      controller.abort()
+      await vi.waitFor(() => expect(failed).toHaveBeenCalledWith(controller.signal.reason))
+      expect(stop).toHaveBeenCalledOnce()
+    } finally {
+      release.resume()
+      await pending.catch(() => {})
+      await bridge.close()
+    }
+  })
+
   it('aborts a buffered browser read while it waits for more output', async () => {
     const { model, create, bridge } = browser()
     const stop = vi.spyOn(bridge, 'stop')
@@ -134,6 +232,45 @@ describe('browser transport', () => {
       await cancelled
     } finally {
       hold.resume()
+      await bridge.close()
+    }
+  })
+
+  it('returns cancellation without waiting for the browser to stop', async () => {
+    const { model, bridge, create } = browser()
+    const reading = pause()
+    const release = pause()
+    const stopping = pause()
+    const releaseStop = pause()
+    const stop = bridge.stop.bind(bridge)
+    vi.spyOn(bridge, 'stop').mockImplementation(async (id) => {
+      stopping.resume()
+      await releaseStop.wait
+      await stop(id)
+    })
+    create.mockResolvedValueOnce({
+      [Symbol.asyncIterator]: () => ({
+        next: async () => {
+          reading.resume()
+          await release.wait
+          return { done: true as const, value: undefined }
+        },
+        return: async () => ({ done: true as const, value: undefined }),
+      }),
+    })
+    const controller = new AbortController()
+    const pending = model.invoke('Hi', { signal: controller.signal })
+    const failed = vi.fn()
+    void pending.catch(failed)
+    try {
+      await reading.wait
+      controller.abort()
+      await stopping.wait
+      await vi.waitFor(() => expect(failed).toHaveBeenCalledWith(controller.signal.reason))
+    } finally {
+      release.resume()
+      releaseStop.resume()
+      await pending.catch(() => {})
       await bridge.close()
     }
   })
@@ -310,9 +447,11 @@ describe('browser transport', () => {
     create.mockRejectedValueOnce(new Error('Opening failed'))
     const model = new BrowserChatWebLLM(page, { modelId: 'test-model', maxRetries: defaults })
 
-    const result = model.invoke('Hi', { maxRetries: retries })
-    if (retries) expect((await result).text).toBe('Okay')
-    else await expect(result).rejects.toThrow('Opening failed')
+    if (retries)
+      expect((await finishRetries(() => model.invoke('Hi', { maxRetries: retries }))).text).toBe(
+        'Okay',
+      )
+    else await expect(model.invoke('Hi', { maxRetries: retries })).rejects.toThrow('Opening failed')
     expect(create).toHaveBeenCalledTimes(retries + 1)
   })
 
@@ -504,6 +643,81 @@ describe('browser transport', () => {
     expect(create.mock.calls[0]?.[0].tools?.[0]?.function.parameters).toEqual(schema)
   })
 
+  it.each(['invoke', 'stream'] as const)(
+    'preserves reserved keys in tool calls returned from the browser: %s',
+    async (method) => {
+      const input = '{"__proto__":{"safe":true},"code":"A7"}'
+      const content = `<tool_call>{"name":"lookup","arguments":${input}}</tool_call>`
+      const { page, bridge } = browser(chunk({ content }, 'stop'))
+      page.evaluate = async (run, arg) => {
+        const result = await run(arg)
+        return result === undefined
+          ? result
+          : JSON.parse(JSON.stringify(result), (key, value) =>
+              key === '__proto__' ? undefined : value,
+            )
+      }
+      const model = new BrowserChatWebLLM(page, { modelId: 'Qwen3-8B-q4f16_1-MLC' })
+      try {
+        const bound = model.bindTools([
+          { type: 'function', function: { name: 'lookup', parameters: { type: 'object' } } },
+        ])
+        const calls =
+          method === 'invoke'
+            ? ((await bound.invoke('Look up the code.')).tool_calls ?? [])
+            : (await collect(await bound.stream('Look up the code.'))).flatMap(
+                (message) => message.tool_calls ?? [],
+              )
+        const call = calls.find((call) => call.id)
+        expect(JSON.stringify(call?.args)).toBe(input)
+      } finally {
+        await bridge.close()
+      }
+    },
+  )
+
+  it('preserves negative zero in streamed native tool arguments', async () => {
+    const { page, bridge } = browser(
+      chunk(
+        {
+          tool_calls: [
+            {
+              index: 0,
+              id: 'call-1',
+              type: 'function',
+              function: { name: 'lookup', arguments: '{"__proto__":{"values":[-0,0]},"value":-0}' },
+            },
+          ],
+        },
+        'tool_calls',
+      ),
+    )
+    page.evaluate = async (run, arg) => {
+      const result = await run(arg)
+      return result === undefined
+        ? result
+        : JSON.parse(JSON.stringify(result), (key, value) =>
+            key === '__proto__' ? undefined : value,
+          )
+    }
+    const model = new BrowserChatWebLLM(page, { modelId: 'test-model' })
+    try {
+      const tool = {
+        type: 'function' as const,
+        function: { name: 'lookup', parameters: { type: 'object' } },
+      }
+      const stream = await model.bindTools([tool]).stream('Look up the code.')
+      const calls = (await collect(stream)).flatMap((message) => message.tool_calls ?? [])
+      const call = calls.find((call) => call.id)
+      expect(Object.is(call?.args.value, -0)).toBe(true)
+      const nested = Object.getOwnPropertyDescriptor(call?.args ?? {}, '__proto__')?.value
+      expect(Object.is(nested?.values[0], -0)).toBe(true)
+      expect(Object.is(nested?.values[1], 0)).toBe(true)
+    } finally {
+      await bridge.close()
+    }
+  })
+
   it('preserves Float32 PCM samples and sample rate through JSON browser transport', async () => {
     const { page, create, bridge } = browser(chunk({ content: 'Heard it' }, 'stop'))
     const model = new BrowserChatWebLLM(page, { modelId: 'test-model' })
@@ -597,19 +811,27 @@ describe('browser transport', () => {
     }
   })
 
-  it('preserves inline WAV URLs in browser messages', async () => {
-    const { page, create, bridge } = browser(chunk({ content: 'Heard it' }, 'stop'))
-    const url = 'data:audio/wav;base64,AQ=='
-    const model = new BrowserChatWebLLM(page, { modelId: 'gemma-4-E2B-it-q4f16_1-MLC' })
-    try {
-      await model.invoke([new HumanMessage({ content: [{ type: 'audio', url }] })])
-      expect(create.mock.calls[0]?.[0].messages[0]?.content).toEqual([
-        { type: 'input_audio', input_audio: { format: 'wav', data: url } },
-      ])
-    } finally {
-      await bridge.close()
-    }
-  })
+  it.each(['data:', 'DATA:'])(
+    'preserves inline WAV audio with %s in browser messages',
+    async (scheme) => {
+      const { page, create, bridge } = browser(chunk({ content: 'Heard it' }, 'stop'))
+      const url = scheme + 'audio/wav;base64,AQ=='
+      const model = new BrowserChatWebLLM(page, { modelId: 'gemma-4-E2B-it-q4f16_1-MLC' })
+      const message = new HumanMessage({ content: [{ type: 'audio', url }] })
+      try {
+        await model.invoke([message])
+        expect(create.mock.calls[0]?.[0].messages[0]?.content).toEqual([
+          {
+            type: 'input_audio',
+            input_audio: { format: 'wav', data: 'data:audio/wav;base64,AQ==' },
+          },
+        ])
+        expect(message.content).toEqual([{ type: 'audio', url }])
+      } finally {
+        await bridge.close()
+      }
+    },
+  )
 
   it('preserves image and audio byte arrays in browser messages', async () => {
     const { page, create } = browser(chunk({ content: 'Okay' }, 'stop'))
@@ -628,6 +850,22 @@ describe('browser transport', () => {
       { type: 'image_url', image_url: { url: 'data:image/png;base64,AH//' } },
       { type: 'input_audio', input_audio: { data: 'AQID', format: 'wav' } },
     ])
+  })
+
+  it('rejects transferred image bytes before calling the browser', async () => {
+    const { page, create } = browser(chunk({ content: 'Okay' }, 'stop'))
+    const evaluate = vi.spyOn(page, 'evaluate')
+    const model = new BrowserChatWebLLM(page, { modelId: 'test-model' })
+    const bytes = new Uint8Array([1, 2, 3])
+    structuredClone(bytes, { transfer: [bytes.buffer] })
+
+    await expect(
+      model.invoke([
+        new HumanMessage({ content: [{ type: 'image', data: bytes, mimeType: 'image/png' }] }),
+      ]),
+    ).rejects.toThrow(TypeError)
+    expect(evaluate).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
   })
 
   it('preserves image and audio bytes from another realm in browser messages', async () => {

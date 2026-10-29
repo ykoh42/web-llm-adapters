@@ -27,61 +27,89 @@ export class QwenTags {
     for (let index = 0; index < limit; index++) {
       const character = text[index]!
       if (this.header) {
-        const header = this.header
-        if (character !== '>') header.name += character
-        else {
-          if (header.type === 'function')
-            this.tool = this.tools.find((tool) => tool.name === header.name)
-          else {
-            this.parameter = header.name
-            this.valueStart = true
-          }
-          this.header = undefined
-        }
+        this.readHeader(character)
         continue
       }
-      if (this.valueStart) {
-        if (/\s/.test(character)) continue
-        this.valueStart = false
-        if (
-          (character === '{' || character === '[') &&
-          this.tool &&
-          isJsonArgument(this.tool, this.parameter, this.schemas)
-        ) {
-          this.depth = 1
-          continue
-        }
-      }
+      if (this.valueStart && this.readValueStart(character)) continue
       if (this.depth) {
-        if (this.quoted) {
-          if (this.escaped) this.escaped = false
-          else if (character === '\\') this.escaped = true
-          else if (character === '"') this.quoted = false
-        } else if (character === '"') this.quoted = true
-        else if (character === '{' || character === '[') this.depth++
-        else if (character === '}' || character === ']') this.depth--
+        index = this.scanJson(text, index, limit)
         continue
       }
-      if (character !== '<') {
-        const next = text.indexOf('<', index + 1)
-        if (next === -1 || next >= limit) break
-        index = next - 1
-        continue
-      }
-      const marker = markers.find((marker) => text.startsWith(marker, index))
-      if (!marker) continue
+      const next = character === '<' ? index : text.indexOf('<', index + 1)
+      if (next === -1 || next >= limit) break
+      index = next
+      const marker = findMarker(text, index)
+      if (!marker || !this.readMarker(marker)) continue
       const end = index + marker.length
-      if (marker === '<parameter=') {
-        this.inParameter = true
-        this.header = { type: 'parameter', name: '' }
-      } else if (marker === '</parameter>') this.inParameter = false
-      else if (this.inParameter) continue
-      else if (marker === '<function=') {
-        this.inFunction = true
-        this.header = { type: 'function', name: '' }
-      } else if (marker === '</function>') this.inFunction = false
       yield { marker, index, end }
       index = end - 1
     }
   }
+
+  private scanJson(text: string, index: number, limit: number): number {
+    for (; index < limit; index++) {
+      const character = text[index]!
+      if (this.quoted) {
+        if (this.escaped) this.escaped = false
+        else if (character === '\\') this.escaped = true
+        else if (character === '"') this.quoted = false
+      } else if (character === '"') this.quoted = true
+      else if (character === '{' || character === '[') this.depth++
+      else if (character === '}' || character === ']') {
+        this.depth--
+        if (!this.depth) break
+      }
+    }
+    return index
+  }
+
+  private readValueStart(character: string): boolean {
+    if (/\s/.test(character)) return true
+    this.valueStart = false
+    if (
+      (character === '{' || character === '[') &&
+      this.tool &&
+      isJsonArgument(this.tool, this.parameter, this.schemas)
+    ) {
+      this.depth = 1
+      return true
+    }
+    return false
+  }
+
+  private readMarker(marker: string): boolean {
+    if (marker === '<parameter=') {
+      this.inParameter = true
+      this.header = { type: 'parameter', name: '' }
+    } else if (marker === '</parameter>') this.inParameter = false
+    else if (this.inParameter) return false
+    else if (marker === '<function=') {
+      this.inFunction = true
+      this.header = { type: 'function', name: '' }
+    } else if (marker === '</function>') this.inFunction = false
+    return true
+  }
+
+  private readHeader(character: string) {
+    const header = this.header!
+    if (character !== '>') {
+      header.name += character
+      return
+    }
+    if (header.type === 'function') this.tool = this.tools.find((tool) => tool.name === header.name)
+    else {
+      this.parameter = header.name
+      this.valueStart = true
+    }
+    this.header = undefined
+  }
+}
+
+function findMarker(text: string, at: number): string | undefined {
+  const length = markers.length
+  for (let index = 0; index < length; index++) {
+    const marker = markers[index]!
+    if (text.startsWith(marker, at)) return marker
+  }
+  return undefined
 }

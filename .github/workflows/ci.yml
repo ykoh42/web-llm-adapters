@@ -57,7 +57,15 @@ jobs:
           require-lockfile: true
       - run: pnpm build:adapters
       - run: pnpm --filter pi-ai-web-llm test:install
+      - run: pnpm --filter pi-ai-web-llm test:install yarn-pnp
       - run: pnpm --filter @web-llm-adapters/strands-harness test:install
+      - uses: pnpm/setup@fa36a5ef7dcdefc3a7cb25655c122e00cf6e636e # v3.1.2
+        with:
+          runtime: node@22.15.0
+          install: false
+      - run: pnpm --filter langchain-web-llm --filter strands-web-llm --workspace-concurrency=1 run test:install yarn-pnp
+        env:
+          NODE_OPTIONS: --experimental-strip-types
       - uses: pnpm/setup@fa36a5ef7dcdefc3a7cb25655c122e00cf6e636e # v3.1.2
         with:
           runtime: node@22.12.0

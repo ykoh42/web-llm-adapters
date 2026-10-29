@@ -8,10 +8,12 @@ export function gemmaSchema(schema: JSONSchema, root = true): Record<string, unk
   if (type === 'string' && schema.enum?.length) fields.enum = schema.enum
   if (type === 'array' && schema.items !== undefined) fields.items = arrayItems(schema.items)
   if (!root && 'nullable' in schema && schema.nullable) fields.nullable = true
-  if ((root || type === 'object') && schema.properties) {
-    if (!root || Object.keys(schema.properties).length)
-      fields.properties = properties(schema.properties)
-  }
+  if (
+    (root || type === 'object') &&
+    schema.properties &&
+    (!root || Object.keys(schema.properties).length)
+  )
+    fields.properties = properties(schema.properties)
   if ((root || type === 'object') && schema.required?.length) fields.required = schema.required
   if (type) fields.type = Array.isArray(type) ? type.map(upperType) : upperType(type)
   return fields

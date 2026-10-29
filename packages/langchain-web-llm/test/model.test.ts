@@ -407,6 +407,49 @@ describe('LangChain model', () => {
     expect(new Set(blockIndexes).size).toBe(blockIndexes.length)
   })
 
+  it('keeps text around a tool call in its original order in content streams', async () => {
+    const { model } = setup()
+    const messages = [
+      new AIMessageChunk({ content: 'Before' }),
+      new AIMessageChunk({
+        content: '',
+        tool_call_chunks: [{ index: 0, id: 'call', name: 'lookup', args: '{"code":"A7"}' }],
+      }),
+      new AIMessageChunk({ content: 'After' }),
+      new AIMessageChunk({ content: '', response_metadata: { finish_reason: 'tool_calls' } }),
+    ]
+    vi.spyOn(model, '_streamResponseChunks').mockImplementation(async function* () {
+      for (const message of messages) yield new ChatGenerationChunk({ text: '', message })
+    })
+
+    const result = await model.streamEvents('Hi')
+    expect(result.content).toMatchObject([
+      { type: 'text', text: 'Before' },
+      { type: 'tool_call', name: 'lookup', args: { code: 'A7' } },
+      { type: 'text', text: 'After' },
+    ])
+  })
+
+  it('keeps text around reasoning in its original order in content streams', async () => {
+    const { model } = setup()
+    const messages = [
+      new AIMessageChunk({ content: 'Before' }),
+      new AIMessageChunk({ content: [{ type: 'reasoning', reasoning: 'Thought' }] }),
+      new AIMessageChunk({ content: 'After' }),
+      new AIMessageChunk({ content: '', response_metadata: { finish_reason: 'stop' } }),
+    ]
+    vi.spyOn(model, '_streamResponseChunks').mockImplementation(async function* () {
+      for (const message of messages) yield new ChatGenerationChunk({ text: '', message })
+    })
+
+    const result = await model.streamEvents('Hi')
+    expect(result.content).toMatchObject([
+      { type: 'text', text: 'Before' },
+      { type: 'reasoning', reasoning: 'Thought' },
+      { type: 'text', text: 'After' },
+    ])
+  })
+
   it('keeps sparse content indices separate from tool calls without changing output', async () => {
     const { model } = setup()
     const messages = [
@@ -437,7 +480,7 @@ describe('LangChain model', () => {
 
     expect(
       events.filter((event) => event.event === 'content-block-start').map((event) => event.index),
-    ).toEqual([3, 1, 0, 2, 4])
+    ).toEqual([3, 1, 0, 2, 4, 5])
     expect(events.filter((event) => event.event === 'content-block-finish')).toEqual([
       {
         event: 'content-block-finish',
@@ -447,7 +490,7 @@ describe('LangChain model', () => {
       {
         event: 'content-block-finish',
         index: 1,
-        content: { type: 'text', text: '  Answer tail\n' },
+        content: { type: 'text', text: '  Answer' },
       },
       {
         event: 'content-block-finish',
@@ -462,6 +505,11 @@ describe('LangChain model', () => {
       {
         event: 'content-block-finish',
         index: 4,
+        content: { type: 'text', text: ' tail\n' },
+      },
+      {
+        event: 'content-block-finish',
+        index: 5,
         content: { type: 'reasoning', reasoning: 'After' },
       },
     ])

@@ -112,12 +112,9 @@ function propertySchemas(
     const schemas: unknown[] = []
 
     if (Object.hasOwn(schema, 'not') && schema.not !== undefined) {
-      const excluded = exactTypes(schema.not, context, references)
-      const types = isRecord(schema.not) ? schemaTypes(schema.not.type) : []
-      // Object exclusions can depend on several arguments; do not invert one property.
-      if (excluded === undefined && (!types.length || types.includes('object')))
-        context.unknownNegation = true
-      else if (excluded?.includes('object')) schemas.push(false)
+      const excluded = excludedObject(schema, context, references)
+      if (excluded === 'unknown') context.unknownNegation = true
+      else if (excluded === 'object') schemas.push(false)
     }
 
     if (typeof schema.$ref === 'string') {
@@ -129,45 +126,74 @@ function propertySchemas(
       schemas.push(...propertySchemas(target, context, new Set([...references, schema.$ref])))
     }
 
-    let matched = false
-    if (isRecord(schema.properties) && Object.hasOwn(schema.properties, context.name)) {
-      schemas.push(schema.properties[context.name])
-      matched = true
-    }
-    if (isRecord(schema.patternProperties)) {
-      try {
-        for (const [pattern, value] of Object.entries(schema.patternProperties)) {
-          if (!new RegExp(pattern, 'u').test(context.name)) continue
-          schemas.push(value)
-          matched = true
-        }
-      } catch (cause) {
-        throw new ModelError('Qwen3.5 cannot read a tool schema pattern.', { cause })
-      }
-    }
-    if (!matched) {
-      if (schema.additionalProperties === false) schemas.push(false)
-      else if (isRecord(schema.additionalProperties)) schemas.push(schema.additionalProperties)
-    }
-
-    for (const keyword of ['allOf', 'anyOf', 'oneOf'] as const) {
-      const alternatives = schema[keyword]
-      if (alternatives === undefined) continue
-      if (!Array.isArray(alternatives) || !alternatives.length)
-        throw new ModelError('Qwen3.5 cannot read a tool schema.')
-      // Exclusive branches may share argument types; exclusivity applies to the whole object.
-      const operation = keyword === 'allOf' ? 'allOf' : 'anyOf'
-      schemas.push({
-        [operation]: alternatives.map((branch) => ({
-          allOf: propertySchemas(branch, context, references),
-        })),
-      })
-    }
+    addProperties(schema, context, schemas)
+    addPropertyBranches(schema, context, references, schemas)
 
     context.fields.set(schema, schemas)
     return schemas
   } finally {
     context.activeFields.delete(schema)
+  }
+}
+
+function excludedObject(
+  schema: Record<string, unknown>,
+  context: SchemaContext,
+  references: Set<string>,
+): 'unknown' | 'object' | undefined {
+  const excluded = exactTypes(schema.not, context, references)
+  const types = isRecord(schema.not) ? schemaTypes(schema.not.type) : []
+  // Object exclusions can depend on several arguments; do not invert one property.
+  if (excluded === undefined && (!types.length || types.includes('object'))) return 'unknown'
+  if (excluded?.includes('object')) return 'object'
+  return undefined
+}
+
+function addProperties(
+  schema: Record<string, unknown>,
+  context: SchemaContext,
+  schemas: unknown[],
+) {
+  let matched = false
+  if (isRecord(schema.properties) && Object.hasOwn(schema.properties, context.name)) {
+    schemas.push(schema.properties[context.name])
+    matched = true
+  }
+  if (isRecord(schema.patternProperties)) {
+    try {
+      for (const [pattern, value] of Object.entries(schema.patternProperties)) {
+        if (!new RegExp(pattern, 'u').test(context.name)) continue
+        schemas.push(value)
+        matched = true
+      }
+    } catch (cause) {
+      throw new ModelError('Qwen3.5 cannot read a tool schema pattern.', { cause })
+    }
+  }
+  if (!matched) {
+    if (schema.additionalProperties === false) schemas.push(false)
+    else if (isRecord(schema.additionalProperties)) schemas.push(schema.additionalProperties)
+  }
+}
+
+function addPropertyBranches(
+  schema: Record<string, unknown>,
+  context: SchemaContext,
+  references: Set<string>,
+  schemas: unknown[],
+) {
+  for (const keyword of ['allOf', 'anyOf', 'oneOf'] as const) {
+    const alternatives = schema[keyword]
+    if (alternatives === undefined) continue
+    if (!Array.isArray(alternatives) || !alternatives.length)
+      throw new ModelError('Qwen3.5 cannot read a tool schema.')
+    // Exclusive branches may share argument types; exclusivity applies to the whole object.
+    const operation = keyword === 'allOf' ? 'allOf' : 'anyOf'
+    schemas.push({
+      [operation]: alternatives.map((branch) => ({
+        allOf: propertySchemas(branch, context, references),
+      })),
+    })
   }
 }
 
@@ -183,14 +209,11 @@ function readTypes(
   context.activeTypes.add(value)
   try {
     const constraints: string[][] = []
-    if (typeof value.$ref === 'string') {
-      if (references.has(value.$ref)) throw new ModelError('Qwen3.5 found a recursive tool schema.')
-      const target = resolveReference(context.root, value.$ref)
-      if (typeof target !== 'boolean' && !isRecord(target))
-        throw new ModelError('Qwen3.5 cannot resolve a tool schema reference.')
-      const types = readTypes(target, context, new Set([...references, value.$ref]))
-      if (types) constraints.push(types)
-    }
+    const reference =
+      typeof value.$ref === 'string'
+        ? referencedTypes(value as { $ref: string }, context, references)
+        : undefined
+    if (reference) constraints.push(reference)
 
     const types = schemaTypes(value.type)
     if (types.length) constraints.push(types)
@@ -199,35 +222,12 @@ function readTypes(
     if (Object.hasOwn(value, 'const') && value.const !== undefined)
       constraints.push([valueType(value.const)])
 
-    for (const keyword of ['anyOf', 'oneOf'] as const) {
-      const alternatives = value[keyword]
-      if (alternatives === undefined) continue
-      if (!Array.isArray(alternatives) || !alternatives.length)
-        throw new ModelError('Qwen3.5 cannot determine a tool argument type.')
-      // An untyped branch admits every JSON type; sibling rules can still narrow it.
-      const branchTypes = alternatives.map(
-        (branch) => readTypes(branch, context, references) ?? jsonTypes,
-      )
-      constraints.push([...new Set(branchTypes.flat())])
-    }
-
-    if (value.allOf !== undefined) {
-      if (!Array.isArray(value.allOf))
-        throw new ModelError('Qwen3.5 cannot determine a tool argument type.')
-      const branchTypes = value.allOf
-        .map((branch) => readTypes(branch, context, references))
-        .filter((branch): branch is string[] => branch !== undefined)
-      constraints.push(...branchTypes)
-    }
-
-    if (Object.hasOwn(value, 'not') && value.not !== undefined) {
-      const excluded = exactTypes(value.not, context, references)
-      if (excluded === undefined) {
-        context.unknownNegation = true
-      } else if (excluded.length) {
-        constraints.push(jsonTypes.filter((type) => !excluded.includes(type)))
-      }
-    }
+    addTypeBranches(value, context, references, constraints)
+    const negation =
+      Object.hasOwn(value, 'not') && value.not !== undefined
+        ? negatedTypes(value.not, context, references)
+        : undefined
+    if (negation) constraints.push(negation)
 
     if (!constraints.length) {
       context.types.set(value, undefined)
@@ -239,6 +239,59 @@ function readTypes(
     return result
   } finally {
     context.activeTypes.delete(value)
+  }
+}
+
+function referencedTypes(
+  value: { $ref: string },
+  context: SchemaContext,
+  references: Set<string>,
+): string[] | undefined {
+  if (references.has(value.$ref)) throw new ModelError('Qwen3.5 found a recursive tool schema.')
+  const target = resolveReference(context.root, value.$ref)
+  if (typeof target !== 'boolean' && !isRecord(target))
+    throw new ModelError('Qwen3.5 cannot resolve a tool schema reference.')
+  return readTypes(target, context, new Set([...references, value.$ref]))
+}
+
+function negatedTypes(
+  value: unknown,
+  context: SchemaContext,
+  references: Set<string>,
+): string[] | undefined {
+  const excluded = exactTypes(value, context, references)
+  if (excluded === undefined) {
+    context.unknownNegation = true
+    return undefined
+  }
+  if (excluded.length) return jsonTypes.filter((type) => !excluded.includes(type))
+  return undefined
+}
+
+function addTypeBranches(
+  value: Record<string, unknown>,
+  context: SchemaContext,
+  references: Set<string>,
+  constraints: string[][],
+) {
+  for (const keyword of ['anyOf', 'oneOf'] as const) {
+    const alternatives = value[keyword]
+    if (alternatives === undefined) continue
+    if (!Array.isArray(alternatives) || !alternatives.length)
+      throw new ModelError('Qwen3.5 cannot determine a tool argument type.')
+    // An untyped branch admits every JSON type; sibling rules can still narrow it.
+    const branchTypes = alternatives.map(
+      (branch) => readTypes(branch, context, references) ?? jsonTypes,
+    )
+    constraints.push([...new Set(branchTypes.flat())])
+  }
+  if (value.allOf !== undefined) {
+    if (!Array.isArray(value.allOf))
+      throw new ModelError('Qwen3.5 cannot determine a tool argument type.')
+    const branchTypes = value.allOf
+      .map((branch) => readTypes(branch, context, references))
+      .filter((branch): branch is string[] => branch !== undefined)
+    constraints.push(...branchTypes)
   }
 }
 
@@ -278,30 +331,46 @@ function exactTypes(
     }
     if (keys[0] === 'allOf' || keys[0] === 'anyOf') {
       const keyword = keys[0]
-      const alternatives = value[keyword]
-      if (!Array.isArray(alternatives) || !alternatives.length) return undefined
-      const branches: string[][] = []
-      for (const branch of alternatives) {
-        const types = exactTypes(branch, context, references)
-        if (types === undefined) return undefined
-        branches.push(types)
-      }
-      return jsonTypes.filter((type) =>
-        keyword === 'allOf'
-          ? branches.every((types) => types.includes(type))
-          : branches.some((types) => types.includes(type)),
-      )
+      return exactBranchTypes(value[keyword], keyword, context, references)
     }
-    if (keys[0] !== '$ref' || typeof value.$ref !== 'string') return undefined
-    if (!value.$ref.startsWith('#')) return undefined
-    if (references.has(value.$ref)) throw new ModelError('Qwen3.5 found a recursive tool schema.')
-    const target = resolveReference(context.root, value.$ref)
-    if (typeof target !== 'boolean' && !isRecord(target))
-      throw new ModelError('Qwen3.5 cannot resolve a tool schema reference.')
-    return exactTypes(target, context, new Set([...references, value.$ref]))
+    if (keys[0] !== '$ref') return undefined
+    return exactReference(value, context, references)
   } finally {
     context.activeExactTypes.delete(value)
   }
+}
+
+function exactReference(
+  value: Record<string, unknown>,
+  context: SchemaContext,
+  references: Set<string>,
+): string[] | undefined {
+  if (typeof value.$ref !== 'string' || !value.$ref.startsWith('#')) return undefined
+  if (references.has(value.$ref)) throw new ModelError('Qwen3.5 found a recursive tool schema.')
+  const target = resolveReference(context.root, value.$ref)
+  if (typeof target !== 'boolean' && !isRecord(target))
+    throw new ModelError('Qwen3.5 cannot resolve a tool schema reference.')
+  return exactTypes(target, context, new Set([...references, value.$ref]))
+}
+
+function exactBranchTypes(
+  alternatives: unknown,
+  keyword: 'allOf' | 'anyOf',
+  context: SchemaContext,
+  references: Set<string>,
+): string[] | undefined {
+  if (!Array.isArray(alternatives) || !alternatives.length) return undefined
+  const branches: string[][] = []
+  for (const branch of alternatives) {
+    const types = exactTypes(branch, context, references)
+    if (types === undefined) return undefined
+    branches.push(types)
+  }
+  return jsonTypes.filter((type) =>
+    keyword === 'allOf'
+      ? branches.every((types) => types.includes(type))
+      : branches.some((types) => types.includes(type)),
+  )
 }
 
 function valueType(value: unknown): string {
@@ -329,10 +398,10 @@ function resolveReference(root: Record<string, unknown>, reference: string): unk
     if (Array.isArray(value)) {
       if (!/^(0|[1-9]\d*)$/.test(key) || !Object.hasOwn(value, key)) return undefined
       value = value[Number(key)]
-    } else {
-      if (!isRecord(value) || !Object.hasOwn(value, key)) return undefined
-      value = value[key]
+      continue
     }
+    if (!isRecord(value) || !Object.hasOwn(value, key)) return undefined
+    value = value[key]
   }
   return value
 }

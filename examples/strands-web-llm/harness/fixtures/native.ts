@@ -27,3 +27,25 @@ export async function recordNative(info: TestInfo, name: string, data: unknown) 
   await writeFile(path, JSON.stringify(data))
   await info.attach(name, { path, contentType: 'application/json' })
 }
+
+/** Observe the chat requests made by the running browser engine. */
+export async function captureChatRequests(page: Page) {
+  await page.evaluate(() =>
+    window.webllmBridge.withEngine((engine) => {
+      window.releaseChatRequests = []
+      const endpoint = engine.chat.completions
+      endpoint.create = new Proxy(endpoint.create, {
+        apply(target, self, args) {
+          window.releaseChatRequests.push(structuredClone(args[0]))
+          return Reflect.apply(target, self, args)
+        },
+      })
+    }),
+  )
+}
+
+declare global {
+  interface Window {
+    releaseChatRequests: ChatCompletionRequestStreaming[]
+  }
+}

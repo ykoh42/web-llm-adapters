@@ -1,4 +1,4 @@
-import { Agent, FunctionTool, Message, TextBlock } from '@strands-agents/sdk'
+import { Agent, FunctionTool, Message, TextBlock, type ModelStreamEvent } from '@strands-agents/sdk'
 import { expect, it, vi } from 'vitest'
 import { chunk, chunks, collect, setup } from '../../fixtures/engine.js'
 import { WebLLMModel } from '../../src/index.js'
@@ -103,6 +103,109 @@ it.each(['Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC'])(
         expect.objectContaining({ type: 'reasoningBlock', text: 'Second' }),
         expect.objectContaining({ type: 'textBlock', text: 'End' }),
       ])
+    }
+  },
+)
+
+it.each([
+  {
+    modelId: 'Qwen2.5-3B-Instruct-q4f16_1-MLC',
+    call: '<tool_call>{"name":"lookup","arguments":{"code":"A7"}}</tool_call>',
+  },
+  {
+    modelId: 'Qwen3-4B-q4f16_1-MLC',
+    call: '<tool_call>{"name":"lookup","arguments":{"code":"A7"}}</tool_call>',
+  },
+  {
+    modelId: 'Qwen3.5-4B-q4f16_1-MLC',
+    call: '<tool_call><function=lookup><parameter=code>A7</parameter></function></tool_call>',
+  },
+])('$modelId keeps text and tools in model order', async ({ modelId, call }) => {
+  const source = `Before${call}Between${call}After`
+  for (const size of [1, source.length]) {
+    const parts = source.match(new RegExp(`[\\s\\S]{1,${size}}`, 'g'))!
+    const { model } = setup(
+      ...parts.map((content, index) =>
+        chunk({ content }, index === parts.length - 1 ? 'stop' : null),
+      ),
+    )
+    model.updateConfig({ modelId })
+    const events = await collect(
+      model.stream([new Message({ role: 'user', content: [new TextBlock('Look up A7.')] })], {
+        toolSpecs: [{ name: 'lookup', description: 'Look up a code.' }],
+      }),
+    )
+    const blocks = events.flatMap((event) => {
+      if (event.type !== 'modelContentBlockStartEvent') return []
+      return [event.start?.type === 'toolUseStart' ? 'tool' : 'text']
+    })
+    expect(blocks, `chunk size ${size}`).toEqual(['text', 'tool', 'text', 'tool', 'text'])
+    expect(
+      events
+        .flatMap((event) =>
+          event.type === 'modelContentBlockDeltaEvent' && event.delta.type === 'textDelta'
+            ? [event.delta.text]
+            : [],
+        )
+        .join(''),
+    ).toBe('BeforeBetweenAfter')
+    expect(events.at(-1)).toMatchObject({ type: 'modelMessageStopEvent', stopReason: 'toolUse' })
+  }
+})
+
+it.each([
+  {
+    modelId: 'Qwen3-4B-q4f16_1-MLC',
+    call: '<tool_call>{"name":"lookup","arguments":{"code":"A7"}}</tool_call>',
+  },
+  {
+    modelId: 'Qwen3.5-4B-q4f16_1-MLC',
+    call: '<tool_call><function=lookup><parameter=code>A7</parameter></function></tool_call>',
+  },
+])(
+  '$modelId keeps later text without publishing tools when generation ends early',
+  async ({ modelId, call }) => {
+    for (const finish of ['length', 'abort', 'error'] as const) {
+      const failure = new Error('Stream failed')
+      const { model, create } = setup()
+      model.updateConfig({ modelId })
+      create.mockResolvedValueOnce(
+        (async function* () {
+          yield chunk({ content: `Before${call}After` }, finish === 'error' ? null : finish)
+          if (finish === 'error') throw failure
+        })(),
+      )
+      const events: ModelStreamEvent[] = []
+      const pending = (async () => {
+        for await (const event of model.stream(
+          [new Message({ role: 'user', content: [new TextBlock('Look up A7.')] })],
+          { toolSpecs: [{ name: 'lookup', description: 'Look up a code.' }] },
+        ))
+          events.push(event)
+      })()
+
+      if (finish === 'error') await expect(pending).rejects.toBe(failure)
+      else await pending
+      expect(
+        events
+          .flatMap((event) =>
+            event.type === 'modelContentBlockDeltaEvent' && event.delta.type === 'textDelta'
+              ? [event.delta.text]
+              : [],
+          )
+          .join(''),
+      ).toBe('BeforeAfter')
+      expect(events).not.toContainEqual(
+        expect.objectContaining({
+          type: 'modelContentBlockStartEvent',
+          start: expect.objectContaining({ type: 'toolUseStart' }),
+        }),
+      )
+      if (finish !== 'error')
+        expect(events.at(-1)).toMatchObject({
+          type: 'modelMessageStopEvent',
+          stopReason: finish === 'length' ? 'maxTokens' : 'cancelled',
+        })
     }
   },
 )

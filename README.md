@@ -13,9 +13,9 @@ The first load fetches WebLLM's runtime and model files; the browser caches them
 ## Models
 
 Exact WebLLM **0.2.86** IDs checked with the adapters below. **All** = LangChain, Pi, and Strands.
-`O` = verified; `O*` = verified with `request.constrainedToolCalls: true`; `X` = unverified. Tools covers call → result → final answer; Think covers separation and preservation of native reasoning.
+`O` = verified; `O*` = verified with `request.constrainedToolCalls: true`; `X` = unverified. Tools covers call → result → final answer; Think covers separation and preservation of native reasoning within the current tool loop.
 Tool choice and argument accuracy depend on the model.
-Decode speeds are local M4 Pro (24 GB), Chrome 155 measurements.
+MMLU-Pro scores are for the source models; decode speeds are local M4 Pro (24 GB), Chrome 155 measurements.
 
 | Exact WebLLM `model_id`             |                                                                 MMLU-Pro | Decode tok/s | Tools | Think | Image | Audio                  | Video | Verified adapters |
 | ----------------------------------- | -----------------------------------------------------------------------: | -----------: | ----- | ----- | ----- | ---------------------- | ----- | ----------------- |
@@ -25,21 +25,28 @@ Decode speeds are local M4 Pro (24 GB), Chrome 155 measurements.
 | `Qwen3-4B-q4f16_1-MLC`              |   [70.4](https://huggingface.co/Qwen/Qwen3-4B-Thinking-2507#performance) |         51.5 | O     | O     | X     | X                      | X     | All               |
 | `Qwen3.5-2B-q4f16_1-MLC`            |                           [66.5](https://huggingface.co/Qwen/Qwen3.5-2B) |         59.7 | O     | O     | X     | X                      | X     | All               |
 | `gemma-4-E2B-it-q4f16_1-MLC`        |                     [60.0](https://huggingface.co/google/gemma-4-E2B-it) |         38.5 | O     | O     | X     | O (LangChain, Strands) | X     | All               |
+| `Qwen3-1.7B-q4f16_1-MLC`            |                           [56.5](https://huggingface.co/Qwen/Qwen3.5-2B) |            — | O     | O     | X     | X                      | X     | All               |
 | `Qwen2.5-7B-Instruct-q4f16_1-MLC`   |                       [56.3](https://qwenlm.github.io/blog/qwen2.5-llm/) |         38.0 | O*    | X     | X     | X                      | X     | All               |
-| `Qwen3-1.7B-q4f16_1-MLC`            |                                                                        — |            — | O     | O     | X     | X                      | X     | All               |
 | `Qwen2.5-3B-Instruct-q4f16_1-MLC`   |                       [43.7](https://qwenlm.github.io/blog/qwen2.5-llm/) |         59.5 | O     | X     | X     | X                      | X     | All               |
 | `Qwen3.5-0.8B-q4f16_1-MLC`          |                         [42.3](https://huggingface.co/Qwen/Qwen3.5-0.8B) |         71.2 | O     | O     | X     | X                      | X     | All               |
 | `Qwen2.5-1.5B-Instruct-q4f16_1-MLC` |                       [32.4](https://qwenlm.github.io/blog/qwen2.5-llm/) |         87.6 | O     | X     | X     | X                      | X     | All               |
 | `Qwen2.5-0.5B-Instruct-q4f16_1-MLC` |                       [15.0](https://qwenlm.github.io/blog/qwen2.5-llm/) |        136.8 | O     | X     | X     | X                      | X     | All               |
 
 Gemma needs the bundled [runtime setup](shared/runtime/README.md). Audio works in ordinary chat, without tools or thinking. Video is unsupported.
+Gemma named or single-tool required choices prefill the call, so there is no thinking before that call.
+For Hermes, WebLLM does not enforce `tool_choice`; the adapters validate the result.
+Qwen and native chat replay tool results in the supplied order; they do not match results by ID.
+Qwen3 and Qwen3.5 drop earlier thinking after a new user question, following their model templates.
 Qwen2.5-7B can emit malformed tool calls without [constraints](#tool-call-constraints). Constraints are optional and off by default.
+Qwen2.5 uses its original default system prompt when no system message is present; this differs from WebLLM's model configuration. Pi supplies an empty system message for tools when no system prompt is set, so the default is omitted in that case.
+Required and named Qwen tool choices append an instruction to the system message.
+When a Qwen3.5 argument's type cannot be inferred, JSON-like values may be parsed as JSON. In nullable string fields, `null` is interpreted as null rather than the string `"null"`.
 
 <details>
 <summary>Benchmark notes and tool formats</summary>
 
-Models are ranked by available upstream MMLU-Pro with thinking on; Qwen2.5 has no thinking mode. Unscored placement is estimated.
-Sources and evaluation settings vary. Decode speeds are the median of three local runs,
+Models are ranked by source-model MMLU-Pro with thinking on; Qwen2.5 has no thinking mode.
+Evaluation settings vary. Decode speeds are the median of three local runs,
 thinking off, max 128 tokens; they are not portable across devices.
 
 Tool formats follow [Hermes](https://github.com/QwenLM/Qwen3/blob/main/docs/source/framework/function_call.md)
@@ -58,19 +65,22 @@ Tool formats follow [Hermes](https://github.com/QwenLM/Qwen3/blob/main/docs/sour
 | `snowflake-arctic-embed-s-q0f32-MLC-b32` | Embeddings, 384 dimensions | LangChain, Strands |
 | `snowflake-arctic-embed-s-q0f32-MLC-b4`  | Embeddings, 384 dimensions | LangChain, Strands |
 
-Embedding inputs are limited to 512 tokens. No listed model is verified for both tools and vision.
+The listed embedding models accept up to 512 tokens. No listed model is verified for both tools and vision.
 
-Runnable examples use model-card sampling settings supported by WebLLM, except where they demonstrate custom sampling. `top_k` and `min_p` are not exposed by its API.
+Runnable examples use published model sampling settings supported by WebLLM, except where they demonstrate custom sampling. `top_k` and `min_p` are not exposed by its API.
 
 When using a custom WebLLM configuration, keep the listed `model_id` for supported models.
+
+Without a schema, `response_format: { type: 'json_object' }` accepts any JSON value. Set `schema: '{"type":"object"}'` to require an object.
 
 ## Tool-call constraints
 
 WebLLM uses XGrammar for structured `response_format`; `structural_tag` is one format type, not a
 separate `xgrammar2` flag. Raw formats work on chat paths when the model supports them.
-`constrainedToolCalls` builds Qwen-specific tool grammar and is verified for every Qwen ID above.
-It does not add automatic tool constraints for other model formats. All three adapters accept it
-with WebLLM **0.2.86**. It uses the existing tool definitions;
+`constrainedToolCalls` builds Qwen-specific tool grammar. Earlier tests covered every Qwen ID above; release checks use representative IDs.
+With tools enabled, unverified model IDs return an error. All three adapters accept it with
+WebLLM **0.2.86**. WebLLM 0.2.79–0.2.80 silently ignores structural tags.
+It uses the existing tool definitions;
 framework tool selection, thinking, and argument validation still apply. It can be slower or less accurate.
 It does not guarantee the intended tool call or argument values.
 Explicit text format is compatible; JSON, grammar, and structural-tag formats are not. WebLLM resumable generation is unsupported.
@@ -115,4 +125,5 @@ pnpm install
 pnpm check
 ```
 
+Registry packages need a publish time and must be at least 24 hours old.
 CI also tests packed consumer installs. Run `pnpm test:install:manager <manager>` with `yarn-pnp`, `yarn-node-modules`, or `pnpm`.

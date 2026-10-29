@@ -2,6 +2,35 @@ import { expect, it, vi } from 'vitest'
 import { startCall, streamCall } from '../../../../shared/web-llm/engine/call.js'
 import { setupEngine, chunks, chunk, pause, collect } from '../../../../fixtures/web-llm.js'
 
+it('returns a cancelled stream while keeping the engine reserved for cleanup', async () => {
+  const { engine, stop } = setupEngine()
+  const closing = pause()
+  stop.mockImplementation(() => closing.wait)
+  const controller = new AbortController()
+  const stream = streamCall(
+    engine,
+    async () => chunks(chunk({ content: 'first' })),
+    (items) => items,
+    controller.signal,
+  )
+  await stream.next()
+  controller.abort()
+  const returned = stream.return(undefined)
+  const settled = vi.fn()
+  void returned.then(settled, settled)
+  const next = vi.fn(async () => chunks(chunk({}, 'stop')))
+  const waiting = startCall(engine, next)
+  try {
+    await vi.waitFor(() => expect(settled).toHaveBeenCalledOnce())
+    expect(next).not.toHaveBeenCalled()
+  } finally {
+    closing.resume()
+    await returned
+    await (await waiting).close(false)
+  }
+  expect(next).toHaveBeenCalledOnce()
+})
+
 it.each(['throw', 'reject'] as const)(
   'closes the stream and releases the queue when interrupt fails (%s)',
   async (failure) => {
@@ -90,4 +119,82 @@ it('does not open a request cancelled while registering its active listener', as
   expect(open).not.toHaveBeenCalled()
   const next = await startCall(engine, async () => chunks(chunk({}, 'stop')))
   await next.close(false)
+})
+
+it('cancels a pending open while keeping the engine reserved until cleanup', async () => {
+  const { engine, stop } = setupEngine()
+  const opening = pause()
+  const started = pause()
+  const returned = vi.fn(async () => ({ done: true as const, value: undefined }))
+  const controller = new AbortController()
+  const first = startCall(
+    engine,
+    async () => {
+      started.resume()
+      await opening.wait
+      return {
+        [Symbol.asyncIterator]: () => ({
+          next: async () => ({ done: true as const, value: undefined }),
+          return: returned,
+        }),
+      }
+    },
+    controller.signal,
+  )
+  const result = first.catch((error: unknown) => error)
+  await started.wait
+  controller.abort()
+  await expect(result).resolves.toBe(controller.signal.reason)
+  expect(stop).toHaveBeenCalledTimes(1)
+
+  const openNext = vi.fn(async () => chunks(chunk({}, 'stop')))
+  const next = startCall(engine, openNext)
+  await Promise.resolve()
+  expect(openNext).not.toHaveBeenCalled()
+  opening.resume()
+  const call = await next
+  expect(returned).toHaveBeenCalledTimes(1)
+  await call.close(false)
+})
+
+it('cancels a pending read while keeping the engine reserved until cleanup', async () => {
+  const { engine, stop } = setupEngine()
+  const reading = pause()
+  const release = pause()
+  const returned = vi.fn(async () => ({ done: true as const, value: undefined }))
+  const controller = new AbortController()
+  const stream = streamCall(
+    engine,
+    async () => ({
+      [Symbol.asyncIterator]: () => ({
+        next: async () => {
+          reading.resume()
+          await release.wait
+          return { done: true as const, value: undefined }
+        },
+        return: returned,
+      }),
+    }),
+    (chunks) => chunks,
+    controller.signal,
+  )
+  const failed = vi.fn()
+  const pending = stream.next().catch(failed)
+  await reading.wait
+  controller.abort()
+  const openNext = vi.fn(async () => chunks(chunk({}, 'stop')))
+  const next = startCall(engine, openNext)
+  try {
+    await vi.waitFor(() => expect(failed).toHaveBeenCalledWith(controller.signal.reason))
+    expect(stop).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(returned).toHaveBeenCalledOnce())
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(openNext).not.toHaveBeenCalled()
+  } finally {
+    release.resume()
+    await pending
+  }
+  const call = await next
+  expect(returned).toHaveBeenCalledTimes(1)
+  await call.close(false)
 })

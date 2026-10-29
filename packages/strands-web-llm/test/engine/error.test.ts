@@ -21,6 +21,15 @@ it('keeps an existing Strands overflow error unchanged', () => {
   expect(modelError(error)).toBe(error)
 })
 
+it('preserves the message and cause of an error-like overflow', () => {
+  const error = { name: 'ContextWindowSizeExceededError', message: 'Input is too long.' }
+  expect(modelError(error)).toMatchObject({
+    name: 'ContextWindowOverflowError',
+    message: error.message,
+    cause: error,
+  })
+})
+
 it('preserves an error proxy when its prototype cannot be inspected', async () => {
   const { model, create } = setup()
   const error = new Proxy(new Error('Native failed'), {

@@ -20,7 +20,7 @@ export function modelError(error: unknown): Error {
       const { name, message } = nativeError
       if (name === 'ContextOverflowError') {
         const restored = new ContextOverflowError(message)
-        if (isError(nativeError.cause)) restored.cause = nativeError.cause
+        if ('cause' in nativeError) Object.assign(restored, { cause: nativeError.cause })
         return restored
       }
     } catch {
@@ -33,6 +33,17 @@ export function modelError(error: unknown): Error {
 
 function restoreFailure(error: unknown): Error {
   const restored = restoreError(serializeError(error))
+  if ((typeof error === 'object' && error !== null) || typeof error === 'function') {
+    try {
+      for (const key of Reflect.ownKeys(error)) {
+        if (key === 'name' || key === 'message' || key === 'stack' || key === 'cause') continue
+        const descriptor = Object.getOwnPropertyDescriptor(error, key)
+        if (descriptor && 'value' in descriptor) Object.defineProperty(restored, key, descriptor)
+      }
+    } catch {
+      // Preserve the original failure if a proxy blocks property inspection.
+    }
+  }
   restored.cause = error
   return restored
 }

@@ -11,7 +11,8 @@ npm install strands-web-llm
 
 - Yarn: also install compatible versions of `@mlc-ai/web-llm`, `@strands-agents/sdk`, and the SDK peers listed by `yarn explain peer-requirements`.
 - pnpm: if dependency scripts are blocked, run [`pnpm approve-builds`](https://pnpm.io/cli/approve-builds) to allow or deny them, then rerun `pnpm install`.
-- TypeScript: use `moduleResolution: "bundler"` for full WebLLM option checking; its declarations lose type information under `NodeNext`.
+- CommonJS: use `require('strands-web-llm')` on Node.js 22.12 or later. With Yarn PnP on Node 22.12–22.14 or 23.0–23.4, use `import()`.
+- TypeScript: `moduleResolution: "bundler"` retains more WebLLM option types than `NodeNext`. WebLLM's declarations may require `skipLibCheck` and leave some types unchecked.
 
 ## Browser
 
@@ -125,39 +126,47 @@ Install WebLLM `0.2.79` or later in the `0.2.x` series. Gemma 4 E2B was verified
 `WebLLMEmbeddingSearchStrategy` connects WebLLM to Strands memory; see the
 [memory example](https://github.com/ykoh42/web-llm-adapters/blob/main/examples/strands-web-llm/harness/src/memory.ts).
 This strategy embeds UTF-8 text only. Entries with invalid UTF-8 stay in storage but are excluded from semantic search.
-These embedding models have a 512-token input limit. Prefix queries with
+Snowflake Arctic Embed S and M have a 512-token input limit. Prefix queries with
 `Represent this sentence for searching relevant passages: `; leave stored text unprefixed.
 Search returns positive cosine matches by default; set `minScore` to include lower scores.
 `includeData: false` reduces memory use; FileMemoryStore rereads the returned matches.
-Searches scan all entries, and vectors rebuild after restart. Keep each stored record within 512 tokens;
-FileMemoryStore appends facts that share a heading.
+Searches scan all entries, and vectors rebuild after restart. FileMemoryStore appends facts that share a heading,
+so keep each stored record within the model's input limit.
+Before changing the embedding model, wait for pending searches and writes, then call `strategy.clearCache()`.
 
 ## Support
 
 Tested with WebLLM **0.2.79** and **0.2.86**, and Strands SDK **1.18.0** and **1.22.0**. Model availability depends on the installed WebLLM version. Harness **0.3.1** is used by the integration example.
+
+WebLLM 0.2.79 ignores request-level `repetition_penalty` and `enable_latency_breakdown`. Versions 0.2.81–0.2.83 fail when directly imported as ESM in Node.js. Versions 0.2.79–0.2.85 can leave the engine blocked after a stream stops early. Use 0.2.86 for cancellation and reuse.
 Features depend on the exact model.
 
 For Gemma 4, `request.extra_body.preserve_thinking: true` also keeps earlier tool-call reasoning; the default keeps only the current user turn.
 
 Set `thinkingPrefilled: true` at construction if your loaded Qwen template already opens `<think>`. This only controls output parsing; it does not change the engine or prompt. See [Qwen3.5 engine setup](https://github.com/ykoh42/web-llm-adapters#qwen35-engine-setup) for WebLLM 0.2.86.
 
-| Feature                       | Use                                                                                                                           | Limit                                                                                               |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| Chat, system prompts, history | Strands messages and `systemPrompt`                                                                                           | Unsupported blocks raise errors                                                                     |
-| Provider citation blocks      | Unsupported                                                                                                                   | This adapter does not produce them; cited history raises an error                                   |
-| Streaming and cancellation    | `agent.stream()`, `agent.cancel()`                                                                                            | One assistant response per call                                                                     |
-| Tools and results             | Strands tools and `toolChoice`                                                                                                | Qwen supports `any`; Gemma/native tool models require one tool                                      |
-| Disable tools                 | `request.tool_choice: 'none'`                                                                                                 | Keeps the Agent tool registry                                                                       |
-| Thinking                      | `request.extra_body.enable_thinking`                                                                                          | Render `textBlock` values to show only the answer                                                   |
-| Sampling and token limits     | `request`; `maxTokens`, `temperature`, `topP`                                                                                 | SDK aliases take precedence                                                                         |
-| Output constraints            | `request.response_format`; optional [Qwen tool constraints](https://github.com/ykoh42/web-llm-adapters#tool-call-constraints) | Custom formats cannot combine with Qwen tools; Gemma tool/thinking mode only supports text          |
-| Images and WAV audio          | `ImageBlock`, `AudioBlock`, `pcmAudio()`                                                                                      | Model-dependent; PCM is converted to WAV                                                            |
-| Usage and timing              | Strands metadata                                                                                                              | Token counts and latency                                                                            |
-| Response metadata             | `model.stream()` stop-event `additionalModelResponseFields` (`id`, `model`, `created`)                                        | `created` is Unix seconds                                                                           |
-| Log probabilities             | `request.logprobs: true`; stop-event `additionalModelResponseFields.logprobs`; `onChunk`                                      | Native per-token values retained                                                                    |
-| Embeddings                    | `WebLLMEmbeddingSearchStrategy` or `withEngine()`                                                                             | Separate embedding model required                                                                   |
-| Context recovery              | `countTokens()`; default `SlidingWindowConversationManager`                                                                   | Trims and retries on `ContextWindowOverflowError`; match `contextWindowLimit`; counts are estimates |
-| Other native APIs             | `withEngine()`                                                                                                                | Caller owns setup and lifecycle                                                                     |
+| Feature                       | Use                                                                                                                           | Limit                                                                                                |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Chat, system prompts, history | Strands messages and `systemPrompt`                                                                                           | Unsupported blocks raise errors                                                                      |
+| Provider citation blocks      | Unsupported                                                                                                                   | This adapter does not produce them; cited history raises an error                                    |
+| Streaming and cancellation    | `agent.stream()`, `agent.cancel()`                                                                                            | One assistant response per call                                                                      |
+| Tools and results             | Strands tools and `toolChoice`                                                                                                | Qwen supports `any`; Gemma/native tool models require one tool                                       |
+| Disable tools                 | `request.tool_choice: 'none'`                                                                                                 | Keeps the Agent tool registry                                                                        |
+| Thinking                      | `request.extra_body.enable_thinking`                                                                                          | Render `textBlock` values to show only the answer                                                    |
+| Sampling and token limits     | `request`; `maxTokens`, `temperature`, `topP`                                                                                 | SDK aliases take precedence                                                                          |
+| Output constraints            | `request.response_format`; optional [Qwen tool constraints](https://github.com/ykoh42/web-llm-adapters#tool-call-constraints) | Qwen constraints need WebLLM 0.2.86; Qwen tools reject custom formats; Gemma tools/thinking use text |
+| Images and WAV audio          | `ImageBlock`, `AudioBlock`, `pcmAudio()`                                                                                      | Model-dependent; PCM is converted to WAV                                                             |
+| Usage and timing              | Strands metadata                                                                                                              | WebLLM token counts and latency                                                                      |
+| Response metadata             | `model.stream()` stop-event `additionalModelResponseFields` (`id`, `model`, `created`)                                        | `created` is Unix seconds                                                                            |
+| Log probabilities             | `request.logprobs: true`; stop-event `additionalModelResponseFields.logprobs`; `onChunk`                                      | Native per-token values retained                                                                     |
+| Embeddings                    | `WebLLMEmbeddingSearchStrategy` or `withEngine()`                                                                             | Separate embedding model required                                                                    |
+| Context recovery              | `countTokens()`; default `SlidingWindowConversationManager`                                                                   | Trims and retries on `ContextWindowOverflowError`; match `contextWindowLimit`; counts are estimates  |
+| Other native APIs             | `withEngine()`                                                                                                                | Caller owns setup and lifecycle                                                                      |
+
+Tool errors are sent with an `[ERROR]` prefix because WebLLM has no tool-result status field.
+When WebLLM reuses conversation state, input usage may count only new prompt tokens. This can make context estimates too low.
+Strands adds injected context after estimation, so it is not counted.
+For log probabilities, browser transports must preserve non-finite numbers; Playwright does.
 
 Signed/redacted reasoning, S3 media, video, documents, guardrails, and non-image tool-result media
 are unsupported. A media message accepts one text segment; text on both sides of media blocks is
@@ -202,11 +211,12 @@ inside the callback. Direct engine calls bypass the queue. Stop callers before r
 | Main thread, Worker, Service Worker, extension      | Any `MLCEngineInterface`; use WebLLM's factories and handlers |
 | Message `name`                                      | Native chat; SDK messages have no name field                  |
 
-With WebLLM 0.2.86, set `request.extra_body.resumable` to checkpoint chat, then call `resumeChatCompletion()` through `withEngine()`. WebLLM only resumes text-only requests without structured output or a custom logit processor. Gemma tool and thinking requests use raw completions and cannot resume.
+With WebLLM 0.2.86, set `request.extra_body.resumable.enabled` to `true` to checkpoint chat, then call `resumeChatCompletion()` through `withEngine()`. Set `resumable.strictPersistence` to `true` to surface storage errors. WebLLM 0.2.79–0.2.85 ignores this option. WebLLM only resumes text-only requests without structured output or a custom logit processor. Gemma tool and thinking requests use raw completions and cannot resume.
 
 `updateConfig()` merges top-level settings; `modelId` selects an already loaded model.
 Use model-card sampling settings. WebLLM does not expose `top_k` or `min_p`.
 Async `onChunk` callbacks are awaited in order; don't await work on the same engine from one.
+Browser models may read ahead while a callback runs.
 Rejections fail the call.
 Cache hints do not configure WebLLM's KV cache. Recovering external tool side effects
 is the application's responsibility.

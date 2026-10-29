@@ -32,14 +32,54 @@ const call = (args = '{"code":"A7"}', name = 'lookup', id = 'call-1') =>
   )
 
 describe('Pi AI WebLLM provider', () => {
+  it.each([
+    {
+      modelId: 'Qwen2.5-3B-Instruct-q4f16_1-MLC',
+      call: '<tool_call>{"name":"lookup","arguments":{"code":"A7"}}</tool_call>',
+    },
+    {
+      modelId: 'Qwen3-4B-q4f16_1-MLC',
+      call: '<tool_call>{"name":"lookup","arguments":{"code":"A7"}}</tool_call>',
+    },
+    {
+      modelId: 'Qwen3.5-4B-q4f16_1-MLC',
+      call: '<tool_call><function=lookup><parameter=code>A7</parameter></function></tool_call>',
+    },
+  ])(
+    'keeps Qwen tool calls between surrounding text for any chunk size: $modelId',
+    async ({ modelId, call }) => {
+      const source = `Before${call}Between${call}After`
+      for (const size of [1, source.length]) {
+        const parts = source.match(new RegExp(`[\\s\\S]{1,${size}}`, 'g'))!
+        const { models, model } = setup(
+          parts.map((content, index) =>
+            chunk({ content }, index === parts.length - 1 ? 'stop' : null),
+          ),
+          { modelId },
+        )
+        const result = await models.complete(model, tools)
+
+        expect(result.stopReason).toBe('toolUse')
+        expect(result.content, `chunk size ${size}`).toEqual([
+          { type: 'text', text: 'Before' },
+          { type: 'toolCall', id: expect.any(String), name: 'lookup', arguments: { code: 'A7' } },
+          { type: 'text', text: 'Between' },
+          { type: 'toolCall', id: expect.any(String), name: 'lookup', arguments: { code: 'A7' } },
+          { type: 'text', text: 'After' },
+        ])
+      }
+    },
+  )
+
   it('forwards WebLLM usage stream options', async () => {
     const { models, model, create } = setup([chunk({ content: 'Answer' }, 'stop')])
 
-    await models.complete(model, context, {
+    const result = await models.complete(model, context, {
       request: { stream_options: { include_usage: false } },
     })
 
     expect(create.mock.calls[0]?.[0].stream_options).toEqual({ include_usage: false })
+    expect(result.usage).toMatchObject({ input: 0, output: 0, totalTokens: 0 })
   })
 
   it.each([false, true])(
@@ -698,6 +738,45 @@ describe('Pi AI WebLLM provider', () => {
       stopReason: 'length',
       content: [{ type: 'toolCall', id: 'call-1', name: 'lookup', arguments: {} }],
     })
+  })
+
+  it.each([
+    [0, 1],
+    [1, 2],
+  ])('recovers from truncated native calls without IDs at indices %j', async (first, second) => {
+    const { models, model, create } = setup()
+    const incomplete = chunk(
+      {
+        tool_calls: [first, second].map((index) => ({
+          index,
+          type: 'function' as const,
+          function: { name: 'lookup', arguments: '{"code":"A' },
+        })),
+      },
+      'length',
+    )
+    create
+      .mockResolvedValueOnce(chunks(incomplete))
+      .mockResolvedValueOnce(chunks(chunk({ content: 'Recovered' }, 'stop')))
+    const execute = vi.fn(async () => ({ content: [], details: {} }))
+    const agent = new Agent({
+      initialState: { model, tools: [{ ...lookup, label: 'Lookup', execute }] },
+      streamFn: models.streamSimple.bind(models),
+    })
+
+    await agent.prompt('Look up A7.')
+
+    expect(execute).not.toHaveBeenCalled()
+    expect(create).toHaveBeenCalledTimes(2)
+    expect(agent.state.messages.at(-1)).toMatchObject({
+      role: 'assistant',
+      stopReason: 'stop',
+      content: [{ type: 'text', text: 'Recovered' }],
+    })
+    const results = agent.state.messages.filter((message) => message.role === 'toolResult')
+    expect(results).toHaveLength(2)
+    expect(results.every((result) => result.isError && result.toolCallId)).toBe(true)
+    expect(new Set(results.map((result) => result.toolCallId)).size).toBe(2)
   })
 
   it('selects a registered tool with WebLLM native tool choice', async () => {

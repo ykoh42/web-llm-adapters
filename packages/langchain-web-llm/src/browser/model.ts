@@ -8,13 +8,18 @@ import type { CallbackManagerForLLMRun } from '@langchain/core/callbacks/manager
 import { convertToOpenAITool } from '@langchain/core/utils/function_calling'
 import { callChunkCallback, waitForCallback } from '../../../../shared/web-llm/callback.js'
 import { restoreBrowserError, serializeBrowserError } from './errors.js'
+import { restoreNegativeZeros } from './tool-calls.js'
 import { browserMessages } from './messages.js'
 import { stringifyJSON } from '../../../../shared/web-llm/json.js'
+import { startBrowserCall } from '../../../../shared/browser/start.js'
+import { watchBrowserCall } from '../../../../shared/browser/lifecycle.js'
+import { readBrowserError } from '../../../../shared/browser/errors.js'
 import { WebLLMChatModel } from '../chat/base.js'
 import { hasTokenCallbacks } from '../chat/callbacks.js'
 import { modelError } from '../error.js'
 import type { WebLLMModelOptions, ChatWebLLMOptions } from '../types.js'
-import type { BrowserPage, BrowserRequest } from './types.js'
+import type { BrowserChunk, BrowserPage, BrowserRequest } from './types.js'
+import type { FailedAttempt } from './failed-attempts.js'
 
 // invoke buffers its result; streaming and per-chunk callbacks still read one packet at a time.
 const bufferedReadSize = 512
@@ -79,8 +84,14 @@ export class BrowserChatWebLLM extends WebLLMChatModel {
         ...(maxRetries !== undefined && { maxRetries }),
       },
     }
+    const stopCall = (id: string) =>
+      this.page.evaluate((id) => {
+        const bridge = window.webllmLangChainBridge
+        if (!bridge) throw new Error('The WebLLM browser bridge is no longer available.')
+        return bridge.stop(id)
+      }, id)
     // Encode model inputs so browser transports keep reserved JSON keys intact.
-    const id = await this.page.evaluate((input) => {
+    const start = this.page.evaluate((input) => {
       const request: BrowserRequest = JSON.parse(input)
       const bridge = window.webllmLangChainBridge
       if (!bridge)
@@ -89,40 +100,19 @@ export class BrowserChatWebLLM extends WebLLMChatModel {
         )
       return bridge.start(request)
     }, stringifyJSON(input))
-    let closing: Promise<void> | undefined
-    const close = () =>
-      (closing ??= this.page.evaluate((id) => {
-        const bridge = window.webllmLangChainBridge
-        if (!bridge) throw new Error('The WebLLM browser bridge is no longer available.')
-        return bridge.stop(id)
-      }, id))
-    const cancel = () => {
-      void close().catch(() => {})
-    }
-    signal?.addEventListener('abort', cancel, { once: true })
+    const id = await startBrowserCall(start, stopCall, signal)
+    const finish = watchBrowserCall(id, stopCall, signal)
     let failed = false
     let complete = false
     try {
       signal?.throwIfAborted()
       while (true) {
-        const results = await this.page.evaluate(
-          async ({ id, batchSize }) => {
-            const bridge = window.webllmLangChainBridge
-            if (!bridge) throw new Error('The WebLLM browser bridge is no longer available.')
-            const results = []
-            for (let index = 0; index < batchSize; index++) {
-              const result = await bridge.next(id)
-              results.push(result)
-              if (
-                ('done' in result && result.done) ||
-                'error' in result ||
-                'failedAttempt' in result
-              )
-                break
-            }
-            return results
-          },
-          { id, batchSize: hasTokenCallbacks(runManager) ? 1 : batchSize },
+        const results = await waitForCallback(
+          this.page.evaluate(readBrowserBatch, {
+            id,
+            batchSize: hasTokenCallbacks(runManager) ? 1 : batchSize,
+          }),
+          signal,
         )
         for (const result of results) {
           for (const chunk of result.chunks ?? []) {
@@ -133,29 +123,10 @@ export class BrowserChatWebLLM extends WebLLMChatModel {
           signal?.throwIfAborted()
           if ('error' in result) {
             complete = true
-            throw restoreBrowserError(
-              result.errorJSON === undefined ? result.error : JSON.parse(result.errorJSON),
-            )
+            throw restoreBrowserError(readBrowserError(result))
           }
           if ('failedAttempt' in result) {
-            const error = restoreBrowserError(
-              result.failedAttemptJSON === undefined
-                ? result.failedAttempt
-                : JSON.parse(result.failedAttemptJSON),
-            )
-            await waitForCallback(
-              Promise.resolve().then(() => this.onFailedAttempt!(error)),
-              signal,
-            )
-            signal?.throwIfAborted()
-            await this.page.evaluate(
-              ({ id, error }) => {
-                const bridge = window.webllmLangChainBridge
-                if (!bridge) throw new Error('The WebLLM browser bridge is no longer available.')
-                bridge.retry(id, JSON.parse(error))
-              },
-              { id, error: JSON.stringify(serializeBrowserError(error)) },
-            )
+            await this.retryCall(id, result, signal)
             break
           }
           if (result.done) {
@@ -163,15 +134,7 @@ export class BrowserChatWebLLM extends WebLLMChatModel {
             return
           }
           if ('native' in result) continue
-          const message = new AIMessageChunk<StandardMessageStructure>(result.value.message)
-          if (result.value.message.tool_calls?.length) {
-            message.tool_calls = result.value.message.tool_calls
-            message.lc_kwargs.tool_calls = message.tool_calls
-          }
-          const chunk = new ChatGenerationChunk({
-            ...result.value,
-            message,
-          })
+          const chunk = readBrowserChunk(result.value)
           if (runManager && hasTokenCallbacks(runManager))
             await waitForCallback(
               runManager.handleLLMNewToken(chunk.text, undefined, undefined, undefined, undefined, {
@@ -188,11 +151,59 @@ export class BrowserChatWebLLM extends WebLLMChatModel {
       if (signal?.aborted) throw error
       throw modelError(error)
     } finally {
-      signal?.removeEventListener('abort', cancel)
-      if (!complete) {
-        if (failed) await close().catch(() => {})
-        else await close()
-      }
+      const pending = finish(complete, failed)
+      if (pending) await pending
     }
   }
+
+  private async retryCall(id: string, result: FailedAttempt, signal?: AbortSignal): Promise<void> {
+    const error = restoreBrowserError(
+      result.failedAttemptJSON === undefined
+        ? result.failedAttempt
+        : JSON.parse(result.failedAttemptJSON),
+    )
+    await waitForCallback(
+      Promise.resolve().then(() => {
+        signal?.throwIfAborted()
+        return this.onFailedAttempt!(error)
+      }),
+      signal,
+    )
+    signal?.throwIfAborted()
+    await waitForCallback(
+      this.page.evaluate(
+        ({ id, error }) => {
+          const bridge = window.webllmLangChainBridge
+          if (!bridge) throw new Error('The WebLLM browser bridge is no longer available.')
+          bridge.retry(id, JSON.parse(error))
+        },
+        { id, error: JSON.stringify(serializeBrowserError(error)) },
+      ),
+      signal,
+    )
+  }
+}
+
+async function readBrowserBatch({ id, batchSize }: { id: string; batchSize: number }) {
+  const bridge = window.webllmLangChainBridge
+  if (!bridge) throw new Error('The WebLLM browser bridge is no longer available.')
+  const results = []
+  for (let index = 0; index < batchSize; index++) {
+    const result = await bridge.next(id)
+    results.push(result)
+    if (('done' in result && result.done) || 'error' in result || 'failedAttempt' in result) break
+  }
+  return results
+}
+
+function readBrowserChunk(value: BrowserChunk): ChatGenerationChunk {
+  const message = new AIMessageChunk<StandardMessageStructure>(value.message)
+  const toolCalls = value.toolCallsJSON ? JSON.parse(value.toolCallsJSON) : value.message.tool_calls
+  if (toolCalls && value.toolCallNegativeZeros)
+    restoreNegativeZeros(toolCalls, value.toolCallNegativeZeros)
+  if (toolCalls?.length) {
+    message.tool_calls = toolCalls
+    message.lc_kwargs.tool_calls = message.tool_calls
+  }
+  return new ChatGenerationChunk({ ...value, message })
 }

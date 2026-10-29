@@ -1,4 +1,4 @@
-import { modelCheck } from '../../../../../scripts/release/support.js'
+import { modelCheck, recordThinking } from '../../../../../scripts/release/support.js'
 import { rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,8 +8,8 @@ import { expect, test } from '../../../fixtures/browser.js'
 import { BrowserModel, type WebLLMChunk } from 'strands-web-llm'
 import { sampling } from '../../../sampling.js'
 import { sharedSchema } from '../../../../../test/support/schema.js'
-import { nativeOutput } from '../../../../../test/support/native-output.js'
-import { recordNative } from '../../fixtures/native.js'
+import { hasToolResult, nativeOutput } from '../../../../../test/support/native-output.js'
+import { captureChatRequests, recordNative } from '../../fixtures/native.js'
 
 function lookupSchema(code: JSONSchema, key = 'code') {
   return { type: 'object', properties: { [key]: code }, required: [key] } satisfies JSONSchema
@@ -133,7 +133,7 @@ for (const [modelId, fileName] of [
   const note = modelId === 'Qwen3.5-0.8B-q4f16_1-MLC' ? ` (${fileName})` : ''
   test(
     `${modelId} thinking calls Harness read and answers${note}`,
-    fileName === 'q35-40625.txt' ? {} : modelCheck(modelId, 'tools', 'thinking'),
+    fileName === 'q35-40625.txt' ? {} : modelCheck(modelId, 'tools'),
     async ({ page }, info) => {
       const directory = process.platform === 'win32' ? tmpdir() : '/tmp'
       const path = join(directory, fileName)
@@ -146,6 +146,7 @@ for (const [modelId, fileName] of [
         await page.goto('http://127.0.0.1:4173/harness.html')
         await page.waitForFunction(() => Boolean(window.harness))
         await page.evaluate((id) => window.harness.open(id), modelId)
+        await captureChatRequests(page)
 
         agent = await createHarness({
           model: new BrowserModel(page, {
@@ -198,6 +199,9 @@ for (const [modelId, fileName] of [
           )
         expect(text.trim()).not.toBe('')
         expect({ text, thinking }).toEqual(nativeOutput(chunks, modelId, '<think>'))
+        const requests = await page.evaluate(() => window.releaseChatRequests)
+        expect(hasToolResult(requests.slice(1), code)).toBe(true)
+        recordThinking(info, modelId, thinking, requests)
         const toolCalls = agent.messages
           .flatMap((message) => message.content)
           .filter((block) => block.type === 'toolUseBlock')

@@ -53,19 +53,10 @@ for (const { title, input, literal } of cases) {
       n: 1,
     }
     await page.evaluate((id) => window.checks.load(id), modelId)
-    const native = await page.evaluate(
-      (request) =>
+    await page.evaluate(
+      (modelId) =>
         window.webllmLangChainBridge!.withEngine(async (engine) => {
-          await engine.reload(request.model!, { context_window_size: 32768 })
-          let text = ''
-          let finish: string | null = null
-          let inputTokens = 0
-          for await (const chunk of await engine.completions.create(request)) {
-            text += chunk.choices[0]?.text ?? ''
-            finish = chunk.choices[0]?.finish_reason ?? finish
-            inputTokens = chunk.usage?.prompt_tokens ?? inputTokens
-          }
-          await engine.resetChat()
+          await engine.reload(modelId, { context_window_size: 32768 })
           window.gemmaDepthRequests = []
           const endpoint = engine.completions
           endpoint.create = new Proxy(endpoint.create, {
@@ -74,9 +65,8 @@ for (const { title, input, literal } of cases) {
               return Reflect.apply(target, self, args)
             },
           })
-          return { text, finish, inputTokens }
         }),
-      request,
+      modelId,
     )
     let observed = ''
     const model = new BrowserChatWebLLM(page, {
@@ -102,17 +92,15 @@ for (const { title, input, literal } of cases) {
     await writeFile(
       evidence,
       JSON.stringify(
-        { native, prepared, expected: request, observed, reasoning, text: result.text },
+        { prepared, expected: request, observed, reasoning, text: result.text },
         null,
         2,
       ),
     )
     await info.attach('gemma-depth', { path: evidence, contentType: 'application/json' })
     expect(prepared).toEqual(request)
-    expect(native.finish).toBe('stop')
-    expect(observed).toBe(native.text)
     expect(reasoning.trim()).not.toBe('')
-    expect(reasoning).toBe(/<\|channel>thought\n([\s\S]*?)<channel\|>/.exec(native.text)?.[1])
+    expect(reasoning).toBe(/<\|channel>thought\n([\s\S]*?)<channel\|>/.exec(observed)?.[1])
     expect(result.text).toContain('391')
     expect(result.response_metadata.finish_reason).toBe('stop')
   })

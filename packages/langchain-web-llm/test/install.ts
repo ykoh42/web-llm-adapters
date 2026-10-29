@@ -3,16 +3,17 @@ import { checkInstall } from '../../../scripts/check-install.ts'
 await checkInstall({
   root: new URL('../', import.meta.url),
   peerImports: ['@langchain/core/messages'],
-  forbiddenImports: ['@strands-agents/'],
+  forbiddenImports: ['@strands-agents/', '@earendil-works/'],
   compatibilityDependencies: [
     ['@langchain/core@1.2.8', '@mlc-ai/web-llm@0.2.79'],
-    ['@langchain/core@1.3.0', '@mlc-ai/web-llm@0.2.86'],
+    ['@langchain/core@1.3.1', '@mlc-ai/web-llm@0.2.86'],
   ],
   consumerDependencies: ['@langchain/core@1.2.8', '@mlc-ai/web-llm@0.2.79'],
   source: `
 import assert from 'node:assert/strict'
 import { MLCEngine } from '@mlc-ai/web-llm'
 import { CallbackManager } from '@langchain/core/callbacks/manager'
+import { AIMessage, HumanMessage, ToolMessage } from '@langchain/core/messages'
 import { ChatWebLLM, BrowserChatWebLLM, WebLLMEmbeddings, createBrowserBridge, withEngine } from 'langchain-web-llm'
 const engine = new MLCEngine({logLevel:'SILENT'})
 engine.chat.completions.create = (async () => (async function*(){yield {id:'test',object:'chat.completion.chunk',created:0,model:'test',choices:[{index:0,delta:{content:'Hello'},finish_reason:'stop'}]}})()) as unknown as typeof engine.chat.completions.create
@@ -115,6 +116,35 @@ for (const preference of ['lc_prefer_streaming', 'lc_prefer_chat_model_stream_ev
   const response = await model.bindTools([lookup]).invoke('Look up A7.', { callbacks })
   assert.deepEqual(response.tool_calls, [])
 }
+
+engine.chat.completions.create = (async () => (async function* () {
+  yield {
+    id: 'test', object: 'chat.completion.chunk', created: 0, model: 'test',
+    choices: [{ index: 0, delta: { content: 'Before<tool_call>{"name":"lookup","arguments":{"code":"A7","value":-0.0}}</tool_call>After' }, finish_reason: 'stop' }],
+  }
+})()) as unknown as typeof engine.chat.completions.create
+const qwen = new ChatWebLLM({ engine, modelId: 'Qwen3-4B-q4f16_1-MLC' })
+const ordered = qwen.streamEvents('Look up A7.', { tools: [lookup] })
+const blocks: string[] = []
+for await (const event of ordered)
+  if (event.event === 'content-block-start') blocks.push(event.content.type)
+assert.deepEqual(blocks, ['text', 'tool_call_chunk', 'text'])
+const args = (await ordered.toolCalls)[0]?.args as { value: unknown }
+assert(Object.is(args.value, -0))
+
+let replay = ''
+engine.chat.completions.create = (async (request: { messages: { role: string; content?: unknown }[] }) => {
+  replay = String(request.messages.find(message => message.role === 'assistant')?.content)
+  return (async function* () {
+    yield { id: 'test', object: 'chat.completion.chunk', created: 0, model: 'test', choices: [{ index: 0, delta: { content: 'Done' }, finish_reason: 'stop' }] }
+  })()
+}) as unknown as typeof engine.chat.completions.create
+await qwen.invoke([
+  new HumanMessage('Look up A7.'),
+  new AIMessage({ content: '', tool_calls: [{ id: 'one', name: 'lookup', args: { value: -0 }, type: 'tool_call' }] }),
+  new ToolMessage({ content: 'Done', tool_call_id: 'one' }),
+])
+assert(replay.includes('"value":-0'))
 
 const bridge = createBrowserBridge(engine)
 assert.equal(typeof bridge.start,'function')

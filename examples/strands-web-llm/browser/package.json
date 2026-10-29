@@ -16,7 +16,7 @@
     "strands-web-llm": "workspace:*"
   },
   "devDependencies": {
-    "@types/chrome": "^0.3.6",
+    "@types/chrome": "^0.3.7",
     "vite": "^8.3.5"
   }
 }

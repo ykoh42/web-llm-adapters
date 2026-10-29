@@ -608,6 +608,38 @@ it.each([
   expect(message.toDict()).toEqual(original)
 })
 
+it('accepts a case-insensitive data URL scheme without changing audio bytes', () => {
+  const url = 'DATA:audio/wav;base64,AQID'
+  const message = new HumanMessage({ content: [{ type: 'audio', url }] })
+  expect(formatMessages([message])[0]?.content).toEqual([
+    { type: 'input_audio', input_audio: { format: 'wav', data: 'data:audio/wav;base64,AQID' } },
+  ])
+  expect(message.content).toEqual([{ type: 'audio', url }])
+})
+
+it.each([
+  [-0, 0],
+  [0, -0],
+])('rejects conflicting zero signs in duplicate tool call content', (first, second) => {
+  const message = new AIMessage({
+    content: [{ type: 'tool_use', id: 'one', name: 'lookup', input: { values: [second] } }],
+    tool_calls: [{ id: 'one', name: 'lookup', args: { values: [first] } }],
+  })
+
+  expect(() => formatMessages([message])).toThrow('conflicting tool call content')
+})
+
+it('preserves matching negative zero in duplicate tool call content', () => {
+  const message = new AIMessage({
+    content: [{ type: 'tool_use', id: 'one', name: 'lookup', input: { value: -0 } }],
+    tool_calls: [{ id: 'one', name: 'lookup', args: { value: -0 } }],
+  })
+  const history = formatMessages([message])
+  const call = history[0]?.role === 'assistant' ? history[0].tool_calls?.[0] : undefined
+
+  expect(Object.is(JSON.parse(call!.function.arguments).value, -0)).toBe(true)
+})
+
 it.each(
   ['audio/wave', 'audio/x-wav', 'AUDIO/WAV'].flatMap((mime) => [
     { type: 'audio' as const, data: 'AQID', mimeType: mime },
@@ -677,18 +709,16 @@ it.each(['current', 'legacy', 'browser'])(
   },
 )
 
-it('preserves empty media bytes after their buffer is transferred', () => {
+it('rejects media bytes after their buffer is transferred', () => {
   const bytes = new Uint8Array([1, 2, 3])
   structuredClone(bytes.buffer, { transfer: [bytes.buffer] })
-  const output = formatMessages([
-    new HumanMessage({
-      content: [{ type: 'image', data: bytes, mimeType: 'image/png' }],
-    }),
-  ])
-
-  expect(output[0]?.content).toEqual([
-    { type: 'image_url', image_url: { url: 'data:image/png;base64,' } },
-  ])
+  expect(() =>
+    formatMessages([
+      new HumanMessage({
+        content: [{ type: 'image', data: bytes, mimeType: 'image/png' }],
+      }),
+    ]),
+  ).toThrow(TypeError)
 })
 
 it('normalizes plain text blocks and provider tool blocks without duplicating calls', () => {

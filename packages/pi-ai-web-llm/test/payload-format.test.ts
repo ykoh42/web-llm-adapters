@@ -19,6 +19,97 @@ const constrainedContext = {
 }
 
 describe('Pi payload format changes', () => {
+  it.each([
+    { modelId: 'Qwen3.5-4B-q4f16_1-MLC', mode: 'tools' },
+    { modelId: 'gemma-4-E2B-it-q4f16_1-MLC', mode: 'chat' },
+    { modelId: 'gemma-4-E2B-it-q4f16_1-MLC', mode: 'thinking' },
+  ])(
+    '$modelId preserves sampling options from onPayload in $mode mode',
+    async ({ modelId, mode }) => {
+      const { models, model, engine, create } = setup(undefined, { modelId })
+      const completion = vi.spyOn(engine.completions, 'create').mockImplementation(async () =>
+        (async function* () {
+          yield {
+            id: 'raw',
+            object: 'text_completion' as const,
+            model: model.id,
+            created: 0,
+            choices: [
+              {
+                index: 0,
+                text: '<|channel>thought\nPlan<channel|>Hello',
+                finish_reason: 'stop' as const,
+              },
+            ],
+          }
+        })(),
+      )
+      const sampling = { temperature: 0.4, top_p: 0.8, seed: 7 }
+      const response = await models.complete(
+        model,
+        mode === 'tools' ? constrainedContext : context,
+        {
+          ...(mode === 'thinking' ? { reasoning: 'low' as const } : {}),
+          onPayload: (payload) => {
+            if (!payload || typeof payload !== 'object')
+              throw new Error('Expected a native request.')
+            return { ...payload, ...sampling }
+          },
+        },
+      )
+
+      expect(response, JSON.stringify(response)).toMatchObject({ stopReason: 'stop' })
+      expect((mode === 'thinking' ? completion : create).mock.calls[0]?.[0]).toMatchObject(sampling)
+    },
+  )
+
+  it.each([
+    { modelId: 'Qwen3.5-4B-q4f16_1-MLC', error: 'Set Qwen tools and toolChoice before onPayload.' },
+    {
+      modelId: 'gemma-4-E2B-it-q4f16_1-MLC',
+      error: 'Set Gemma tools, toolChoice, and thinking before onPayload.',
+    },
+  ])('$modelId rejects tool choice changed in place', async ({ modelId, error }) => {
+    const { models, model, engine, create } = setup(undefined, { modelId })
+    const completion = vi.spyOn(engine.completions, 'create')
+    const response = await models.complete(model, constrainedContext, {
+      onPayload: (payload) => {
+        if (!payload || typeof payload !== 'object') throw new Error('Expected a native request.')
+        Object.assign(payload, { tool_choice: 'none' })
+      },
+    })
+
+    expect(response).toMatchObject({ stopReason: 'error', errorMessage: error })
+    expect(create).not.toHaveBeenCalled()
+    expect(completion).not.toHaveBeenCalled()
+  })
+
+  it.each(
+    ['Qwen2.5-3B-Instruct-q4f16_1-MLC', 'Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC'].flatMap(
+      (modelId) => [
+        { modelId, field: 'tool_choice', value: 'none' },
+        { modelId, field: 'tools', value: [] },
+      ],
+    ),
+  )('$modelId rejects $field added through onPayload', async ({ modelId, field, value }) => {
+    const call = modelId.startsWith('Qwen3.5-')
+      ? '<tool_call><function=lookup><parameter=code>A7</parameter></function></tool_call>'
+      : '<tool_call>{"name":"lookup","arguments":{"code":"A7"}}</tool_call>'
+    const { models, model, create } = setup([chunk({ content: call }, 'stop')], { modelId })
+    const response = await models.complete(model, constrainedContext, {
+      onPayload: (payload) => {
+        if (!payload || typeof payload !== 'object') throw new Error('Expected a native request.')
+        return { ...payload, [field]: value }
+      },
+    })
+
+    expect(response).toMatchObject({
+      stopReason: 'error',
+      errorMessage: 'Set Qwen tools and toolChoice before onPayload.',
+    })
+    expect(create).not.toHaveBeenCalled()
+  })
+
   it.each(['Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC'])(
     '%s keeps valid constraints and output with unchanged or cloned payloads',
     async (modelId) => {
@@ -423,6 +514,68 @@ describe('Pi payload format changes', () => {
     expect(create).not.toHaveBeenCalled()
   })
 
+  it.each([{ tool_choice: 'none' }, { tools: [] }, { extra_body: { enable_thinking: false } }])(
+    'rejects Gemma tool or thinking settings added through onPayload: %j',
+    async (override) => {
+      const { models, model, engine } = setup(undefined, {
+        modelId: 'gemma-4-E2B-it-q4f16_1-MLC',
+      })
+      const create = vi.spyOn(engine.completions, 'create')
+      const response = await models.complete(model, constrainedContext, {
+        reasoning: 'low',
+        onPayload: (payload) => {
+          if (!payload || typeof payload !== 'object') throw new Error('Expected a native request.')
+          return { ...payload, ...override }
+        },
+      })
+
+      expect(response).toMatchObject({
+        stopReason: 'error',
+        errorMessage: 'Set Gemma tools, toolChoice, and thinking before onPayload.',
+      })
+      expect(create).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each([
+    { extra_body: { enable_thinking: true } },
+    { extra_body: { enable_thinking: false } },
+    { tool_choice: 'auto' },
+    { tools: [] },
+  ])('rejects Gemma chat settings added through onPayload: %j', async (override) => {
+    const { models, model, create } = setup(undefined, {
+      modelId: 'gemma-4-E2B-it-q4f16_1-MLC',
+    })
+    const response = await models.complete(model, context, {
+      onPayload: (payload) => {
+        if (!payload || typeof payload !== 'object') throw new Error('Expected a native request.')
+        return { ...payload, ...override }
+      },
+    })
+
+    expect(response).toMatchObject({
+      stopReason: 'error',
+      errorMessage: 'Set Gemma tools, toolChoice, and thinking before onPayload.',
+    })
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('keeps Gemma toolChoice none when onPayload leaves it unchanged', async () => {
+    const { models, model, create } = setup(undefined, {
+      modelId: 'gemma-4-E2B-it-q4f16_1-MLC',
+    })
+    const response = await models.complete(model, constrainedContext, {
+      toolChoice: 'none',
+      onPayload: (payload) => structuredClone(payload),
+    })
+
+    expect(response).toMatchObject({
+      stopReason: 'stop',
+      content: [{ type: 'text', text: 'Hello' }],
+    })
+    expect(create.mock.calls[0]?.[0].tool_choice).toBe('none')
+  })
+
   it.each(['Qwen3-8B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC'])(
     '%s rejects a structured format added to a tool request by onPayload',
     async (modelId) => {
@@ -455,7 +608,7 @@ for (const modelId of ['Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC']) {
   it.each([false, true])(
     `${modelId} follows thinking=%s selected by onPayload on a prefilled engine`,
     async (enabled) => {
-      const source = enabled ? 'Plan.\n</think>42' : '<think>\n\n</think>42'
+      const source = enabled ? 'Plan.\n</think>42' : '<think>\n\n</think>\n\n42'
       const { models, model, create } = setup([chunk({ content: source }, 'stop')], {
         modelId,
         thinkingPrefilled: true,
@@ -479,7 +632,7 @@ for (const modelId of ['Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC']) {
           .filter((part) => part.type === 'text')
           .map((part) => part.text)
           .join(''),
-      ).toBe('42')
+      ).toBe(enabled ? '42' : '\n\n42')
       expect(create.mock.calls[0]?.[0].extra_body?.enable_thinking).toBe(enabled)
     },
   )

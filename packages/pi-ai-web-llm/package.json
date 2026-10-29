@@ -16,7 +16,7 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "default": "./dist/index.js"
     },
     "./runtime/gemma-4-e2b.wasm": "./dist/runtime/gemma-4-e2b.wasm",
     "./runtime/manifest.json": "./dist/runtime/manifest.json"

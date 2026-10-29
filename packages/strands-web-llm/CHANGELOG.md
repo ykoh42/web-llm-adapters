@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Report when the browser bridge disappears during a call.
+- Reject detached image and audio bytes instead of sending empty data.
+- Reject non-Float32 PCM instead of encoding incorrect audio.
+- Remove WebLLM's empty thinking prefix from Qwen2.5 answers.
+- Preserve literal Qwen thinking tags in answers when thinking is disabled.
+- Cancel requests promptly while WebLLM or browser responses are pending.
+- Return promptly when closing a cancelled stream; keep the engine reserved for cleanup.
+- Wait for native cleanup when closing browser bridges.
+
+- Include Qwen tool instructions in Strands token estimates.
+- Preserve negative zero in tool calls and conversation history.
+- Support `require()` in Node.js CommonJS.
 - Reject duplicate tool call IDs before producing tool results.
 - Avoid rebuilding accumulated text for each streamed tool argument chunk.
 - Accept Qwen3.5 string enums and string `const` values without an explicit type.
@@ -9,7 +21,7 @@
 - Allow explicit text format with constrained Qwen tool calls.
 - Reject incomplete or malformed Qwen tool calls instead of repairing their output.
 - Preserve cross-realm error types and causes across the browser bridge.
-- Accept image and WAV byte arrays created in another JavaScript realm.
+- Preserve image and WAV byte arrays from another JavaScript realm, including through the browser bridge.
 - Await async `onChunk` handlers and propagate their errors.
 - Preserve native response IDs, model IDs, and creation times in metadata.
 - Reject Qwen3.5 tool names that cannot be represented in XML.

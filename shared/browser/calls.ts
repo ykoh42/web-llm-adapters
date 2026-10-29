@@ -1,5 +1,6 @@
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
 import { withEngine } from '../web-llm/engine/access.js'
+import { waitForCleanup } from '../web-llm/engine/cleanup.js'
 
 export interface BrowserCall<Read extends { done?: boolean }> {
   stream: AsyncGenerator<unknown>
@@ -53,14 +54,19 @@ export function browserCalls<Read extends { done?: boolean }, Call extends Brows
     if (!call) return Promise.resolve()
     if (call.closing) return call.closing
     call.controller.abort()
-    call.closing = (async () => {
+    const closing = (async () => {
       try {
-        await call.stream.return(undefined)
+        const results: PromiseSettledResult<unknown>[] = await Promise.allSettled([
+          call.stream.return(undefined),
+        ])
+        results.push(...(await Promise.allSettled([waitForCleanup(call.controller.signal)])))
+        for (const result of results) if (result.status === 'rejected') throw result.reason
       } finally {
         calls.delete(id)
       }
     })()
-    return call.closing
+    call.closing = closing
+    return closing
   }
 
   async function close(stopCall: (id: string) => Promise<void>) {

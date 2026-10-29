@@ -58,6 +58,17 @@ export class ChatWebLLM extends WebLLMChatModel {
       signal: options.signal,
       maxRetries: options.maxRetries,
     })
+    function addMetadata(chunk: ChatGenerationChunk) {
+      if (responseCreated !== undefined) chunk.message.response_metadata.created = responseCreated
+      if (responseModel) {
+        chunk.message.response_metadata.model = responseModel
+        chunk.message.response_metadata.model_name = responseModel
+      }
+      if (logprobs) {
+        chunk.message.response_metadata.logprobs = logprobs
+        chunk.generationInfo!.logprobs = logprobs
+      }
+    }
     try {
       for await (const chunk of readChunks(
         chunks,
@@ -68,18 +79,7 @@ export class ChatWebLLM extends WebLLMChatModel {
       )) {
         options.signal?.throwIfAborted()
         if (responseId) chunk.message.id = responseId
-        if (chunk.generationInfo?.finish_reason) {
-          if (responseCreated !== undefined)
-            chunk.message.response_metadata.created = responseCreated
-          if (responseModel) {
-            chunk.message.response_metadata.model = responseModel
-            chunk.message.response_metadata.model_name = responseModel
-          }
-          if (logprobs) {
-            chunk.message.response_metadata.logprobs = logprobs
-            chunk.generationInfo.logprobs = logprobs
-          }
-        }
+        if (chunk.generationInfo?.finish_reason) addMetadata(chunk)
         if (runManager && hasTokenCallbacks(runManager))
           await waitForCallback(
             runManager.handleLLMNewToken(chunk.text, undefined, undefined, undefined, undefined, {

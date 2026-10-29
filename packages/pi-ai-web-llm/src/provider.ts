@@ -50,13 +50,13 @@ export function createWebLLMProvider(options: WebLLMProviderOptions): Provider<W
     call: WebLLMStreamOptions = {},
     simple = false,
   ) {
-    const signal =
-      call.timeoutMs === undefined
-        ? call.signal
-        : AbortSignal.any([
-            ...(call.signal ? [call.signal] : []),
-            AbortSignal.timeout(call.timeoutMs),
-          ])
+    const timeout = call.timeoutMs === undefined ? undefined : AbortSignal.timeout(call.timeoutMs)
+    let signal = call.signal ?? timeout
+    let cleanup: (() => void) | undefined
+    if (call.signal && timeout) {
+      if (typeof AbortSignal.any === 'function') signal = AbortSignal.any([call.signal, timeout])
+      else ({ signal, cleanup } = combineSignals(call.signal, timeout))
+    }
     const choice = protocolToolChoice(call.toolChoice)
     return responseStream(
       requestModel,
@@ -93,6 +93,7 @@ export function createWebLLMProvider(options: WebLLMProviderOptions): Provider<W
         return { chunks, toolPolicy }
       },
       signal,
+      cleanup,
     )
   }
 
@@ -107,6 +108,33 @@ export function createWebLLMProvider(options: WebLLMProviderOptions): Provider<W
     api,
     auth: { apiKey: { name: 'WebLLM (local)', resolve: async () => ({ auth: {} }) } },
   })
+}
+
+function combineSignals(
+  caller: AbortSignal,
+  timeout: AbortSignal,
+): { signal: AbortSignal; cleanup?: () => void } {
+  if (caller.aborted) return { signal: caller }
+  if (timeout.aborted) return { signal: timeout }
+
+  const controller = new AbortController()
+  const cleanup = () => {
+    caller.removeEventListener('abort', cancel)
+    timeout.removeEventListener('abort', expire)
+  }
+  const cancel = () => {
+    cleanup()
+    controller.abort(caller.reason)
+  }
+  const expire = () => {
+    cleanup()
+    controller.abort(timeout.reason)
+  }
+  caller.addEventListener('abort', cancel, { once: true })
+  timeout.addEventListener('abort', expire, { once: true })
+  if (caller.aborted) cancel()
+  else if (timeout.aborted) expire()
+  return { signal: controller.signal, cleanup }
 }
 
 function protocolToolChoice(

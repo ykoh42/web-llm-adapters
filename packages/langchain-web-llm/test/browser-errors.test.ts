@@ -169,6 +169,22 @@ describe('browser retry errors', () => {
     expect(getRetryable(original)).toBe(true)
   })
 
+  it('keeps the original failure when its properties cannot be inspected', () => {
+    const cause = new Error('Offline')
+    const original = new Proxy(new Error('Native failure', { cause }), {
+      getOwnPropertyDescriptor() {
+        throw new Error('Cannot inspect provider fields')
+      },
+    })
+    const edited = transfer(original)
+    edited.message = 'Edited'
+    Reflect.deleteProperty(edited, 'cause')
+
+    expect(() => applyBrowserError(original, serializeBrowserError(edited))).not.toThrow()
+    expect(original.message).toBe('Native failure')
+    expect(original.cause).toBe(cause)
+  })
+
   it('preserves reserved JSON keys without changing error prototypes', () => {
     const original = new Error('Opening failed')
     Object.defineProperty(original, '__proto__', {

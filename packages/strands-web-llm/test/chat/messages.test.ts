@@ -483,6 +483,19 @@ describe('messages', () => {
     })
   })
 
+  it('rejects transferred image bytes before creating a WebLLM request', async () => {
+    const bytes = new Uint8Array([1, 2, 3])
+    const message = new Message({
+      role: 'user',
+      content: [new ImageBlock({ format: 'png', source: { bytes } })],
+    })
+    structuredClone(bytes, { transfer: [bytes.buffer] })
+    const { model, create } = setup(chunk({ content: 'Okay' }, 'stop'))
+
+    await expect(collect(model.stream([message]))).rejects.toThrow(TypeError)
+    expect(create).not.toHaveBeenCalled()
+  })
+
   it('passes image and WAV bytes from another realm', () => {
     const bytes = runInNewContext('new Uint8Array([1, 2, 3])') as Uint8Array
     const output = formatMessages([

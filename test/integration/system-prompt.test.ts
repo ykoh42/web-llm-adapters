@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest'
 import { HumanMessage, SystemMessage } from '@langchain/core/messages'
 import { Message, TextBlock } from '@strands-agents/sdk'
+import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
 import {
   ModelType,
   postInitAndCheckFieldsChatCompletion,
@@ -8,10 +9,55 @@ import {
 } from '@mlc-ai/web-llm'
 import { WebLLMModel } from '../../packages/strands-web-llm/src/index.js'
 import { ChatWebLLM } from '../../packages/langchain-web-llm/src/index.js'
+import { createWebLLMProvider } from '../../packages/pi-ai-web-llm/src/index.js'
 import { chunk, collect, setupEngine } from '../../fixtures/web-llm.js'
 
 const hermes = 'Hermes-3-Llama-3.1-8B-q4f16_1-MLC'
 const lookup = { name: 'lookup', description: 'Look up a code.' }
+
+it.each(['strands', 'langchain', 'pi'] as const)(
+  '%s disables native Hermes tools before WebLLM validates the request',
+  async (client) => {
+    const { engine, create } = setupEngine(chunk({ content: 'Done' }, 'stop'))
+    const prompt = 'Answer briefly.'
+    const tool = { ...lookup, parameters: { type: 'object', properties: {} } }
+    if (client === 'strands') {
+      const model = new WebLLMModel({ engine, modelId: hermes, request: { tool_choice: 'none' } })
+      await collect(
+        model.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })], {
+          systemPrompt: prompt,
+          toolSpecs: [lookup],
+        }),
+      )
+    } else if (client === 'langchain') {
+      const model = new ChatWebLLM({ engine, modelId: hermes })
+      await model
+        .bindTools([{ type: 'function', function: tool }], { tool_choice: 'none' })
+        .invoke([new SystemMessage(prompt), new HumanMessage('Hi')])
+    } else {
+      const provider = createWebLLMProvider({ engine, modelId: hermes, contextWindow: 8192 })
+      const context = normalizeContext({
+        systemPrompt: prompt,
+        tools: [tool],
+        messages: [{ role: 'user', content: 'Hi', timestamp: 0 }],
+      })
+      const result = await provider
+        .stream(provider.getModels()[0]!, context, {
+          toolChoice: 'none',
+        })
+        .result()
+      expect(result.stopReason).toBe('stop')
+    }
+    const value = create.mock.calls[0]![0] as ChatCompletionRequestStreaming
+    expect(value.tool_choice).toBe('none')
+    expect(value.tools).toBeUndefined()
+    expect(value.messages[0]).toEqual({ role: 'system', content: prompt })
+    const checked = structuredClone(value)
+    expect(() => postInitAndCheckFieldsChatCompletion(checked, hermes, ModelType.LLM)).not.toThrow()
+    expect(checked.messages[0]).toEqual({ role: 'system', content: prompt })
+    expect(checked.response_format).toBeUndefined()
+  },
+)
 
 async function request(client: string, modelId: string, prompt: string | undefined, tools = false) {
   const { engine, create } = setupEngine(chunk({ content: 'Done' }, 'stop'))

@@ -4,6 +4,7 @@ import { load, provider } from '../src/engine.js'
 import { createAgent } from '../src/agent.js'
 import { vision } from './vision.js'
 import { constrainedAgent } from './constraints.js'
+import { comparePerformance } from './performance.js'
 
 async function run(prompt: string) {
   const agent = await createAgent(true)
@@ -64,6 +65,7 @@ const piChecks = {
   vision,
   withEngine,
   constrainedAgent,
+  comparePerformance,
 }
 Object.assign(window, { piChecks })
 declare global {

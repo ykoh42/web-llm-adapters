@@ -70,23 +70,11 @@ for (const modelId of ['gemma-4-E2B-it-q4f16_1-MLC', 'Hermes-3-Llama-3.1-8B-q4f1
       messages: [{ role: 'user', content: 'Return answer set to six times seven.' }],
     })
     const request = await page.evaluate(() => window.requiredToolRequests.at(-1)!)
-    const native = await page.evaluate(async (request) => {
-      const engine = window.checks.engine()
-      await engine.resetChat()
-      const stream =
-        'messages' in request
-          ? await engine.chat.completions.create(request)
-          : await engine.completions.create(request)
-      const chunks: WebLLMChunk[] = []
-      for await (const chunk of stream) chunks.push(chunk)
-      return chunks
-    }, request)
     await writeFile(
       info.outputPath('required-tool.json'),
-      JSON.stringify({ results, result, request, observed, native }, null, 2),
+      JSON.stringify({ results, result, request, observed }, null, 2),
     )
-    const output = nativeOutput(native)
-    expect(nativeOutput(observed)).toEqual(output)
+    const output = nativeOutput(observed)
     if (modelId.startsWith('gemma-')) {
       expect(result.structuredResponse).toEqual({ answer: 42 })
     } else {

@@ -65,21 +65,7 @@ export function formatUser(
   // Tool results must precede user text injected into the same Strands message.
   for (const block of content) {
     if (block.type !== 'toolResultBlock') continue
-    const images = block.content.filter((part) => part.type === 'imageBlock').map(formatPart)
-    const response =
-      structuredResults && block.status !== 'error' ? structuredResult(block) : undefined
-    const text =
-      response !== undefined
-        ? ''
-        : formatText(block.content.filter((part) => part.type !== 'imageBlock'))
-    const result = block.status === 'error' ? (text ? `[ERROR] ${text}` : '[ERROR]') : text
-    output.push({
-      role: 'tool',
-      tool_call_id: block.toolUseId,
-      content: result,
-      ...(response !== undefined && { response }),
-    })
-    if (images.length) toolImageMessages.push({ role: 'user', content: images })
+    appendToolResult(block, structuredResults, output, toolImageMessages)
   }
   output.push(...toolImageMessages)
   const parts = content
@@ -88,6 +74,29 @@ export function formatUser(
   if (parts.length || !output.length)
     output.push({ role: 'user', content: formatUserContent(parts) })
   return output
+}
+
+function appendToolResult(
+  block: ToolResultBlock,
+  structuredResults: boolean,
+  output: (ChatCompletionMessageParam & { response?: unknown })[],
+  imageMessages: ChatCompletionMessageParam[],
+): void {
+  const images = block.content.filter((part) => part.type === 'imageBlock').map(formatPart)
+  const response =
+    structuredResults && block.status !== 'error' ? structuredResult(block) : undefined
+  const text =
+    response !== undefined
+      ? ''
+      : formatText(block.content.filter((part) => part.type !== 'imageBlock'))
+  const result = block.status === 'error' ? (text ? `[ERROR] ${text}` : '[ERROR]') : text
+  output.push({
+    role: 'tool',
+    tool_call_id: block.toolUseId,
+    content: result,
+    ...(response !== undefined && { response }),
+  })
+  if (images.length) imageMessages.push({ role: 'user', content: images })
 }
 
 function structuredResult(block: ToolResultBlock): unknown {

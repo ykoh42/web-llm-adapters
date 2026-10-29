@@ -2,7 +2,7 @@
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
-    "types": ["node", "vite/client"]
+    "types": ["node"]
   },
-  "include": ["run.ts", "../browser/src/main.ts"]
+  "include": ["run.ts"]
 }

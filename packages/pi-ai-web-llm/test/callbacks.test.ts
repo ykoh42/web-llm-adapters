@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { getEventListeners } from 'node:events'
 import type { ChatCompletionChunk } from '@mlc-ai/web-llm'
 import { chunk, setup } from './helpers.js'
 
@@ -63,33 +64,111 @@ it('keeps parsed output when an async provider chunk callback mutates its copy',
   expect(observed).toHaveLength(1)
 })
 
-it('cancels without waiting for an async provider chunk callback', async () => {
-  let finish!: () => void
-  const hold = new Promise<void>((resolve) => {
-    finish = resolve
+it.each([
+  { timeout: false, missing: false },
+  { timeout: true, missing: false },
+  { timeout: true, missing: true },
+])(
+  'cancels an active callback (timeout: $timeout, missing any: $missing)',
+  async ({ timeout, missing }) => {
+    const original = Object.getOwnPropertyDescriptor(AbortSignal, 'any')!
+    if (missing) Object.defineProperty(AbortSignal, 'any', { ...original, value: undefined })
+    let finish!: () => void
+    const hold = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    const onChunk = vi.fn().mockImplementationOnce(() => hold)
+    const { models, model, create } = setup(undefined, { onChunk })
+    const close = vi.fn(async () => ({ done: true as const, value: undefined }))
+    create.mockResolvedValueOnce({
+      [Symbol.asyncIterator]: () => ({
+        next: async () => ({ done: false as const, value: chunk({ content: 'Hello' }) }),
+        return: close,
+      }),
+    })
+    const controller = new AbortController()
+    const pending = models.completeSimple(model, context, {
+      signal: controller.signal,
+      ...(timeout && { timeoutMs: 5000 }),
+    })
+    try {
+      await vi.waitFor(() => expect(onChunk).toHaveBeenCalledOnce())
+      controller.abort()
+      expect((await pending).stopReason).toBe('aborted')
+      expect(create).toHaveBeenCalledOnce()
+      await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
+      expect((await models.completeSimple(model, context)).stopReason).toBe('stop')
+      expect(onChunk).toHaveBeenCalledTimes(2)
+      expect(create).toHaveBeenCalledTimes(2)
+    } finally {
+      finish()
+      if (missing) Object.defineProperty(AbortSignal, 'any', original)
+    }
+  },
+)
+
+it('times out without AbortSignal.any when there is no caller signal', async () => {
+  const { models, model, create } = setup()
+  const any = vi.spyOn(AbortSignal, 'any').mockImplementation(() => {
+    throw new TypeError('AbortSignal.any is unavailable')
   })
-  const onChunk = vi.fn().mockImplementationOnce(() => hold)
-  const { models, model, create } = setup(undefined, { onChunk })
-  const close = vi.fn(async () => ({ done: true as const, value: undefined }))
-  create.mockResolvedValueOnce({
-    [Symbol.asyncIterator]: () => ({
-      next: async () => ({ done: false as const, value: chunk({ content: 'Hello' }) }),
-      return: close,
-    }),
-  })
-  const controller = new AbortController()
-  const pending = models.completeSimple(model, context, { signal: controller.signal })
   try {
-    await vi.waitFor(() => expect(onChunk).toHaveBeenCalledOnce())
-    controller.abort()
-    expect((await pending).stopReason).toBe('aborted')
-    expect(create).toHaveBeenCalledOnce()
-    await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
-    expect((await models.completeSimple(model, context)).stopReason).toBe('stop')
-    expect(onChunk).toHaveBeenCalledTimes(2)
-    expect(create).toHaveBeenCalledTimes(2)
+    const response = await models.completeSimple(model, context, {
+      timeoutMs: 100,
+      onPayload: () => new Promise<void>(() => {}),
+    })
+    expect(response.stopReason).toBe('aborted')
+    expect(create).not.toHaveBeenCalled()
   } finally {
-    finish()
+    any.mockRestore()
+  }
+})
+
+it.each(['caller', 'timeout'] as const)(
+  'honors %s cancellation without AbortSignal.any',
+  async (source) => {
+    const original = Object.getOwnPropertyDescriptor(AbortSignal, 'any')!
+    Object.defineProperty(AbortSignal, 'any', { ...original, value: undefined })
+    try {
+      const { models, model, create } = setup()
+      const controller = new AbortController()
+      const onPayload = vi.fn(() => new Promise<void>(() => {}))
+      const pending = models.completeSimple(model, context, {
+        signal: controller.signal,
+        timeoutMs: source === 'timeout' ? 100 : 5000,
+        onPayload,
+      })
+      if (source === 'caller') {
+        await vi.waitFor(() => expect(onPayload).toHaveBeenCalledOnce())
+        controller.abort()
+      }
+      expect((await pending).stopReason).toBe('aborted')
+      expect(create).not.toHaveBeenCalled()
+      expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0)
+    } finally {
+      Object.defineProperty(AbortSignal, 'any', original)
+    }
+  },
+)
+
+it('removes combined-signal listeners after a successful call without AbortSignal.any', async () => {
+  const original = Object.getOwnPropertyDescriptor(AbortSignal, 'any')!
+  Object.defineProperty(AbortSignal, 'any', { ...original, value: undefined })
+  const timeout = new AbortController()
+  const timer = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(timeout.signal)
+  try {
+    const { models, model } = setup()
+    const controller = new AbortController()
+    const result = await models.completeSimple(model, context, {
+      signal: controller.signal,
+      timeoutMs: 5000,
+    })
+    expect(result.stopReason).toBe('stop')
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0)
+    expect(getEventListeners(timeout.signal, 'abort')).toHaveLength(0)
+  } finally {
+    timer.mockRestore()
+    Object.defineProperty(AbortSignal, 'any', original)
   }
 })
 

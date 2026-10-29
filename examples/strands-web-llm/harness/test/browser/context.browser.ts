@@ -1,5 +1,6 @@
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { modelCheck } from '../../../../../scripts/release/support.js'
 import {
   Message,
   TextBlock,
@@ -107,42 +108,43 @@ for (const longRecent of [false, true]) {
   })
 }
 
-test('a real WebLLM context overflow reaches Harness and recovers by trimming history', async ({
-  page,
-}) => {
-  const harness = await openHarness(page)
-  try {
-    // Deliberately overestimate the loaded window to exercise provider-error recovery.
-    harness.model.updateConfig({ contextWindowLimit: 131072 })
-    const messages = Array.from(
-      // The default manager retries at most three times; keep this overflow recoverable.
-      { length: 20 },
-      (_, i) =>
-        new Message({
-          role: i % 2 ? 'assistant' : 'user',
-          content: [
-            new TextBlock(
-              i === 0 ? 'Archived transcript.' : 'Old unrelated record number 1234. '.repeat(120),
-            ),
-          ],
-        }),
-    )
-    const agent = await harness.create({ messages })
-    const errors: string[] = []
-    agent.addHook(AfterModelCallEvent, (event) => {
-      if (event.error) errors.push(event.error.name)
-    })
-    const result = await agent.invoke('Reply with the word ready.', { limits: { turns: 3 } })
-    expect(errors).toContain('ContextWindowOverflowError')
-    expect(result.stopReason).toBe('endTurn')
-    expect(result.lastMessage.content).toContainEqual(
-      expect.objectContaining({ type: 'textBlock', text: expect.stringMatching(/ready/i) }),
-    )
-    expect(agent.messages.length).toBeLessThan(22)
-  } finally {
-    await harness.close()
-  }
-})
+test(
+  'a real WebLLM context overflow reaches Harness and recovers by trimming history',
+  modelCheck('engine'),
+  async ({ page }) => {
+    const harness = await openHarness(page)
+    try {
+      // Deliberately overestimate the loaded window to exercise provider-error recovery.
+      harness.model.updateConfig({ contextWindowLimit: 131072 })
+      const oldRecord = 'Old unrelated record number 1234. '.repeat(120)
+      const messages = Array.from(
+        // The default manager retries at most three times; keep this overflow recoverable.
+        { length: 20 },
+        (_, i) =>
+          new Message({
+            role: i % 2 ? 'assistant' : 'user',
+            content: [new TextBlock(i === 0 ? 'Archived transcript.' : oldRecord)],
+          }),
+      )
+      const oldRecords = messages.length - 1
+      const agent = await harness.create({ messages })
+      const errors: string[] = []
+      agent.addHook(AfterModelCallEvent, (event) => {
+        if (event.error) errors.push(event.error.name)
+      })
+      const result = await agent.invoke('Reply with the word ready.', { limits: { turns: 3 } })
+      expect(errors).toContain('ContextWindowOverflowError')
+      expect(result.stopReason).toBe('endTurn')
+      expect(finalText(result).trim()).not.toBe('')
+      const remaining = agent.messages.filter((message) =>
+        message.content.some((block) => block.type === 'textBlock' && block.text === oldRecord),
+      )
+      expect(remaining.length).toBeLessThan(oldRecords)
+    } finally {
+      await harness.close()
+    }
+  },
+)
 
 for (const { choice, repeated } of [
   { choice: 'auto', repeated: false },

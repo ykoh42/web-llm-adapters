@@ -30,10 +30,16 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('Qwen keeps a literal function closer inside a string argument', async ({ page }, info) => {
+  const native = { text: '', finish: null as string | null }
   const model = new BrowserChatWebLLM(page, {
     modelId,
     thinkingPrefilled: true,
     request: { ...sampling(modelId, true), max_tokens: 4096, seed: 7 },
+    onChunk: (chunk) => {
+      const choice = chunk.choices[0]
+      if (choice && 'delta' in choice) native.text += choice.delta.content ?? ''
+      native.finish = choice?.finish_reason ?? native.finish
+    },
   })
   let response: AIMessageChunk<StandardMessageStructure> | undefined
   let failure: unknown
@@ -57,17 +63,6 @@ test('Qwen keeps a literal function closer inside a string argument', async ({ p
   } catch (error) {
     failure = error
   }
-  const native = await page.evaluate(async () => {
-    const engine = window.checks.engine()
-    await engine.resetChat()
-    let text = ''
-    let finish: string | null = null
-    for await (const chunk of await engine.chat.completions.create(window.xmlRequests[0]!)) {
-      text += chunk.choices[0]?.delta.content ?? ''
-      finish = chunk.choices[0]?.finish_reason ?? finish
-    }
-    return { text, finish }
-  })
   await info.attach('native', { body: JSON.stringify(native), contentType: 'application/json' })
   expect(native.finish).toBe('stop')
   expect(/<parameter=text>\s*([\s\S]*?)\s*<\/parameter>/.exec(native.text)?.[1]).toBe(
@@ -188,21 +183,6 @@ test('an agent preserves every native JSON tool call containing XML parameter ta
     failure = error
   }
   const requests = await page.evaluate(() => window.xmlRequests)
-  const native = await page.evaluate(async (requests) => {
-    const engine = window.checks.engine()
-    const outputs = []
-    for (const request of requests) {
-      await engine.resetChat()
-      let text = ''
-      let finish: string | null = null
-      for await (const chunk of await engine.chat.completions.create(request)) {
-        text += chunk.choices[0]?.delta.content ?? ''
-        finish = chunk.choices[0]?.finish_reason ?? finish
-      }
-      outputs.push({ text, finish })
-    }
-    return outputs
-  }, requests)
   const evidence = info.outputPath('json-parameter-tags.json')
   await writeFile(
     evidence,
@@ -212,7 +192,6 @@ test('an agent preserves every native JSON tool call containing XML parameter ta
       requests,
       chunks,
       nativeMessages,
-      native,
       error: String(failure),
     }),
   )
@@ -226,11 +205,13 @@ test('an agent preserves every native JSON tool call containing XML parameter ta
     actual.set(chunk.id, (actual.get(chunk.id) ?? '') + text)
   }
   expect([...actual.values()]).toEqual(nativeMessages)
-  expect(native.every((output) => output.finish === 'stop')).toBe(true)
+  const finishes = chunks.flatMap((chunk) =>
+    chunk.choices.flatMap((choice) => (choice.finish_reason ? [choice.finish_reason] : [])),
+  )
+  expect(finishes).toEqual(requests.map(() => 'stop'))
   expect(failure).toBeUndefined()
-  // Check native repeats too; the adapter must not invent or remove calls.
-  const calls = native.reduce(
-    (count, output) => count + [...output.text.matchAll(/<function=save_data>/g)].length,
+  const calls = nativeMessages.reduce(
+    (count, output) => count + [...output.matchAll(/<function=save_data>/g)].length,
     0,
   )
   expect(calls).toBeGreaterThan(0)

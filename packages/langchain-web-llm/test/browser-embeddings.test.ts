@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { browser } from '../fixtures/browser.js'
 import { ContextOverflowError, getRetryable } from '@langchain/core/errors'
 import { BrowserWebLLMEmbeddings, type BrowserPage } from '../src/index.js'
-import { pause } from '../fixtures/engine.js'
+import { finishRetries, pause } from '../fixtures/engine.js'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -33,6 +33,12 @@ it('uses browser embeddings in LangGraph memory and waits for native cleanup', a
   expect(create.mock.calls[0]?.[0].input).toEqual([
     'Represent this sentence for searching relevant passages: orchid',
   ])
+  const unchanged = new BrowserWebLLMEmbeddings(page, {
+    modelId: 'snowflake-arctic-embed-s-q0f32-MLC-b4',
+    queryPrefix: '',
+  })
+  expect(await unchanged.embedQuery('orchid')).toEqual([1, 0])
+  expect(create.mock.calls.at(-1)?.[0].input).toEqual(['orchid'])
   const store = new InMemoryStore({ index: { embeddings, dims: 2 } })
   await store.put(['notes'], 'flower', { text: 'An orchid.' })
   await store.put(['notes'], 'car', { text: 'A car.' })
@@ -87,7 +93,7 @@ it('retries only the failed browser embedding batch', async () => {
     batchSize: 1,
     maxRetries: 1,
   })
-  expect(await model.embedDocuments(['One', 'Two', 'Three'])).toEqual([
+  expect(await finishRetries(() => model.embedDocuments(['One', 'Two', 'Three']))).toEqual([
     [3, 1],
     [3, 1],
     [5, 1],

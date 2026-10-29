@@ -25,6 +25,7 @@ import {
 import { createWebLLMProvider } from '../../packages/pi-ai-web-llm/src/index.js'
 import type { WebLLMRequest } from '../../shared/web-llm/request.js'
 import { chunk, collect, setupEngine } from '../../fixtures/web-llm.js'
+import { recordThinking } from '../../scripts/release/support.js'
 
 const gemma = 'gemma-4-E2B-it-q4f16_1-MLC'
 const clients = ['strands', 'strands browser', 'langchain', 'langchain browser', 'pi'] as const
@@ -61,7 +62,7 @@ function assistant(model: string, content: AssistantMessage['content']): Assista
   }
 }
 
-function histories(modelId: string) {
+function histories(modelId: string, input: { code: string; value?: number } = { code: 'A7' }) {
   const strands: Message[] = []
   const langchain: (HumanMessage | AIMessage | ToolMessage)[] = []
   const pi = []
@@ -74,7 +75,7 @@ function histories(modelId: string) {
         role: 'assistant',
         content: [
           new ReasoningBlock({ text: thought }),
-          new ToolUseBlock({ toolUseId: id, name: tool.name, input: { code: 'A7' } }),
+          new ToolUseBlock({ toolUseId: id, name: tool.name, input }),
         ],
       }),
       new Message({
@@ -92,7 +93,7 @@ function histories(modelId: string) {
       new HumanMessage(question),
       new AIMessage({
         content: [{ type: 'reasoning', reasoning: thought }],
-        tool_calls: [{ id, name: tool.name, args: { code: 'A7' } }],
+        tool_calls: [{ id, name: tool.name, args: input }],
       }),
       new ToolMessage({ content: '42', tool_call_id: id }),
     )
@@ -100,7 +101,7 @@ function histories(modelId: string) {
       { role: 'user' as const, content: question, timestamp: 0 },
       assistant(modelId, [
         { type: 'thinking', thinking: thought },
-        { type: 'toolCall', id, name: tool.name, arguments: { code: 'A7' } },
+        { type: 'toolCall', id, name: tool.name, arguments: input },
       ]),
       {
         role: 'toolResult' as const,
@@ -144,6 +145,7 @@ function open(
   override?: WebLLMRequest,
   bound = false,
   samplingParams?: Record<string, unknown>,
+  input?: { code: string; value?: number },
 ) {
   const { engine, create } = setupEngine(chunk({ content: 'Done' }, 'stop'))
   const raw = vi.spyOn(engine.completions, 'create').mockImplementation(async () =>
@@ -157,7 +159,7 @@ function open(
       }
     })(),
   )
-  const history = histories(modelId)
+  const history = histories(modelId, input)
   const config = { modelId, request }
   const bridge =
     client === 'strands browser'
@@ -224,6 +226,43 @@ function open(
 }
 
 for (const client of clients) {
+  it.each(['Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC', gemma])(
+    `${client} keeps negative zero in %s tool history`,
+    async (modelId) => {
+      const { run, raw, create } = open(client, {}, modelId, undefined, false, undefined, {
+        code: 'A7',
+        value: -0,
+      })
+      await run()
+      if (modelId === gemma) {
+        expect(raw.mock.calls[0]![0].prompt).toContain('value:-0')
+      } else {
+        const history = create.mock.calls[0]![0].messages.filter(
+          (message) => message.role === 'assistant',
+        )
+          .map((message) => message.content)
+          .join('')
+        expect(history).toContain(
+          modelId.startsWith('Qwen3.5-') ? '<parameter=value>\n-0\n' : '"value":-0',
+        )
+      }
+    },
+  )
+  it.each(['Qwen3-4B-q4f16_1-MLC', 'Qwen3.5-4B-q4f16_1-MLC'])(
+    `${client} sends current tool reasoning in %s history`,
+    async (modelId) => {
+      const { run, create } = open(client, {}, modelId)
+      await run()
+      const sent = create.mock.calls[0]![0]
+      const info: { annotations: { type: string; description?: string }[] } = { annotations: [] }
+      const previous = 'prompt' in sent ? { ...sent, prompt: '' } : { ...sent, messages: [] }
+      recordThinking(info, modelId, ['Current tool plan'], [previous, sent])
+      expect(info.annotations).toContainEqual({
+        type: 'supports',
+        description: `${modelId}/thinking`,
+      })
+    },
+  )
   it.each([undefined, null, false, true])(
     `${client} preserves only historical Gemma tool-call reasoning with %s`,
     async (preserve_thinking) => {
