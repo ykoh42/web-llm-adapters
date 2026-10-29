@@ -86,19 +86,18 @@ export async function* splitThinking(
           tool = true
           break
         }
-        if (mode === 'header') {
-          if (at === -1) break
-          if (pending.slice(0, at) !== 'thought')
-            throw new ModelError('Gemma returned an unknown thinking channel.')
-        } else if (at !== -1) {
-          if (at) yield piece(pending.slice(0, at), parserChunk.usage)
-        } else {
+        if (at === -1) {
+          if (mode === 'header') break
           const end = textEnd(pending, partialMarkers(mode, parseTools))
           const text = pending.slice(0, end)
           pending = pending.slice(end)
           if (text) yield piece(text, parserChunk.usage)
           break
         }
+        if (mode === 'header') {
+          if (pending.slice(0, at) !== 'thought')
+            throw new ModelError('Gemma returned an unknown thinking channel.')
+        } else if (at) yield piece(pending.slice(0, at), parserChunk.usage)
         pending = pending.slice(at + marker.length)
         if (mode === 'text') {
           mode = 'header'
@@ -108,19 +107,18 @@ export async function* splitThinking(
         else mode = 'text'
       }
       if (signal?.aborted) return
-      if (choice.finish_reason) {
-        // A native stop string may end a thought before its closing marker.
-        if (mode !== 'text' && choice.finish_reason === 'stop' && !stopRequested)
-          throw new ModelError('Gemma ended inside a thinking block.')
-        if (pending || mode === 'header') yield piece(pending, parserChunk.usage)
-        pending = ''
-        mode = 'text'
-        yield {
-          type: 'text',
-          text: '',
-          stop: stopReason(choice.finish_reason),
-          usage: parserChunk.usage,
-        }
+      if (!choice.finish_reason) continue
+      // A native stop string may end a thought before its closing marker.
+      if (mode !== 'text' && choice.finish_reason === 'stop' && !stopRequested)
+        throw new ModelError('Gemma ended inside a thinking block.')
+      if (pending || mode === 'header') yield piece(pending, parserChunk.usage)
+      pending = ''
+      mode = 'text'
+      yield {
+        type: 'text',
+        text: '',
+        stop: stopReason(choice.finish_reason),
+        usage: parserChunk.usage,
       }
     }
   } catch (error) {

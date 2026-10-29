@@ -154,9 +154,8 @@ export async function* readChunks(
           continue
         }
         call.pending.push({ delta, ...(delta.name && { name: call.name }) })
-        while (true) {
-          const ready = calls.get(nextToolCallIndex)
-          if (!ready) break
+        let ready = calls.get(nextToolCallIndex)
+        while (ready) {
           for (const pending of ready.pending) {
             yield toolCallDeltaChunk(ready.index, pending.delta, pending.name)
             signal?.throwIfAborted()
@@ -164,6 +163,7 @@ export async function* readChunks(
           ready.pending = []
           ready.streamed = true
           nextToolCallIndex++
+          ready = calls.get(nextToolCallIndex)
         }
       }
       for (const [type, field] of contentFields) {
