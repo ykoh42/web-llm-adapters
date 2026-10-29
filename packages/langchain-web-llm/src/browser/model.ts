@@ -67,23 +67,7 @@ export class BrowserChatWebLLM extends WebLLMChatModel {
   ): AsyncGenerator<ChatGenerationChunk> {
     const signal = options.signal
     signal?.throwIfAborted()
-    const { tool_choice, maxRetries } = options
-    const input: BrowserRequest = {
-      ...(this.onChunk && { includeChunks: true }),
-      ...(this.onFailedAttempt && { includeFailedAttempts: true }),
-      config: {
-        modelId: this.modelId,
-        ...(this.thinkingPrefilled && { thinkingPrefilled: true }),
-        request: this.formatRequest(options),
-        maxRetries: this.retries,
-      },
-      messages: browserMessages(messages),
-      options: {
-        ...(options.tools && { tools: options.tools.map((tool) => convertToOpenAITool(tool)) }),
-        ...(tool_choice !== undefined && { tool_choice }),
-        ...(maxRetries !== undefined && { maxRetries }),
-      },
-    }
+    const input = this.createRequest(messages, options)
     const stopCall = (id: string) =>
       this.page.evaluate((id) => {
         const bridge = window.webllmLangChainBridge
@@ -148,6 +132,29 @@ export class BrowserChatWebLLM extends WebLLMChatModel {
     } finally {
       const pending = finish(complete, failed)
       if (pending) await pending
+    }
+  }
+
+  private createRequest(
+    messages: BaseMessage[],
+    options: this['ParsedCallOptions'],
+  ): BrowserRequest {
+    const { tool_choice, maxRetries } = options
+    return {
+      ...(this.onChunk && { includeChunks: true }),
+      ...(this.onFailedAttempt && { includeFailedAttempts: true }),
+      config: {
+        modelId: this.modelId,
+        ...(this.thinkingPrefilled && { thinkingPrefilled: true }),
+        request: this.formatRequest(options),
+        maxRetries: this.retries,
+      },
+      messages: browserMessages(messages),
+      options: {
+        ...(options.tools && { tools: options.tools.map((tool) => convertToOpenAITool(tool)) }),
+        ...(tool_choice !== undefined && { tool_choice }),
+        ...(maxRetries !== undefined && { maxRetries }),
+      },
     }
   }
 
