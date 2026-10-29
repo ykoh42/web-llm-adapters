@@ -116,7 +116,7 @@ describe('Gemma values', () => {
   })
 
   it('sorts Unicode keys by code point after lowercasing', () => {
-    expect(writeValue({ '𐐀': 1, ｚ: 2, A: 3 })).toBe('{A:3,ｚ:2,𐐀:1}')
+    expect(writeValue({ 𐐀: 1, ｚ: 2, A: 3 })).toBe('{A:3,ｚ:2,𐐀:1}')
   })
 
   it('preserves special keys as own data rather than changing the prototype', () => {

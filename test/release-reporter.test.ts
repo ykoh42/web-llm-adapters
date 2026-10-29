@@ -1,20 +1,27 @@
-import { execFile } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { FullResult, TestCase, TestResult } from '@playwright/test/reporter'
+import * as oxfmt from 'oxfmt'
 import ModelReporter from '../scripts/release/reporter.js'
 import * as reports from '../scripts/release/report.js'
 import * as source from '../scripts/release/source.js'
 import * as suite from '../scripts/release/tests.js'
 
 const removeReport = vi.hoisted(() => vi.fn())
+const writeReport = vi.hoisted(() => vi.fn())
 vi.mock('node:fs', async (original) => ({
   ...(await original<typeof import('node:fs')>()),
   rmSync: removeReport,
+  writeFileSync: writeReport,
 }))
+vi.mock('oxfmt', async (original) => {
+  const actual = await original<typeof import('oxfmt')>()
+  return { ...actual, format: vi.fn(actual.format) }
+})
 
 const result: FullResult = { status: 'passed', startTime: new Date(), duration: 0 }
 const run = promisify(execFile)
@@ -28,6 +35,7 @@ const environment = JSON.stringify({
 
 afterEach(() => {
   removeReport.mockClear()
+  writeReport.mockClear()
   vi.restoreAllMocks()
   vi.unstubAllEnvs()
 })
@@ -132,6 +140,63 @@ test('rejects a partial run even when its support checks pass', async () => {
   )
 
   expect(await reporter.onEnd(result)).toEqual({ status: 'failed' })
+  expect(removeReport).toHaveBeenCalledWith(source.reportPath, { force: true })
+})
+
+test('writes a complete report using the project format', async () => {
+  vi.stubEnv('WEB_LLM_RELEASE_ENVIRONMENT', environment)
+  vi.spyOn(source, 'checkClean').mockImplementation(() => {})
+  vi.spyOn(reports, 'checkReport').mockImplementation((report) => report as reports.ModelReport)
+  vi.spyOn(suite, 'releaseTests').mockReturnValue(['strands/first'])
+  const reporter = new ModelReporter()
+  reporter.onTestBegin()
+  reporter.onTestEnd(
+    {
+      parent: { project: () => ({ name: 'strands' }) },
+      titlePath: () => ['', 'strands', 'first'],
+      annotations: [],
+    } as unknown as TestCase,
+    { status: 'passed' } as TestResult,
+  )
+
+  expect(await reporter.onEnd(result)).toEqual({ status: 'passed' })
+  expect(writeReport).toHaveBeenCalledOnce()
+  const [path, content] = writeReport.mock.calls[0] as [string, string]
+  expect(path).toBe(source.reportPath)
+  expect(JSON.parse(content)).toMatchObject({
+    tests: [{ adapter: 'strands', name: 'first', status: 'passed', checks: [] }],
+  })
+  const root = fileURLToPath(new URL('../', import.meta.url))
+  const formatted = execFileSync(
+    process.execPath,
+    [join(root, 'node_modules/oxfmt/bin/oxfmt'), '--stdin-filepath', path],
+    { cwd: root, encoding: 'utf8', input: content },
+  )
+  expect(formatted).toBe(content)
+})
+
+test('fails the run if formatting the report fails', async () => {
+  const invalid = await oxfmt.format(source.reportPath, '{ invalid }')
+  expect(invalid.errors.length).toBeGreaterThan(0)
+  vi.mocked(oxfmt.format).mockResolvedValueOnce(invalid)
+  vi.spyOn(console, 'error').mockImplementation(() => {})
+  vi.stubEnv('WEB_LLM_RELEASE_ENVIRONMENT', environment)
+  vi.spyOn(source, 'checkClean').mockImplementation(() => {})
+  vi.spyOn(reports, 'checkReport').mockImplementation((report) => report as reports.ModelReport)
+  vi.spyOn(suite, 'releaseTests').mockReturnValue(['strands/first'])
+  const reporter = new ModelReporter()
+  reporter.onTestBegin()
+  reporter.onTestEnd(
+    {
+      parent: { project: () => ({ name: 'strands' }) },
+      titlePath: () => ['', 'strands', 'first'],
+      annotations: [],
+    } as unknown as TestCase,
+    { status: 'passed' } as TestResult,
+  )
+
+  expect(await reporter.onEnd(result)).toEqual({ status: 'failed' })
+  expect(writeReport).not.toHaveBeenCalled()
   expect(removeReport).toHaveBeenCalledWith(source.reportPath, { force: true })
 })
 

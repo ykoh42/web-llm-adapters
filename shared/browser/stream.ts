@@ -1,5 +1,6 @@
 export type BrowserPacket<T, C> = (
-  IteratorResult<T, undefined> | { native: true; done: false; value?: never }
+  | IteratorResult<T, undefined>
+  | { native: true; done: false; value?: never }
 ) & { chunks?: C[] }
 
 /** Native callbacks can run while a protocol parser is still waiting for a complete call. */

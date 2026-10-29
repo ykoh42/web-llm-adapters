@@ -19,7 +19,8 @@ type ToolCall = {
 }
 
 type Deferred =
-  { type: 'textDelta' | 'reasoningContentDelta'; text: string } | { type: 'tool'; index: number }
+  | { type: 'textDelta' | 'reasoningContentDelta'; text: string }
+  | { type: 'tool'; index: number }
 
 const contentFields = [
   ['reasoningContentDelta', 'reasoning'],

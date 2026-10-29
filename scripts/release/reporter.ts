@@ -1,6 +1,6 @@
 import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import type { FullResult, Reporter, TestCase, TestResult } from '@playwright/test/reporter'
-import { format, resolveConfig } from 'prettier'
+import { format, type FormatConfig } from 'oxfmt'
 import { checkReport, checkTests, modelReport, type ModelReport } from './report.ts'
 import { releaseTests, testName } from './tests.ts'
 import { checkClean, git, reportPath, sourceHash, webllmVersion } from './source.ts'
@@ -61,13 +61,10 @@ export default class ModelReporter implements Reporter {
         supportClaims(readFileSync('README.md', 'utf8')),
       )
       checkTests(this.report, releaseTests())
-      writeFileSync(
-        reportPath,
-        await format(JSON.stringify(this.report), {
-          ...(await resolveConfig(reportPath)),
-          filepath: reportPath,
-        }),
-      )
+      const config: FormatConfig = JSON.parse(readFileSync('.oxfmtrc.json', 'utf8'))
+      const { code, errors } = await format(reportPath, JSON.stringify(this.report), config)
+      if (errors.length) throw new Error(errors.map((error) => error.message).join('\n'))
+      writeFileSync(reportPath, code)
       return { status: 'passed' as const }
     } catch (error) {
       try {

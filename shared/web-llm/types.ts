@@ -14,7 +14,9 @@ export interface ToolSpec {
   inputSchema?: JSONSchema
 }
 export type ToolChoice =
-  { auto: Record<string, never> } | { any: Record<string, never> } | { tool: { name: string } }
+  | { auto: Record<string, never> }
+  | { any: Record<string, never> }
+  | { tool: { name: string } }
 export type StopReason = 'endTurn' | 'maxTokens' | 'cancelled' | 'toolUse'
 
 export class ModelError extends Error {
@@ -31,4 +33,9 @@ export function validateToolNames(tools: readonly ToolSpec[]) {
 }
 
 export type JSONValue =
-  string | number | boolean | null | { [key: string]: JSONValue } | JSONValue[]
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: JSONValue }
+  | JSONValue[]

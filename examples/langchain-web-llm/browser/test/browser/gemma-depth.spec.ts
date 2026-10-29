@@ -23,7 +23,7 @@ const cases = [
   },
   {
     title: 'Gemma matches canonical mixed-case and Unicode order through real WebLLM',
-    input: { B: { '𐐀': 'supplementary', ｚ: 'wide' }, a: 3, A: 4, b: 5, z: 1 },
+    input: { B: { 𐐀: 'supplementary', ｚ: 'wide' }, a: 3, A: 4, b: 5, z: 1 },
     literal: '{a:3,A:4,B:{ｚ:<|"|>wide<|"|>,𐐀:<|"|>supplementary<|"|>},b:5,z:1}',
   },
 ]
