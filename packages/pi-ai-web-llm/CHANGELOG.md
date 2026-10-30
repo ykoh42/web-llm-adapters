@@ -1,9 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-10-30
 
 - Require WebLLM 0.2.86 or later in the 0.2.x series.
-
 - Reject Qwen and Gemma tool settings, and Gemma thinking, added through `onPayload`.
 - Remove WebLLM's empty thinking prefix from Qwen2.5 answers.
 - Preserve literal Qwen thinking tags in answers when thinking is disabled.

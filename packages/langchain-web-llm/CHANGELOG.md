@@ -1,9 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-10-30
 
 - Require WebLLM 0.2.86 or later in the 0.2.x series.
-
 - Reject detached image and audio bytes instead of sending empty data.
 - Remove WebLLM's empty thinking prefix from Qwen2.5 answers.
 - Accept uppercase data URL schemes for WAV audio.
