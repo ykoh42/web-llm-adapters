@@ -16,10 +16,9 @@ import { isTextFormat } from './response.js'
 import { streamCall } from './engine/call.js'
 import type { StreamChunk } from './stream/chunks.js'
 import type { ChunkCallback } from './callback.js'
-import { nativeChunks, nativeHistory, nativeTools } from './native.js'
+import { nativeChoice, nativeChunks, nativeHistory, setNativeTools } from './native.js'
 import { validateToolNames, type ProtocolMessage, type ToolSpec, type ToolChoice } from './types.js'
 import { nativeRequest, preserveThinking, streamOptions, type WebLLMRequest } from './request.js'
-import { singleToolChoice } from './stream/choice.js'
 import { qwenToolResponseFormat } from './qwen/constraints.js'
 import { sameJSON } from './json.js'
 
@@ -211,29 +210,4 @@ export function protocolStream({
   ) {
     return streamCall(engine, () => open(create), read, signal)
   }
-}
-
-function nativeChoice(choice: ToolChoice | 'none' | undefined, tools: ToolSpec[]) {
-  if (choice && choice !== 'none') choice = singleToolChoice(choice, tools)
-  if (
-    choice !== 'none' &&
-    choice &&
-    'tool' in choice &&
-    !tools.some((tool) => tool.name === choice.tool.name)
-  )
-    throw new Error('The chosen WebLLM tool is not registered.')
-  return choice
-}
-
-function setNativeTools(
-  request: ChatCompletionRequestStreaming,
-  tools: ToolSpec[],
-  choice: ToolChoice | 'none' | undefined,
-) {
-  if (tools.length) request.tools = nativeTools(tools)
-  if (choice === 'none') request.tool_choice = 'none'
-  else if (choice && 'any' in choice)
-    throw new Error('Required tool choice needs exactly one tool for this model.')
-  else if (choice && 'tool' in choice)
-    request.tool_choice = { type: 'function', function: { name: choice.tool.name } }
 }

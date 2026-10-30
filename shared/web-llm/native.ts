@@ -1,9 +1,11 @@
 import type {
   ChatCompletionChunk,
   ChatCompletionMessageParam,
+  ChatCompletionRequestStreaming,
   ChatCompletionTool,
 } from '@mlc-ai/web-llm'
-import { ModelError, type ToolSpec } from './types.js'
+import { ModelError, type ToolChoice, type ToolSpec } from './types.js'
+import { singleToolChoice } from './stream/choice.js'
 import { sameJSON, stringifyJSON } from './json.js'
 import { hasNegativeZero, toolJSON } from './tool-json.js'
 import { callChunkCallback } from './callback.js'
@@ -22,6 +24,31 @@ interface NativeCall {
   id?: string
   name: string
   input: string
+}
+
+export function nativeChoice(choice: ToolChoice | 'none' | undefined, tools: ToolSpec[]) {
+  if (choice && choice !== 'none') choice = singleToolChoice(choice, tools)
+  if (
+    choice !== 'none' &&
+    choice &&
+    'tool' in choice &&
+    !tools.some((tool) => tool.name === choice.tool.name)
+  )
+    throw new Error('The chosen WebLLM tool is not registered.')
+  return choice
+}
+
+export function setNativeTools(
+  request: ChatCompletionRequestStreaming,
+  tools: ToolSpec[],
+  choice: ToolChoice | 'none' | undefined,
+) {
+  if (tools.length) request.tools = nativeTools(tools)
+  if (choice === 'none') request.tool_choice = 'none'
+  else if (choice && 'any' in choice)
+    throw new Error('Required tool choice needs exactly one tool for this model.')
+  else if (choice && 'tool' in choice)
+    request.tool_choice = { type: 'function', function: { name: choice.tool.name } }
 }
 
 /** WebLLM streams Hermes JSON first, then exposes the same output as parsed calls. */

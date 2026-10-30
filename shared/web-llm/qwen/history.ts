@@ -7,6 +7,17 @@ import { formatCall as xmlCall, systemPrompt as xmlSystem } from '../qwen35/tool
 export const qwen25SystemPrompt =
   'You are Qwen, created by Alibaba Cloud. You are a helpful assistant.'
 
+/** Combine caller instructions with Qwen's tool declarations. */
+export function qwenSystemPrompt(
+  system: string | undefined,
+  tools: ToolSpec[],
+  choice?: ToolChoice,
+) {
+  const prompt = jsonTools(tools, choice)
+  if (system === undefined) return prompt || undefined
+  return prompt ? `${system}\n\n${prompt}` : system
+}
+
 export function qwenHistory(
   modelId: string,
   history: ProtocolMessage[],
@@ -16,14 +27,10 @@ export function qwenHistory(
 ): ChatCompletionMessageParam[] {
   const output: ChatCompletionMessageParam[] = []
   const system = history[0]?.role === 'system' ? history[0].content : undefined
+  const systemText = system ?? (modelId.startsWith('Qwen2.5-') ? qwen25SystemPrompt : '')
   const prompt = xml
     ? (xmlSystem(system, tools, choice) ?? '')
-    : [
-        system ?? (modelId.startsWith('Qwen2.5-') ? qwen25SystemPrompt : ''),
-        jsonTools(tools, choice),
-      ]
-        .filter((part) => part !== undefined && part !== '')
-        .join('\n\n')
+    : (qwenSystemPrompt(systemText || undefined, tools, choice) ?? '')
   if (prompt || system === '') output.push({ role: 'system', content: prompt })
   const last = lastUserIndex(history)
   let previousWasTool = false

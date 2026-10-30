@@ -23,7 +23,7 @@ export default defineConfig({
   outputDir: './test-results/release',
   reporter: [['list'], ['./scripts/release/reporter.ts']],
   webServer: {
-    command: 'node shared/browser/server.ts',
+    command: 'node scripts/browser/server.ts',
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: false,
   },

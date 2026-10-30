@@ -1,5 +1,4 @@
 import { isQwen35 } from '../../../../shared/web-llm/models.js'
-import { toolPrompt } from '../../../../shared/web-llm/qwen/tools.js'
 import { systemPrompt as xmlSystem } from '../../../../shared/web-llm/qwen35/tools.js'
 import { ModelError, type Message, type StreamOptions } from '@strands-agents/sdk'
 import type { ChatCompletionRequestStreaming } from '@mlc-ai/web-llm'
@@ -8,7 +7,10 @@ import { formatSystemPrompt } from '../chat/messages.js'
 import { generationOptions, hasStructuredResponse } from '../request.js'
 import { qwenHistory } from './history.js'
 import { qwenToolResponseFormat } from '../../../../shared/web-llm/qwen/constraints.js'
-import { qwen25SystemPrompt } from '../../../../shared/web-llm/qwen/history.js'
+import {
+  qwen25SystemPrompt,
+  qwenSystemPrompt as formatQwenSystem,
+} from '../../../../shared/web-llm/qwen/history.js'
 
 export function qwenRequest(
   config: WebLLMModelConfig,
@@ -31,37 +33,21 @@ export function qwenRequest(
   const request = generationOptions(config)
   if (responseFormat) request.response_format = responseFormat
   delete request.tool_choice
+  const isQwen3 = !xml && config.modelId.startsWith('Qwen3-')
   return {
     ...request,
-    messages: xml
-      ? qwen35Messages(messages, options)
-      : qwenMessages(config.modelId.startsWith('Qwen3-'), messages, options),
+    messages: qwenHistory(messages, options, {
+      systemPrompt: xml ? qwen35SystemPrompt(options) : qwenSystemPrompt(isQwen3, options),
+      keepThoughts: xml || isQwen3,
+      xml,
+    }),
   }
-}
-
-function qwenMessages(isQwen3: boolean, messages: Message[], options: StreamOptions) {
-  return qwenHistory(messages, options, {
-    systemPrompt: qwenSystemPrompt(isQwen3, options),
-    keepThoughts: isQwen3,
-  })
 }
 
 export function qwenSystemPrompt(isQwen3: boolean, options: StreamOptions) {
   const system = formatSystemPrompt(options.systemPrompt)
-  const prompt = toolPrompt(options.toolSpecs ?? [], options.toolChoice)
-  const systemParts = []
-  if (system !== undefined) systemParts.push(system)
-  else if (!isQwen3) systemParts.push(qwen25SystemPrompt)
-  if (prompt) systemParts.push(prompt)
-  return systemParts.length ? systemParts.join('\n\n') : undefined
-}
-
-function qwen35Messages(messages: Message[], options: StreamOptions) {
-  return qwenHistory(messages, options, {
-    systemPrompt: qwen35SystemPrompt(options),
-    keepThoughts: true,
-    xml: true,
-  })
+  const initial = system ?? (isQwen3 ? undefined : qwen25SystemPrompt)
+  return formatQwenSystem(initial, options.toolSpecs ?? [], options.toolChoice)
 }
 
 export function qwen35SystemPrompt(options: StreamOptions) {
