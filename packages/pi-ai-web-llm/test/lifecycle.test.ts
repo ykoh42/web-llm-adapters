@@ -94,6 +94,23 @@ describe('Pi provider lifecycle', () => {
     ])
   })
 
+  it('lets Pi Agent set an explicit output limit for a small context', async () => {
+    const { models, model, create } = setup(undefined, { contextWindow: 4096 })
+    const agent = new Agent({
+      initialState: { model },
+      streamFn: (model, context, options) =>
+        models.streamSimple(model, context, {
+          ...options,
+          samplingParams: { ...options?.samplingParams, max_tokens: 4096 },
+        }),
+    })
+
+    await agent.prompt('Hello')
+
+    expect(create.mock.calls[0]?.[0].max_tokens).toBe(4096)
+    expect(agent.state.messages.at(-1)).toMatchObject({ role: 'assistant', stopReason: 'stop' })
+  })
+
   it('runs a non-reasoning model with Pi Agent thinking off', async () => {
     const { models, model, create } = setup(undefined, {
       modelId: 'Qwen2.5-3B-Instruct-q4f16_1-MLC',

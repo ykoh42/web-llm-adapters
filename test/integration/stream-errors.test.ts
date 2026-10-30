@@ -1,8 +1,11 @@
 import { expect, it, vi } from 'vitest'
 import type { Completion } from '@mlc-ai/web-llm'
 import { Message, TextBlock } from '@strands-agents/sdk'
+import { Type } from '@earendil-works/pi-ai'
+import { createModels } from '@earendil-works/pi-ai/models'
 import { WebLLMModel } from '../../packages/strands-web-llm/src/index.js'
 import { ChatWebLLM } from '../../packages/langchain-web-llm/src/index.js'
+import { createWebLLMProvider } from '../../packages/pi-ai-web-llm/src/index.js'
 import { chunk, collect, pause, setupEngine } from '../../fixtures/web-llm.js'
 
 const tools = [{ name: 'lookup', description: 'Look up a code.' }]
@@ -235,3 +238,52 @@ for (const client of ['strands', 'langchain']) {
     )
   }
 }
+
+it.each(['strands', 'langchain', 'pi'] as const)(
+  '%s reports a malformed terminal chunk without waiting for more output',
+  async (client) => {
+    const { engine, create } = setupEngine(chunk({ content: 'Recovered' }, 'stop'))
+    const hold = pause()
+    const closed = vi.fn(async () => ({ done: true as const, value: undefined }))
+    const next = vi.fn(async () => {
+      if (next.mock.calls.length === 1)
+        return { done: false as const, value: chunk({ content: '<tool_call>{' }, 'stop') }
+      await hold.wait
+      return { done: true as const, value: undefined }
+    })
+    create.mockResolvedValueOnce({ [Symbol.asyncIterator]: () => ({ next, return: closed }) })
+    const config = { engine, modelId: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC' }
+    let pending: Promise<unknown>
+    if (client === 'strands') {
+      pending = collect(new WebLLMModel(config).stream(messages, { toolSpecs: tools }))
+    } else if (client === 'langchain') {
+      pending = new ChatWebLLM(config).bindTools([definition]).invoke('Find A7.')
+    } else {
+      const provider = createWebLLMProvider({ ...config, contextWindow: 8192 })
+      const models = createModels()
+      models.setProvider(provider)
+      pending = models.complete(provider.getModels()[0]!, {
+        messages: [{ role: 'user', content: 'Find A7.', timestamp: 0 }],
+        tools: [{ ...tools[0]!, parameters: Type.Object({}) }],
+      })
+    }
+    pending = pending.catch((error: unknown) => error)
+    const settled = vi.fn()
+    void pending.then(settled)
+    try {
+      await vi.waitFor(() => expect(settled).toHaveBeenCalledOnce())
+      if (client === 'pi')
+        expect(await pending).toMatchObject({
+          stopReason: 'error',
+          errorMessage: expect.stringContaining('tool'),
+        })
+      else expect(await pending).toMatchObject({ message: expect.stringContaining('tool') })
+      expect(next).toHaveBeenCalledOnce()
+      expect(closed).toHaveBeenCalledOnce()
+    } finally {
+      hold.resume()
+      await pending
+    }
+    expect((await new ChatWebLLM(config).invoke('Try again.')).text).toBe('Recovered')
+  },
+)

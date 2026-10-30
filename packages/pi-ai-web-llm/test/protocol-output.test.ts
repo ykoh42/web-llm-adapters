@@ -74,6 +74,45 @@ it.each([
   )
 })
 
+it.each(['error', 'cancel'] as const)(
+  'keeps received content when a tool stream ends with %s',
+  async (ending) => {
+    const controller = new AbortController()
+    const failure = new Error('Native stream failed')
+    let seen = 0
+    const { models, model, create } = setup([chunk({ content: 'Recovered' }, 'stop')], {
+      modelId,
+      onChunk: () => {
+        if (++seen === 2 && ending === 'cancel') controller.abort()
+      },
+    })
+    create.mockImplementationOnce(async () => {
+      async function* interrupted() {
+        yield chunk({ content: 'Before<think>Plan</think>' })
+        yield chunk({ content: '<tool_call><function=lookup><parameter=code>A7' })
+        throw failure
+      }
+      return interrupted()
+    })
+
+    const stream = models.stream(model, context, { signal: controller.signal })
+    const events = []
+    for await (const event of stream) events.push(event)
+    const result = await stream.result()
+
+    expect(result.stopReason).toBe(ending === 'cancel' ? 'aborted' : 'error')
+    if (ending === 'error') expect(result.errorMessage).toBe(failure.message)
+    expect(result.content).toEqual([
+      { type: 'text', text: 'Before' },
+      { type: 'thinking', thinking: 'Plan' },
+    ])
+    expect(events.some((event) => event.type.startsWith('toolcall_'))).toBe(false)
+    expect((await models.complete(model, context)).content).toEqual([
+      { type: 'text', text: 'Recovered' },
+    ])
+  },
+)
+
 it('keeps literal tool syntax when tool parsing is not active', async () => {
   const text = '<tool_call><function=example>literal code'
   const { models, model } = setup([chunk({ content: text }, 'stop')], { modelId })

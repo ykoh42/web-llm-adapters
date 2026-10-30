@@ -119,6 +119,24 @@ it.each(['\n', '\r\n'])(
   },
 )
 
+it.each([
+  { raw: '\n  first\n\nsecond  \n\n', text: '  first\n\nsecond  \n' },
+  { raw: '\r\n  first\r\nsecond  \r\n\r\n', text: '  first\r\nsecond  \r\n' },
+  { raw: '  value \n', text: '  value ' },
+])('preserves string whitespace in tool arguments', async ({ raw, text }) => {
+  const tools: ToolSpec[] = [
+    {
+      name: 'lookup',
+      description: '',
+      inputSchema: { type: 'object', properties: { text: { type: 'string' } } },
+    },
+  ]
+  const content = `<tool_call><function=lookup><parameter=text>${raw}</parameter></function></tool_call>`
+  const output = await collect(qwen35Chunks(chunks(chunk({ content }, 'stop')), tools))
+
+  expect(output.flatMap((item) => item.calls)).toMatchObject([{ input: JSON.stringify({ text }) }])
+})
+
 it.each(['<|im_start|>', '<|im_end|>', '<|endoftext|>'])(
   'preserves a message-boundary token in generated tool arguments: %s',
   async (token) => {

@@ -193,9 +193,11 @@ for (const { modelId, name, input, tools, minTokens, observeChunks = false } of 
         for await (const chunk of stream) {
           if (chunk.usage) tokens = chunk.usage.completion_tokens
         }
+        const elapsed = performance.now() - start
         return {
-          elapsed: performance.now() - start,
+          elapsed,
           tokens,
+          output: await engine.getMessage(),
         }
       }, request)
     const measureAdapter = async () => {
@@ -213,6 +215,7 @@ for (const { modelId, name, input, tools, minTokens, observeChunks = false } of 
         elapsed,
         tokens: response.usage_metadata?.output_tokens,
         browserCalls,
+        output: await page.evaluate(() => window.checks.engine().getMessage()),
       }
     }
     const results: {
@@ -229,12 +232,12 @@ for (const { modelId, name, input, tools, minTokens, observeChunks = false } of 
       const native = nativeBefore ?? (await measureNative())
       expect(native.tokens).toBeGreaterThan(0)
       expect(adapter.tokens).toBeGreaterThan(0)
-      if (adapter.tokens !== native.tokens) {
-        await testInfo.attach('different-token-counts', {
-          body: JSON.stringify({ native: native.tokens, adapter: adapter.tokens }),
+      if (adapter.tokens !== native.tokens || adapter.output !== native.output) {
+        await testInfo.attach('different-output', {
+          body: JSON.stringify({ native, adapter }),
           contentType: 'application/json',
         })
-        test.skip(true, 'The model generated different token counts; compare equal workloads.')
+        test.skip(true, 'The model generated different output; compare equal workloads.')
       }
       if (minTokens !== undefined) expect(native.tokens).toBeGreaterThanOrEqual(minTokens)
       results.push({
@@ -246,6 +249,10 @@ for (const { modelId, name, input, tools, minTokens, observeChunks = false } of 
       })
       if (minTokens !== undefined) expect(adapter.browserCalls).toBeLessThan(adapter.tokens! / 8)
     }
+    const requests = await page.evaluate(
+      () => (window as unknown as { nativeRequests: NativeRequest[] }).nativeRequests,
+    )
+    for (const recorded of requests) expect(recorded).toEqual(request)
     const median = (values: number[]) => {
       values.sort((a, b) => a - b)
       const middle = Math.floor(values.length / 2)

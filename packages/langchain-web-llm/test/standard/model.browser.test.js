@@ -80,7 +80,7 @@ beforeAll(async () => {
   try {
     await globalThis.fetch('http://127.0.0.1:4173/langchain/')
   } catch {
-    server = spawn('node', ['shared/browser/server.ts'], { cwd: process.cwd(), stdio: 'ignore' })
+    server = spawn('node', ['scripts/browser/server.ts'], { cwd: process.cwd(), stdio: 'ignore' })
     const deadline = Date.now() + 30000
     while (true) {
       try {

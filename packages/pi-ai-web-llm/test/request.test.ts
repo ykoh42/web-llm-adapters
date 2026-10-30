@@ -265,6 +265,18 @@ describe('Pi sampling options', () => {
 })
 
 describe('Pi output token limits', () => {
+  it('uses Pi limits for simple calls with a small context window', async () => {
+    const { models, model, create } = setup(undefined, {
+      contextWindow: 4096,
+      request: { max_tokens: 4096 },
+    })
+    await models.completeSimple(model, context)
+    expect(create.mock.calls[0]?.[0].max_tokens).toBe(1)
+
+    await models.completeSimple(model, context, { samplingParams: { max_tokens: 64 } })
+    expect(create.mock.calls[1]?.[0].max_tokens).toBe(64)
+  })
+
   it('clamps only simple calls to the remaining context', async () => {
     const { models, model, create } = setup()
     const longContext = normalizeContext({
