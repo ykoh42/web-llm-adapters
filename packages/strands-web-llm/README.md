@@ -69,6 +69,7 @@ try {
 ```
 
 You own model loading and unloading. The examples use Worker and Main thread engines; the adapter accepts any WebLLM `MLCEngineInterface`.
+If thinking reaches the token or context limit, `Agent.invoke` throws `MaxTokensError`; its `partialMessage` contains the received content.
 The first load fetches WebLLM's runtime and model files; the browser caches them for later use.
 Inference runs locally.
 See the [runnable examples](https://github.com/ykoh42/web-llm-adapters/blob/main/examples/strands-web-llm/README.md).
@@ -121,7 +122,7 @@ The [Harness example](https://github.com/ykoh42/web-llm-adapters/blob/main/examp
 
 See the [verified models](https://github.com/ykoh42/web-llm-adapters#models) for exact IDs and features.
 Qwen3.5 preserves object/array arguments, type-less non-string `enum`/`const` values, and `anyOf`/`oneOf` unions without string branches as JSON. History rejects `<|im_start|>`, `<|im_end|>`, or `<|endoftext|>` in tool arguments, `>` in top-level argument names, and `<parameter=` / `</parameter>` in raw strings.
-Install WebLLM `0.2.79` or later in the `0.2.x` series. Gemma 4 E2B was verified with WebLLM `0.2.86` and needs the bundled [runtime setup and protocol limits](https://github.com/ykoh42/web-llm-adapters/blob/main/shared/runtime/README.md). Audio works in ordinary chat, without tools or thinking.
+Install WebLLM `0.2.86` or later in the `0.2.x` series. Gemma 4 E2B was verified with WebLLM `0.2.86` and needs the bundled [runtime setup and protocol limits](https://github.com/ykoh42/web-llm-adapters/blob/main/shared/runtime/README.md). Audio works in ordinary chat, without tools or thinking.
 
 `WebLLMEmbeddingSearchStrategy` connects WebLLM to Strands memory; see the
 [memory example](https://github.com/ykoh42/web-llm-adapters/blob/main/examples/strands-web-llm/harness/src/memory.ts).
@@ -136,9 +137,8 @@ Before changing the embedding model, wait for pending searches and writes, then 
 
 ## Support
 
-Tested with WebLLM **0.2.79** and **0.2.86**, and Strands SDK **1.18.0** and **1.22.0**. Model availability depends on the installed WebLLM version. Harness **0.3.1** is used by the integration example.
+Tested with WebLLM **0.2.86** and Strands SDK **1.18.0** and **1.22.0**. Model availability depends on the installed WebLLM version. Harness **0.3.1** is used by the integration example.
 
-WebLLM 0.2.79 ignores request-level `repetition_penalty` and `enable_latency_breakdown`. Versions 0.2.81–0.2.83 fail when directly imported as ESM in Node.js. Versions 0.2.79–0.2.85 can leave the engine blocked after a stream stops early. Use 0.2.86 for cancellation and reuse.
 Features depend on the exact model.
 
 For Gemma 4, `request.extra_body.preserve_thinking: true` also keeps earlier tool-call reasoning; the default keeps only the current user turn.
@@ -149,7 +149,7 @@ Set `thinkingPrefilled: true` at construction if your loaded Qwen template alrea
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | Chat, system prompts, history | Strands messages and `systemPrompt`                                                                                           | Unsupported blocks raise errors                                                                      |
 | Provider citation blocks      | Unsupported                                                                                                                   | This adapter does not produce them; cited history raises an error                                    |
-| Streaming and cancellation    | `agent.stream()`, `agent.cancel()`                                                                                            | One assistant response per call                                                                      |
+| Streaming and cancellation    | `agent.stream()`, `agent.cancel()`                                                                                            | One assistant response                                                                               |
 | Tools and results             | Strands tools and `toolChoice`                                                                                                | Qwen supports `any`; Gemma/native tool models require one tool                                       |
 | Disable tools                 | `request.tool_choice: 'none'`                                                                                                 | Keeps the Agent tool registry                                                                        |
 | Thinking                      | `request.extra_body.enable_thinking`                                                                                          | Render `textBlock` values to show only the answer                                                    |
@@ -211,7 +211,7 @@ inside the callback. Direct engine calls bypass the queue. Stop callers before r
 | Main thread, Worker, Service Worker, extension      | Any `MLCEngineInterface`; use WebLLM's factories and handlers |
 | Message `name`                                      | Native chat; SDK messages have no name field                  |
 
-With WebLLM 0.2.86, set `request.extra_body.resumable.enabled` to `true` to checkpoint chat, then call `resumeChatCompletion()` through `withEngine()`. Set `resumable.strictPersistence` to `true` to surface storage errors. WebLLM 0.2.79–0.2.85 ignores this option. WebLLM only resumes text-only requests without structured output or a custom logit processor. Gemma tool and thinking requests use raw completions and cannot resume.
+With WebLLM 0.2.86, set `request.extra_body.resumable.enabled` to `true` to checkpoint chat, then call `resumeChatCompletion()` through `withEngine()`. Set `resumable.strictPersistence` to `true` to surface storage errors. WebLLM only resumes text-only requests without structured output or a custom logit processor. Gemma tool and thinking requests use raw completions and cannot resume.
 
 `updateConfig()` merges top-level settings; `modelId` selects an already loaded model.
 Use model-card sampling settings. WebLLM does not expose `top_k` or `min_p`.

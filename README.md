@@ -79,7 +79,7 @@ WebLLM uses XGrammar for structured `response_format`; `structural_tag` is one f
 separate `xgrammar2` flag. Raw formats work on chat paths when the model supports them.
 `constrainedToolCalls` builds Qwen-specific tool grammar. Earlier tests covered every Qwen ID above; release checks use representative IDs.
 With tools enabled, unverified model IDs return an error. All three adapters accept it with
-WebLLM **0.2.86**. WebLLM 0.2.79–0.2.80 silently ignores structural tags.
+WebLLM **0.2.86**.
 It uses the existing tool definitions;
 framework tool selection, thinking, and argument validation still apply. It can be slower or less accurate.
 It does not guarantee the intended tool call or argument values.

@@ -8,7 +8,7 @@ await checkInstall({
     [
       '@earendil-works/pi-ai@1.0.2',
       '@earendil-works/pi-agent-core@1.0.2',
-      '@mlc-ai/web-llm@0.2.79',
+      '@mlc-ai/web-llm@0.2.86',
     ],
     [
       '@earendil-works/pi-ai@1.4.0',
@@ -19,7 +19,7 @@ await checkInstall({
   consumerDependencies: [
     '@earendil-works/pi-ai@1.0.2',
     '@earendil-works/pi-agent-core@1.0.2',
-    '@mlc-ai/web-llm@0.2.79',
+    '@mlc-ai/web-llm@0.2.86',
   ],
   source: `
 import assert from 'node:assert/strict'
@@ -57,6 +57,28 @@ try {
 const agent = new Agent({initialState:{model},streamFn:models.streamSimple.bind(models)})
 await agent.prompt('Hello')
 assert.equal(agent.state.messages.at(-1)?.role,'assistant')
+
+const small = createWebLLMProvider({engine,modelId:'test',providerId:'small',contextWindow:4096})
+models.setProvider(small)
+let nativeLimit: unknown
+const create = engine.chat.completions.create
+engine.chat.completions.create = new Proxy(create, {
+  apply(target, receiver, args) {
+    nativeLimit = args[0].max_tokens
+    return Reflect.apply(target, receiver, args)
+  },
+})
+const smallAgent = new Agent({
+  initialState: { model: small.getModels()[0]! },
+  streamFn: (model, context, options) => models.streamSimple(model, context, {
+    ...options,
+    samplingParams: { ...options?.samplingParams, max_tokens: 4096 },
+  }),
+})
+await smallAgent.prompt('Hello')
+assert.equal(nativeLimit, 4096)
+assert.equal(smallAgent.state.messages.at(-1)?.role, 'assistant')
+engine.chat.completions.create = create
 
 const toolContext = {
   messages: [{ role: 'user' as const, content: 'Look up A7', timestamp: 0 }],

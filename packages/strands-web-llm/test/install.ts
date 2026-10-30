@@ -5,10 +5,10 @@ await checkInstall({
   peerImports: ['@strands-agents/sdk'],
   forbiddenImports: ['@langchain/', '@earendil-works/'],
   compatibilityDependencies: [
-    ['@strands-agents/sdk@1.18.0', '@mlc-ai/web-llm@0.2.79'],
+    ['@strands-agents/sdk@1.18.0', '@mlc-ai/web-llm@0.2.86'],
     ['@strands-agents/sdk@1.22.0', '@mlc-ai/web-llm@0.2.86'],
   ],
-  consumerDependencies: ['@strands-agents/sdk@1.18.0', '@mlc-ai/web-llm@0.2.79'],
+  consumerDependencies: ['@strands-agents/sdk@1.18.0', '@mlc-ai/web-llm@0.2.86'],
   source: `
 import assert from 'node:assert/strict'
 import { runInNewContext } from 'node:vm'

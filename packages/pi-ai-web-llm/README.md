@@ -90,6 +90,8 @@ try {
 
 The first load fetches WebLLM's runtime and model files. Inference runs locally. A main-thread `MLCEngine` also works; the browser example uses a Worker by default. For the following snippets, put imports at the top of the file and other code inside the inner `try` block.
 
+Thinking can reach the token or context limit before an answer; check `result.stopReason` for `length`.
+
 While the engine is loaded, select a registered function for an API-specific call:
 
 ```ts
@@ -116,7 +118,7 @@ You own the engine, model loading, and Worker. Creating or replacing a provider 
 
 For other native APIs, import `withEngine` from `pi-ai-web-llm` and await all work inside `withEngine(engine, callback)`, including consuming streams.
 
-With WebLLM 0.2.86, set `request.extra_body.resumable.enabled` to `true` to checkpoint chat, then call `resumeChatCompletion()` through `withEngine()`. Set `resumable.strictPersistence` to `true` to surface storage errors. WebLLM 0.2.79–0.2.85 ignores this option. WebLLM only resumes text-only requests without structured output or a custom logit processor; this does not restore Pi transcripts or agent state. Gemma tool and thinking requests use raw completions and cannot resume.
+With WebLLM 0.2.86, set `request.extra_body.resumable.enabled` to `true` to checkpoint chat, then call `resumeChatCompletion()` through `withEngine()`. Set `resumable.strictPersistence` to `true` to surface storage errors. WebLLM only resumes text-only requests without structured output or a custom logit processor; this does not restore Pi transcripts or agent state. Gemma tool and thinking requests use raw completions and cannot resume.
 
 ## Pi Agent Core
 
@@ -131,6 +133,21 @@ const agent = new Agent({
 })
 await agent.prompt('What is 2 + 2?')
 ```
+
+Pi reserves 4,096 context tokens when limiting simple calls. With a 4,096-token context window, the usual output limit is one token. To set the limit explicitly, replace the agent above with:
+
+```ts
+const agent = new Agent({
+  initialState: { model, thinkingLevel: 'low' },
+  streamFn: (model, context, options) =>
+    models.streamSimple(model, context, {
+      ...options,
+      samplingParams: { ...options?.samplingParams, max_tokens: 4096 },
+    }),
+})
+```
+
+Input and output still share the loaded context window.
 
 Install `@earendil-works/pi-agent-core` separately. Pi validates and executes tools; [agent.ts](https://github.com/ykoh42/web-llm-adapters/blob/main/examples/pi-ai-web-llm/browser/src/agent.ts) shows a complete tool loop.
 
@@ -195,14 +212,12 @@ Full `stream` and `complete` calls preserve the native `request.extra_body.enabl
 
 `onPayload` can inspect or replace the prepared native payload while preserving the loaded model and one streaming response. When setting JSON mode there, include a schema such as `'{}'`. On WebLLM's native chat path, it may narrow Pi's registered tools but cannot add unknown tools or select a removed tool; returned calls are checked against that list. Set Qwen and Gemma tools and `toolChoice` before `onPayload`; set Gemma thinking beforehand too. Gemma requests must keep the open protocol prefix intact. `onProviderStreamEvent` and provider-level `onChunk` callbacks are awaited in order; do not await work on the same engine from them. Callback failures fail the request. HTTP-only options such as `fetch`, headers, retries, and `onResponse` do not apply to local inference. `timeoutMs` cancels a queued or active request.
 
-Qwen tools cannot be combined with native JSON output. For optional [Qwen tool-call constraints](https://github.com/ykoh42/web-llm-adapters#tool-call-constraints), set `request.constrainedToolCalls: true` with WebLLM 0.2.86. Install WebLLM `0.2.79` or later in the `0.2.x` series. Gemma 4 E2B was verified with WebLLM `0.2.86` and needs the bundled [runtime and protocol](https://github.com/ykoh42/web-llm-adapters/blob/main/shared/runtime/README.md). Gemma tools and thinking accept text and tool results only. Exact model artifacts determine support.
+Qwen tools cannot be combined with native JSON output. For optional [Qwen tool-call constraints](https://github.com/ykoh42/web-llm-adapters#tool-call-constraints), set `request.constrainedToolCalls: true` with WebLLM 0.2.86. Install WebLLM `0.2.86` or later in the `0.2.x` series. Gemma 4 E2B was verified with WebLLM `0.2.86` and needs the bundled [runtime and protocol](https://github.com/ykoh42/web-llm-adapters/blob/main/shared/runtime/README.md). Gemma tools and thinking accept text and tool results only. Exact model artifacts determine support.
 
 ## Verified models
 
 See the [verified models](https://github.com/ykoh42/web-llm-adapters#models) for exact IDs, features, and verified adapters.
 
-Tested with Pi AI and Pi Agent Core **1.0.2** and **1.4.0**, and WebLLM **0.2.79** and **0.2.86**. Model availability depends on the installed WebLLM version.
-
-WebLLM 0.2.79 ignores request-level `repetition_penalty` and `enable_latency_breakdown`. Versions 0.2.81–0.2.83 fail when directly imported as ESM in Node.js. Versions 0.2.79–0.2.85 can leave the engine blocked after a stream stops early. Use 0.2.86 for cancellation and reuse.
+Tested with Pi AI and Pi Agent Core **1.0.2** and **1.4.0**, and WebLLM **0.2.86**. Model availability depends on the installed WebLLM version.
 
 Qwen3.5 preserves object/array arguments, type-less non-string `enum`/`const` values, and `anyOf`/`oneOf` unions without string branches as JSON. History rejects `<|im_start|>`, `<|im_end|>`, or `<|endoftext|>` in tool arguments, `>` in top-level argument names, and `<parameter=` / `</parameter>` in raw strings.

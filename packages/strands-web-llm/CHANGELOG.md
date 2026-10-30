@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Require WebLLM 0.2.86 or later in the 0.2.x series.
+
 - Report when the browser bridge disappears during a call.
 - Reject detached image and audio bytes instead of sending empty data.
 - Reject non-Float32 PCM instead of encoding incorrect audio.
