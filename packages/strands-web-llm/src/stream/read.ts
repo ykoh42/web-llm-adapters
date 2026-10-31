@@ -151,61 +151,73 @@ export async function* readStream(
     yield { type: 'modelMessageStopEvent', stopReason: stop }
   }
 
+  function* readContentDeltas(chunk: StreamChunk): Generator<ModelStreamEvent> {
+    for (const [type, field] of contentFields) {
+      const value = chunk[field]
+      if (!value) continue
+      if (deferred) {
+        const previous = deferred.at(-1)
+        if (previous?.type === type) previous.text += value
+        else deferred.push({ type, text: value })
+        continue
+      }
+      yield* emitContent(type, value)
+    }
+  }
+
+  function readToolDeltas(deltas: readonly ToolDelta[]): void {
+    for (const delta of deltas) recordToolDelta(delta)
+  }
+
+  function* emitProgressiveTool(stop: StreamChunk['stop']): Generator<ModelStreamEvent> {
+    // WebLLM 0.2.86 exposes parsed tool calls at generation end, so only native
+    // non-terminal deltas can be sent progressively.
+    if (!progressiveTools || stop || signal?.aborted) return
+    const firstCall = calls.get(0)
+    if (canStartTool(calls, firstCall, toolNames)) {
+      yield* closeBlock()
+      firstCall.started = true
+      yield {
+        type: 'modelContentBlockStartEvent',
+        start: { type: 'toolUseStart', toolUseId: firstCall.id, name: firstCall.name },
+      }
+      signal?.throwIfAborted()
+    }
+    if (firstCall?.started && firstCall.sentParts < firstCall.input.length) {
+      const input = takeInput(firstCall)
+      yield {
+        type: 'modelContentBlockDeltaEvent',
+        delta: { type: 'toolUseInputDelta', input },
+      }
+      signal?.throwIfAborted()
+    }
+  }
+
+  function* readChunk(chunk: StreamChunk): Generator<ModelStreamEvent> {
+    if (hasContentAfterStop(stopReason, chunk))
+      throw new ModelError('WebLLM returned content after its stop reason.')
+    if (chunk.usage) usage = chunk.usage
+    yield* readContentDeltas(chunk)
+    readToolDeltas(chunk.calls)
+    yield* emitProgressiveTool(chunk.stop)
+    if (chunk.stop) stopReason = chunk.stop
+  }
+
+  function* finishResponse(): Generator<ModelStreamEvent> {
+    if (!stopReason) throw new ModelError('WebLLM ended the stream without a stop reason.')
+    yield* finishStream(stopReason, usage)
+  }
+
   yield { type: 'modelMessageStartEvent', role: 'assistant' }
   try {
     signal?.throwIfAborted()
     for await (const chunk of chunks) {
       signal?.throwIfAborted()
-      if (hasContentAfterStop(stopReason, chunk))
-        throw new ModelError('WebLLM returned content after its stop reason.')
-      if (chunk.usage) usage = chunk.usage
-
-      for (const [type, field] of contentFields) {
-        const value = chunk[field]
-        if (!value) continue
-        if (deferred) {
-          const previous = deferred.at(-1)
-          if (previous?.type === type) previous.text += value
-          else deferred.push({ type, text: value })
-          continue
-        }
-        yield* emitContent(type, value)
-      }
-
-      for (const delta of chunk.calls) recordToolDelta(delta)
-
-      // Only stream native, non-terminal deltas. WebLLM 0.2.86 exposes parsed
-      // tool calls at generation end, so those are emitted by finishTool below.
-      if (progressiveTools && !chunk.stop && !signal?.aborted) {
-        const firstCall = calls.get(0)
-        if (canStartTool(calls, firstCall, toolNames)) {
-          yield* closeBlock()
-          firstCall.started = true
-          yield {
-            type: 'modelContentBlockStartEvent',
-            start: { type: 'toolUseStart', toolUseId: firstCall.id, name: firstCall.name },
-          }
-          signal?.throwIfAborted()
-        }
-
-        if (firstCall?.started && firstCall.sentParts < firstCall.input.length) {
-          const input = takeInput(firstCall)
-          yield {
-            type: 'modelContentBlockDeltaEvent',
-            delta: {
-              type: 'toolUseInputDelta',
-              input,
-            },
-          }
-          signal?.throwIfAborted()
-        }
-      }
-      if (chunk.stop) stopReason = chunk.stop
+      yield* readChunk(chunk)
     }
 
     signal?.throwIfAborted()
-    if (!stopReason) throw new ModelError('WebLLM ended the stream without a stop reason.')
-    yield* finishStream(stopReason, usage)
+    yield* finishResponse()
   } catch (error) {
     try {
       if (!signal?.aborted) yield* emitDeferred(false)

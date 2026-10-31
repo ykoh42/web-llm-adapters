@@ -4,6 +4,7 @@ import {
   BrowserChatWebLLM,
   ChatWebLLM,
   createBrowserBridge,
+  type BrowserBridge,
   type BrowserPage,
 } from '../src/index.js'
 import { chunk, collect, setup } from '../fixtures/engine.js'
@@ -112,3 +113,40 @@ it.each([null, 0, 'Cancelled by caller'])(
     }
   },
 )
+
+it('keeps sync browser chunks ahead of a queued cancellation', async () => {
+  const reason = new Error('Cancelled by caller')
+  const controller = new AbortController()
+  const bridge = {
+    start: vi.fn(async () => 'call'),
+    next: vi
+      .fn()
+      .mockResolvedValueOnce({
+        done: false,
+        value: { text: 'Answer', message: { content: 'Answer' } },
+        chunks: [chunk({ content: 'Answer' })],
+      })
+      .mockResolvedValue({ done: true }),
+    stop: vi.fn(async () => undefined),
+  } as unknown as BrowserBridge
+  vi.stubGlobal('window', { webllmLangChainBridge: bridge })
+  const page: BrowserPage = {
+    async evaluate(run, input) {
+      return run(input)
+    },
+  }
+  const model = new BrowserChatWebLLM(page, {
+    modelId: 'test-model',
+    onChunk: () => queueMicrotask(() => controller.abort(reason)),
+  })
+  const stream = model._streamResponseChunks([new HumanMessage('Hi')], {
+    signal: controller.signal,
+  })
+
+  await expect(stream.next()).resolves.toMatchObject({
+    done: false,
+    value: { text: 'Answer' },
+  })
+  await expect(stream.next()).rejects.toBe(reason)
+  expect(bridge.stop).toHaveBeenCalledOnce()
+})

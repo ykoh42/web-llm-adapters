@@ -114,6 +114,75 @@ export async function* readChunks(
     if (stop === 'toolUse' && !ordered.length) throw new Error('WebLLM returned no tool calls.')
   }
 
+  function* readToolDeltas(deltas: readonly ToolDelta[]): Generator<ChatGenerationChunk> {
+    for (const delta of deltas) {
+      const call = recordToolDelta(delta)
+      if (!streamTools) continue
+      yield* readStreamedToolDelta(call, delta)
+    }
+  }
+
+  function* readStreamedToolDelta(
+    call: ToolCall,
+    delta: ToolDelta,
+  ): Generator<ChatGenerationChunk> {
+    if (call.streamed) {
+      yield toolCallDeltaChunk(call.index, delta, delta.name ? call.name : undefined)
+      signal?.throwIfAborted()
+      return
+    }
+    call.pending.push({ delta, ...(delta.name && { name: call.name }) })
+    let ready = calls.get(nextToolCallIndex)
+    while (ready) {
+      for (const pending of ready.pending) {
+        yield toolCallDeltaChunk(ready.index, pending.delta, pending.name)
+        signal?.throwIfAborted()
+      }
+      ready.pending = []
+      ready.streamed = true
+      nextToolCallIndex++
+      ready = calls.get(nextToolCallIndex)
+    }
+  }
+
+  function* readContentDeltas(chunk: StreamChunk): Generator<ChatGenerationChunk> {
+    for (const [type, field] of contentFields) {
+      const value = chunk[field]
+      if (!value) continue
+      if (block !== type) {
+        block = type
+        index++
+      }
+      const contentChunk = makeContentChunk(type, value, index)
+      if (deferred) deferred.push(contentChunk)
+      else yield contentChunk
+      signal?.throwIfAborted()
+    }
+  }
+
+  async function* readIncoming(): AsyncGenerator<ChatGenerationChunk> {
+    for await (const chunk of chunks) {
+      signal?.throwIfAborted()
+      if (hasContentAfterStop(stop, chunk))
+        throw new Error('WebLLM returned content after its stop reason.')
+      if (chunk.stop) stop = chunk.stop
+      if (chunk.calls.length) block = undefined
+      yield* readToolDeltas(chunk.calls)
+      yield* readContentDeltas(chunk)
+      if (chunk.usage) usage = chunk.usage
+    }
+  }
+
+  function* emitPendingToolDeltas(ordered: ToolCall[]): Generator<ChatGenerationChunk> {
+    if (stop !== 'maxTokens' || !streamTools) return
+    for (const call of ordered) {
+      for (const pending of call.pending) {
+        yield toolCallDeltaChunk(call.index, pending.delta, pending.name)
+        signal?.throwIfAborted()
+      }
+    }
+  }
+
   function* finishStream(
     stop: NonNullable<StreamChunk['stop']>,
     usage: StreamChunk['usage'],
@@ -139,58 +208,13 @@ export async function* readChunks(
   }
 
   try {
-    for await (const chunk of chunks) {
-      signal?.throwIfAborted()
-      if (hasContentAfterStop(stop, chunk))
-        throw new Error('WebLLM returned content after its stop reason.')
-      if (chunk.stop) stop = chunk.stop
-      if (chunk.calls.length) block = undefined
-      for (const delta of chunk.calls) {
-        const call = recordToolDelta(delta)
-        if (!streamTools) continue
-        if (call.streamed) {
-          yield toolCallDeltaChunk(call.index, delta, delta.name ? call.name : undefined)
-          signal?.throwIfAborted()
-          continue
-        }
-        call.pending.push({ delta, ...(delta.name && { name: call.name }) })
-        let ready = calls.get(nextToolCallIndex)
-        while (ready) {
-          for (const pending of ready.pending) {
-            yield toolCallDeltaChunk(ready.index, pending.delta, pending.name)
-            signal?.throwIfAborted()
-          }
-          ready.pending = []
-          ready.streamed = true
-          nextToolCallIndex++
-          ready = calls.get(nextToolCallIndex)
-        }
-      }
-      for (const [type, field] of contentFields) {
-        const value = chunk[field]
-        if (!value) continue
-        if (block !== type) {
-          block = type
-          index++
-        }
-        const contentChunk = makeContentChunk(type, value, index)
-        if (deferred) deferred.push(contentChunk)
-        else yield contentChunk
-        signal?.throwIfAborted()
-      }
-      if (chunk.usage) usage = chunk.usage
-    }
+    yield* readIncoming()
     signal?.throwIfAborted()
     if (!stop) throw new Error('WebLLM ended the stream without a stop reason.')
     throwIfCancelled(stop)
     const ordered = [...calls.values()].sort((left, right) => left.index - right.index)
     checkCalls(ordered, stop)
-    if (stop === 'maxTokens' && streamTools)
-      for (const call of ordered)
-        for (const pending of call.pending) {
-          yield toolCallDeltaChunk(call.index, pending.delta, pending.name)
-          signal?.throwIfAborted()
-        }
+    yield* emitPendingToolDeltas(ordered)
     yield* finishStream(stop, usage, ordered)
   } catch (error) {
     if (!signal?.aborted) yield* emitDeferred(false)

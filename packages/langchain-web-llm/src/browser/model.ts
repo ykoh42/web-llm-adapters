@@ -17,9 +17,12 @@ import { readBrowserError } from '../../../../shared/browser/errors.js'
 import { WebLLMChatModel } from '../chat/base.js'
 import { hasTokenCallbacks, notifyToken } from '../chat/callbacks.js'
 import { modelError } from '../error.js'
-import type { WebLLMModelOptions, ChatWebLLMOptions } from '../types.js'
+import type { WebLLMModelOptions, ChatWebLLMOptions, WebLLMChunk } from '../types.js'
 import type { BrowserChunk, BrowserPage, BrowserRequest } from './types.js'
 import type { FailedAttempt } from './failed-attempts.js'
+
+type BrowserReadResult = ChatGenerationChunk | 'done' | 'retry' | 'native'
+type BrowserCallCompletion = { complete: boolean }
 
 // invoke buffers its result; streaming and per-chunk callbacks still read one packet at a time.
 const bufferedReadSize = 512
@@ -87,52 +90,118 @@ export class BrowserChatWebLLM extends WebLLMChatModel {
     const id = await startBrowserCall(start, stopCall, signal)
     const finish = watchBrowserCall(id, stopCall, signal)
     let failed = false
-    let complete = false
+    const completion = { complete: false }
     try {
       signal?.throwIfAborted()
-      while (true) {
-        const results = await waitForCallback(
-          this.page.evaluate(readBrowserBatch, {
-            id,
-            batchSize: hasTokenCallbacks(runManager) ? 1 : batchSize,
-          }),
-          signal,
-        )
-        for (const result of results) {
-          for (const chunk of result.chunks ?? []) {
-            signal?.throwIfAborted()
-            const pending = callChunkCallback(this.onChunk, chunk, signal)
-            if (pending) await pending
-          }
-          signal?.throwIfAborted()
-          if ('error' in result) {
-            complete = true
-            throw restoreBrowserError(readBrowserError(result))
-          }
-          if ('failedAttempt' in result) {
-            await this.retryCall(id, result, signal)
-            break
-          }
-          if (result.done) {
-            complete = true
-            return
-          }
-          if ('native' in result) continue
-          const chunk = readBrowserChunk(result.value)
-          if (runManager && hasTokenCallbacks(runManager))
-            await waitForCallback(notifyToken(runManager, chunk), signal)
-          signal?.throwIfAborted()
-          yield chunk
-        }
-      }
+      yield* this.readBrowserChunks(id, runManager, batchSize, completion, signal)
     } catch (error) {
       failed = true
       if (signal?.aborted) throw error
       throw modelError(error)
     } finally {
-      const pending = finish(complete, failed)
+      const pending = finish(completion.complete, failed)
       if (pending) await pending
     }
+  }
+
+  private async *readBrowserChunks(
+    id: string,
+    runManager: CallbackManagerForLLMRun | undefined,
+    batchSize: number,
+    completion: BrowserCallCompletion,
+    signal?: AbortSignal,
+  ): AsyncGenerator<ChatGenerationChunk> {
+    while (true) {
+      const results = await waitForCallback(
+        this.page.evaluate(readBrowserBatch, {
+          id,
+          batchSize: hasTokenCallbacks(runManager) ? 1 : batchSize,
+        }),
+        signal,
+      )
+      resultLoop: for (const result of results) {
+        const pending = this.readBrowserResult(id, result, runManager, completion, signal)
+        const chunk = pending instanceof Promise ? await pending : pending
+        switch (chunk) {
+          case 'done':
+            completion.complete = true
+            return
+          case 'retry':
+            break resultLoop
+          case 'native':
+            continue
+          default:
+            yield chunk
+        }
+      }
+    }
+  }
+
+  private readBrowserResult(
+    id: string,
+    result: Awaited<ReturnType<typeof readBrowserBatch>>[number],
+    runManager: CallbackManagerForLLMRun | undefined,
+    completion: BrowserCallCompletion,
+    signal?: AbortSignal,
+  ): BrowserReadResult | Promise<BrowserReadResult> {
+    const pending = this.readChunkCallbacks(result.chunks ?? [], signal)
+    return pending
+      ? pending.then(() => this.readBrowserValue(id, result, runManager, completion, signal))
+      : this.readBrowserValue(id, result, runManager, completion, signal)
+  }
+
+  private readChunkCallbacks(
+    chunks: WebLLMChunk[],
+    signal?: AbortSignal,
+  ): Promise<void> | undefined {
+    for (let index = 0; index < chunks.length; index++) {
+      signal?.throwIfAborted()
+      const pending = callChunkCallback(this.onChunk, chunks[index]!, signal)
+      if (pending) return this.readPendingChunkCallbacks(chunks, index + 1, pending, signal)
+    }
+    return
+  }
+
+  private async readPendingChunkCallbacks(
+    chunks: WebLLMChunk[],
+    index: number,
+    pending: Promise<unknown>,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    await pending
+    for (; index < chunks.length; index++) {
+      signal?.throwIfAborted()
+      const pending = callChunkCallback(this.onChunk, chunks[index]!, signal)
+      if (pending) await pending
+    }
+  }
+
+  private readBrowserValue(
+    id: string,
+    result: Awaited<ReturnType<typeof readBrowserBatch>>[number],
+    runManager: CallbackManagerForLLMRun | undefined,
+    completion: BrowserCallCompletion,
+    signal?: AbortSignal,
+  ): BrowserReadResult | Promise<BrowserReadResult> {
+    signal?.throwIfAborted()
+    if ('error' in result) {
+      completion.complete = true
+      throw restoreBrowserError(readBrowserError(result))
+    }
+    if ('failedAttempt' in result) {
+      return this.retryCall(id, result, signal).then(() => 'retry' as const)
+    }
+    if (result.done) return 'done'
+    if ('native' in result) return 'native'
+
+    const chunk = readBrowserChunk(result.value)
+    if (runManager && hasTokenCallbacks(runManager))
+      return waitForCallback(notifyToken(runManager, chunk), signal).then(() => {
+        signal?.throwIfAborted()
+        return chunk
+      })
+    signal?.throwIfAborted()
+    return chunk
   }
 
   private createRequest(
