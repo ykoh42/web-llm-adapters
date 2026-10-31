@@ -3,6 +3,15 @@ packages:
   - examples/*/*
 minimumReleaseAge: 1440
 minimumReleaseAgeIgnoreMissingTime: false
+minimumReleaseAgeExclude:
+  - '@langchain/langgraph-checkpoint@1.2.2'
+  - '@langchain/langgraph-sdk@1.12.9'
+  - '@langchain/langgraph@1.6.0'
+  - '@mlc-ai/web-llm@0.2.87'
+  - '@strands-agents/harness@0.3.3'
+  - '@strands-agents/sdk@1.23.0'
+  - 'knip@6.44.1'
+minimumReleaseAgeExcludePrune: true
 allowBuilds:
   '@google/genai': false
   esbuild: true
