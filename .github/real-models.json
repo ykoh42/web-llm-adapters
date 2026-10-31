@@ -1,13 +1,13 @@
 {
-  "commit": "c44ea563c5e40b9fea37813d874304615f851908",
-  "source": "7142f5ac6e5ef5d41c01e9de64945dfe210fb7e7a01de329089603d6e937b8a0",
+  "commit": "ef225f9372f0075f60242fcc950c5ed1ec1b7208",
+  "source": "95962932a112bf3c61fd456eee6ca30fa66814d1a139ec671945afb99ef966cd",
   "webllm": "0.2.86",
-  "checkedAt": "2026-10-27T16:49:58.558Z",
+  "checkedAt": "2026-10-31T04:25:21.008Z",
   "environment": {
     "platform": "darwin",
     "arch": "arm64",
     "node": "v26.12.1",
-    "browser": "156.0.8078.48",
+    "browser": "156.0.8078.76",
     "gpu": { "vendor": "apple", "architecture": "metal-3", "device": "", "description": "" }
   },
   "tests": [
@@ -27,13 +27,21 @@
       "adapter": "strands",
       "name": "examples/strands-web-llm/harness/test/browser/constraints.browser.ts > Qwen3-1.7B-q4f16_1-MLC constrains required tools and preserves thinking through the final answer",
       "status": "passed",
-      "checks": ["Qwen3-1.7B-q4f16_1-MLC/tools", "Qwen3-1.7B-q4f16_1-MLC/thinking"]
+      "checks": [
+        "Qwen3-1.7B-q4f16_1-MLC/constrained-tools",
+        "Qwen3-1.7B-q4f16_1-MLC/thinking",
+        "Qwen3-1.7B-q4f16_1-MLC/thinking"
+      ]
     },
     {
       "adapter": "strands",
       "name": "examples/strands-web-llm/harness/test/browser/constraints.browser.ts > Qwen3.5-4B-q4f16_1-MLC constrains required tools and preserves thinking through the final answer",
       "status": "passed",
-      "checks": ["Qwen3.5-4B-q4f16_1-MLC/tools", "Qwen3.5-4B-q4f16_1-MLC/thinking"]
+      "checks": [
+        "Qwen3.5-4B-q4f16_1-MLC/constrained-tools",
+        "Qwen3.5-4B-q4f16_1-MLC/thinking",
+        "Qwen3.5-4B-q4f16_1-MLC/thinking"
+      ]
     },
     {
       "adapter": "strands",
@@ -50,6 +58,12 @@
     {
       "adapter": "strands",
       "name": "examples/strands-web-llm/harness/test/browser/constraints.browser.ts > Qwen3.5-4B-q4f16_1-MLC constrains an Agent tool loop and preserves native output",
+      "status": "passed",
+      "checks": []
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/context.browser.ts > a real WebLLM context overflow reaches Harness and recovers by trimming history",
       "status": "passed",
       "checks": []
     },
@@ -86,6 +100,12 @@
     {
       "adapter": "strands",
       "name": "examples/strands-web-llm/harness/test/browser/native.browser.ts > Qwen structured output excludes the native thinking-off prefix",
+      "status": "passed",
+      "checks": []
+    },
+    {
+      "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/qwen25.browser.ts > Qwen2.5 preserves native text with thinking disabled",
       "status": "passed",
       "checks": []
     },
@@ -181,6 +201,12 @@
     },
     {
       "adapter": "strands",
+      "name": "examples/strands-web-llm/harness/test/browser/resume.browser.ts > Strands can resume interrupted native generation",
+      "status": "passed",
+      "checks": ["engine/resume"]
+    },
+    {
+      "adapter": "strands",
       "name": "examples/strands-web-llm/harness/test/browser/thinking.browser.ts > Gemma thinks, calls Harness read, answers, and strips old thoughts on the next turn",
       "status": "passed",
       "checks": ["gemma-4-E2B-it-q4f16_1-MLC/tools", "gemma-4-E2B-it-q4f16_1-MLC/thinking"]
@@ -193,7 +219,7 @@
     },
     {
       "adapter": "langchain",
-      "name": "examples/langchain-web-llm/browser/test/browser/audio.spec.ts > Float32 PCM matches native WebLLM through local and browser LangChain models",
+      "name": "examples/langchain-web-llm/browser/test/browser/audio.spec.ts > PCM and WAV audio reach WebLLM through local and browser LangChain models",
       "status": "passed",
       "checks": ["gemma-4-E2B-it-q4f16_1-MLC/audio"]
     },
@@ -250,6 +276,24 @@
       "name": "examples/langchain-web-llm/browser/test/browser/embeddings.spec.ts > snowflake-arctic-embed-s-q0f32-MLC-b4: native vectors match local and browser adapters",
       "status": "passed",
       "checks": ["snowflake-arctic-embed-s-q0f32-MLC-b4/embeddings"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/events.spec.ts > Qwen3.5-4B-q4f16_1-MLC streams thinking and a tool call through native LangChain events",
+      "status": "passed",
+      "checks": []
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/events.spec.ts > gemma-4-E2B-it-q4f16_1-MLC streams thinking and a tool call through native LangChain events",
+      "status": "passed",
+      "checks": []
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/events.spec.ts > cancels native LangChain events and reuses the engine",
+      "status": "passed",
+      "checks": []
     },
     {
       "adapter": "langchain",
@@ -340,6 +384,12 @@
       "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen3-1.7B-q4f16_1-MLC: Deep Agents tools and final answer",
       "status": "passed",
       "checks": ["Qwen3-1.7B-q4f16_1-MLC/tools", "Qwen3-1.7B-q4f16_1-MLC/thinking"]
+    },
+    {
+      "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/resume.spec.ts > LangChain can resume interrupted native generation",
+      "status": "passed",
+      "checks": ["engine/resume"]
     },
     {
       "adapter": "langchain",
@@ -460,6 +510,12 @@
       "name": "examples/pi-ai-web-llm/browser/test/provider.spec.ts > gemma-4-E2B-it-q4f16_1-MLC: preserves thinking history when sampling sets WebLLM options",
       "status": "passed",
       "checks": []
+    },
+    {
+      "adapter": "pi",
+      "name": "examples/pi-ai-web-llm/browser/test/resume.spec.ts > Pi can resume interrupted native generation",
+      "status": "passed",
+      "checks": ["engine/resume"]
     },
     {
       "adapter": "pi",
