@@ -3,6 +3,7 @@
 A bundled fix for WebLLM **0.2.86**, for `gemma-4-E2B-it-q4f16_1-MLC` only.
 It fixes cache corruption and projection rounding while keeping the original model weights.
 Included in `strands-web-llm`, `langchain-web-llm`, and `pi-ai-web-llm`; no local compiler is needed.
+Use it only with its matching WebLLM model runtime, `v0_2_86/base`.
 
 ## Use
 
@@ -10,22 +11,26 @@ For Vite, import the asset URL and its pinned integrity hash.
 For LangChain or Pi, use your adapter's package name in both asset imports:
 
 ```ts
-import { CreateMLCEngine, prebuiltAppConfig } from '@mlc-ai/web-llm'
+import { CreateMLCEngine, modelVersion, prebuiltAppConfig } from '@mlc-ai/web-llm'
 import runtimeUrl from 'strands-web-llm/runtime/gemma-4-e2b.wasm?url'
 import runtime from 'strands-web-llm/runtime/manifest.json'
 
-const appConfig = {
-  ...prebuiltAppConfig,
-  model_list: prebuiltAppConfig.model_list.map((model) =>
-    model.model_id === runtime.model_id
-      ? {
-          ...model,
-          model_lib: new URL(runtimeUrl, window.location.href).href,
-          integrity: { ...model.integrity, model_lib: runtime.integrity },
-        }
-      : model,
-  ),
-}
+const runtimeVersion = `v${runtime.webllm.replaceAll('.', '_')}/base`
+const appConfig =
+  modelVersion === runtimeVersion
+    ? {
+        ...prebuiltAppConfig,
+        model_list: prebuiltAppConfig.model_list.map((model) =>
+          model.model_id === runtime.model_id
+            ? {
+                ...model,
+                model_lib: new URL(runtimeUrl, window.location.href).href,
+                integrity: { ...model.integrity, model_lib: runtime.integrity },
+              }
+            : model,
+        ),
+      }
+    : prebuiltAppConfig
 const engine = await CreateMLCEngine(
   runtime.model_id,
   { appConfig },
@@ -35,9 +40,9 @@ const engine = await CreateMLCEngine(
 )
 ```
 
-Pass this engine to your adapter as usual. Workers
-accept the same `appConfig`. The repository's browser and Harness examples
-already use this setup. The provider itself leaves engine setup to the caller.
+Pass this engine to your adapter as usual. Workers accept the same `appConfig`.
+The repository's examples select the asset only when its runtime version matches.
+The provider itself leaves engine setup to the caller.
 
 Without an asset bundler, copy the exported Wasm file to your site's public
 directory and use its absolute URL as `model_lib`. Serve it as `application/wasm`;

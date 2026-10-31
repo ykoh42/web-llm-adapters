@@ -11,22 +11,28 @@ let worker: Worker | undefined
 let modelId = ''
 
 export async function load(id: string, useWorker = true, onProgress?: (text: string) => void) {
-  const { MLCEngine, CreateWebWorkerMLCEngine, prebuiltAppConfig } = await import('@mlc-ai/web-llm')
+  const { MLCEngine, CreateWebWorkerMLCEngine, modelVersion, prebuiltAppConfig } =
+    await import('@mlc-ai/web-llm')
   await unload()
   modelId = id
+  const runtimeVersion = `v${runtime.webllm.replaceAll('.', '_')}/base`
+  const appConfig =
+    modelVersion === runtimeVersion
+      ? {
+          ...prebuiltAppConfig,
+          model_list: prebuiltAppConfig.model_list.map((model) =>
+            model.model_id === runtime.model_id
+              ? {
+                  ...model,
+                  model_lib: new URL(runtimeUrl, location.href).href,
+                  integrity: { ...model.integrity, model_lib: runtime.integrity },
+                }
+              : model,
+          ),
+        }
+      : prebuiltAppConfig
   const options = {
-    appConfig: {
-      ...prebuiltAppConfig,
-      model_list: prebuiltAppConfig.model_list.map((model) =>
-        model.model_id === runtime.model_id
-          ? {
-              ...model,
-              model_lib: new URL(runtimeUrl, location.href).href,
-              integrity: { ...model.integrity, model_lib: runtime.integrity },
-            }
-          : model,
-      ),
-    },
+    appConfig,
     initProgressCallback: (progress: import('@mlc-ai/web-llm').InitProgressReport) => {
       onProgress?.(progress.text)
     },

@@ -13,7 +13,7 @@
     "@earendil-works/pi-agent-core": "1.4.0",
     "@earendil-works/pi-ai": "1.4.0",
     "@earendil-works/pi-durable": "1.4.0",
-    "@mlc-ai/web-llm": "0.2.86",
+    "@mlc-ai/web-llm": "0.2.87",
     "pi-ai-web-llm": "workspace:*"
   },
   "devDependencies": {

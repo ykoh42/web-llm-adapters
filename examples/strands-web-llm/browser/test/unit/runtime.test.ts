@@ -3,12 +3,13 @@ import { expect, it, vi } from 'vitest'
 import manifest from 'strands-web-llm/runtime/manifest.json'
 import { runtimeConfig } from '../../src/engine/runtime.js'
 
-it('selects the packaged runtime without changing models or other settings', () => {
+it('selects the packaged runtime only for its WebLLM version', () => {
   vi.stubGlobal('window', { location: { href: 'https://example.com/app/' } })
   try {
     const original: AppConfig = { ...prebuiltAppConfig, cacheBackend: 'opfs' }
     const snapshot = structuredClone(original)
-    const config = runtimeConfig(original)
+    expect(runtimeConfig(original)).toBe(original)
+    const config = runtimeConfig(original, 'v0_2_86/base')
     expect(original).toEqual(snapshot)
     expect(config.cacheBackend).toBe('opfs')
     for (const [index, model] of config.model_list.entries()) {

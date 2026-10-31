@@ -9,15 +9,15 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@langchain/core": "1.3.1",
-    "@mlc-ai/web-llm": "0.2.86",
+    "@langchain/core": "1.3.2",
+    "@mlc-ai/web-llm": "0.2.87",
     "langchain": "1.6.0",
     "langchain-web-llm": "workspace:*",
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@langchain/langgraph": "1.5.3",
-    "deepagents": "1.16.0",
+    "@langchain/langgraph": "1.6.0",
+    "deepagents": "1.16.2",
     "vite": "^8.3.5"
   }
 }

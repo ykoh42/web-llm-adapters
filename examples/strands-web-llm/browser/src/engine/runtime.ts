@@ -1,9 +1,11 @@
-import type { AppConfig } from '@mlc-ai/web-llm'
+import { modelVersion, type AppConfig } from '@mlc-ai/web-llm'
 import runtimeUrl from 'strands-web-llm/runtime/gemma-4-e2b.wasm?url'
 import manifest from 'strands-web-llm/runtime/manifest.json'
 
 // Use WebLLM's public model_lib setting; the provider never replaces a caller's engine.
-export function runtimeConfig(config: AppConfig): AppConfig {
+export function runtimeConfig(config: AppConfig, version = modelVersion): AppConfig {
+  if (version !== `v${manifest.webllm.replaceAll('.', '_')}/base`) return config
+
   return {
     ...config,
     model_list: config.model_list.map((model) =>
