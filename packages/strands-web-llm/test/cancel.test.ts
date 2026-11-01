@@ -226,6 +226,33 @@ describe('cancellation', () => {
     expect(closed).toBe(true)
   })
 
+  it('stops generation with Agent.cancel and reuses the engine', async () => {
+    const { model, create, stop } = setup()
+    let closed = false
+    create.mockResolvedValueOnce(
+      (async function* () {
+        try {
+          yield chunk({ content: 'Partial' })
+        } finally {
+          closed = true
+        }
+      })(),
+    )
+    const agent = new Agent({ model, printer: false })
+    for await (const update of agent.stream('Hi')) {
+      if (
+        update.type === 'modelStreamUpdateEvent' &&
+        update.event.type === 'modelContentBlockDeltaEvent'
+      )
+        agent.cancel()
+    }
+    create.mockResolvedValueOnce(chunks(chunk({ content: 'Recovered' }, 'stop')))
+    const next = await agent.invoke('Try again')
+    expect(next.lastMessage.content).toEqual([new TextBlock('Recovered')])
+    expect(stop).toHaveBeenCalledOnce()
+    expect(closed).toBe(true)
+  })
+
   it('waits for native cleanup before reusing an abandoned cancelled stream', async () => {
     const { model, create } = setup()
     const closing = pause()

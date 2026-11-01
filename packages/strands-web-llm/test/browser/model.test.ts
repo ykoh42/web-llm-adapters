@@ -489,6 +489,36 @@ it('does not send a redundant stop after the browser stream ends', async () => {
   expect(stop).not.toHaveBeenCalled()
 })
 
+it('stops generation with Agent.cancel and reuses the browser engine', async () => {
+  const { model, bridge, create } = open()
+  let closed = false
+  create.mockResolvedValueOnce(
+    (async function* () {
+      try {
+        yield chunk({ content: 'Partial' })
+      } finally {
+        closed = true
+      }
+    })(),
+  )
+  const agent = new Agent({ model, printer: false })
+  try {
+    for await (const update of agent.stream('Hi')) {
+      if (
+        update.type === 'modelStreamUpdateEvent' &&
+        update.event.type === 'modelContentBlockDeltaEvent'
+      )
+        agent.cancel()
+    }
+    create.mockResolvedValueOnce(chunks(chunk({ content: 'Recovered' }, 'stop')))
+    const next = await agent.invoke('Try again')
+    expect(next.lastMessage.content).toEqual([new TextBlock('Recovered')])
+    expect(closed).toBe(true)
+  } finally {
+    await bridge.close()
+  }
+})
+
 it('delivers native chunks with logprobs through a Strands Agent in order', async () => {
   const { page, create, model } = open()
   const first = chunk({ content: 'Hi' })
