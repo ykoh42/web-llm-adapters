@@ -32,7 +32,7 @@ MMLU-Pro scores are for the source models; decode speeds are local M4 Pro (24 GB
 | `Qwen2.5-1.5B-Instruct-q4f16_1-MLC` |                       [32.4](https://qwenlm.github.io/blog/qwen2.5-llm/) |         87.6 | O     | X     | X     | X                      | X     | All               |
 | `Qwen2.5-0.5B-Instruct-q4f16_1-MLC` |                       [15.0](https://qwenlm.github.io/blog/qwen2.5-llm/) |        136.8 | O     | X     | X     | X                      | X     | All               |
 
-Gemma needs the bundled [runtime setup](shared/runtime/README.md). Audio works in ordinary chat, without tools or thinking. Video is unsupported.
+For WebLLM 0.2.86, use the bundled [Gemma runtime](shared/runtime/README.md). Audio works in ordinary chat, without tools or thinking. Video is unsupported.
 Gemma named or single-tool required choices prefill the call, so there is no thinking before that call.
 For Hermes, WebLLM does not enforce `tool_choice`; the adapters validate the result.
 Qwen and native chat replay tool results in the supplied order; they do not match results by ID.

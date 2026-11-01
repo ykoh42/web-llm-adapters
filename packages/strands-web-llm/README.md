@@ -122,7 +122,7 @@ The [Harness example](https://github.com/ykoh42/web-llm-adapters/blob/main/examp
 
 See the [verified models](https://github.com/ykoh42/web-llm-adapters#models) for exact IDs and features.
 Qwen3.5 preserves object/array arguments, type-less non-string `enum`/`const` values, and `anyOf`/`oneOf` unions without string branches as JSON. History rejects `<|im_start|>`, `<|im_end|>`, or `<|endoftext|>` in tool arguments, `>` in top-level argument names, and `<parameter=` / `</parameter>` in raw strings.
-Install WebLLM `0.2.86` or later in the `0.2.x` series. Gemma 4 E2B was verified with WebLLM `0.2.86` and needs the bundled [runtime setup and protocol limits](https://github.com/ykoh42/web-llm-adapters/blob/main/shared/runtime/README.md). Audio works in ordinary chat, without tools or thinking.
+Install WebLLM `0.2.86` or later in the `0.2.x` series. For WebLLM `0.2.86`, use the bundled [Gemma 4 E2B runtime](https://github.com/ykoh42/web-llm-adapters/blob/main/shared/runtime/README.md). Audio works in ordinary chat, without tools or thinking.
 
 `WebLLMEmbeddingSearchStrategy` connects WebLLM to Strands memory; see the
 [memory example](https://github.com/ykoh42/web-llm-adapters/blob/main/examples/strands-web-llm/harness/src/memory.ts).
@@ -152,7 +152,7 @@ Set `thinkingPrefilled: true` at construction if your loaded Qwen template alrea
 | Streaming and cancellation    | `agent.stream()`, `agent.cancel()`                                                                                            | One assistant response                                                                               |
 | Tools and results             | Strands tools and `toolChoice`                                                                                                | Qwen supports `any`; Gemma/native tool models require one tool                                       |
 | Disable tools                 | `request.tool_choice: 'none'`                                                                                                 | Keeps the Agent tool registry                                                                        |
-| Thinking                      | `request.extra_body.enable_thinking`                                                                                          | Render `textBlock` values to show only the answer                                                    |
+| Thinking                      | `request.extra_body.enable_thinking`                                                                                          | Gemma required calls have no thinking before the call                                                |
 | Sampling and token limits     | `request`; `maxTokens`, `temperature`, `topP`                                                                                 | SDK aliases take precedence                                                                          |
 | Output constraints            | `request.response_format`; optional [Qwen tool constraints](https://github.com/ykoh42/web-llm-adapters#tool-call-constraints) | Qwen constraints need WebLLM 0.2.86; Qwen tools reject custom formats; Gemma tools/thinking use text |
 | Images and WAV audio          | `ImageBlock`, `AudioBlock`, `pcmAudio()`                                                                                      | Model-dependent; PCM is converted to WAV                                                             |
