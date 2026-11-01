@@ -57,7 +57,7 @@
     "@typescript/native": "npm:typescript@7.0.2",
     "@vitest/coverage-v8": "^5.0.5",
     "eslint-plugin-sonarjs": "^4.2.2",
-    "knip": "^6.44.1",
+    "knip": "^6.43.0",
     "langchain": "1.6.0",
     "langchain-web-llm": "workspace:*",
     "oxfmt": "0.75.0",
