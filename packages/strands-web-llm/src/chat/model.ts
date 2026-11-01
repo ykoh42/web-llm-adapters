@@ -17,6 +17,7 @@ export function chatStream(
   options: StreamOptions,
   onChunk?: WebLLMModelOptions['onChunk'],
   onChunkMayMutate = true,
+  allowStructuredText = false,
 ) {
   const choice = options.toolChoice && singleToolChoice(options.toolChoice, options.toolSpecs ?? [])
   if (qwenToolResponseFormat(config.modelId, config.request ?? {}, options.toolSpecs ?? [], choice))
@@ -49,7 +50,11 @@ export function chatStream(
         }),
         options.cancelSignal,
         choice ?? config.request?.tool_choice,
-        { toolNames: options.toolSpecs?.map((tool) => tool.name) ?? [], progressiveTools: true },
+        {
+          toolNames: options.toolSpecs?.map((tool) => tool.name) ?? [],
+          progressiveTools: true,
+          allowStructuredText,
+        },
       ),
     options.cancelSignal,
   )

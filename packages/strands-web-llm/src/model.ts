@@ -18,6 +18,7 @@ import { preserveThinking } from '../../../shared/web-llm/request.js'
 import { appendLogprobs, type WebLLMLogprobs } from '../../../shared/web-llm/logprobs.js'
 import { validateToolNames } from '../../../shared/web-llm/types.js'
 import { chunkCallbackMayMutate } from '../../../shared/web-llm/callback.js'
+import { structuredOutputRetry } from './stream/structured.js'
 
 /** Connects a loaded WebLLM engine to Strands. The caller owns the engine. */
 export class WebLLMModel extends WebLLMModelBase {
@@ -39,6 +40,12 @@ export class WebLLMModel extends WebLLMModelBase {
     const config = this.getConfig()
     const { modelId } = config
     const preserve = preserveThinking(modelId, config.request ?? {})
+    const allowStructuredText = Boolean(
+      options.toolChoice &&
+      'tool' in options.toolChoice &&
+      (options.structuredOutputSchema ||
+        (options as StreamOptions & { [structuredOutputRetry]?: boolean })[structuredOutputRetry]),
+    )
     options = {
       ...options,
       ...(options.toolSpecs && { toolSpecs: structuredClone(options.toolSpecs) }),
@@ -83,6 +90,7 @@ export class WebLLMModel extends WebLLMModelBase {
         options,
         onChunk,
         chunkCallbackMayMutate(this.onChunk),
+        allowStructuredText,
       )
       for await (const event of chunks) {
         if (event.type !== 'modelMessageStopEvent') {

@@ -1,6 +1,7 @@
 import { Message, type ModelStreamEvent } from '@strands-agents/sdk'
 import type { MLCEngineInterface } from '@mlc-ai/web-llm'
 import { WebLLMModel } from '../model.js'
+import { structuredOutputRetry } from '../stream/structured.js'
 import type { WebLLMChunk } from '../types.js'
 import { toBrowserError } from './errors.js'
 import type { BrowserBridge, BrowserRequest, BrowserResult } from './types.js'
@@ -18,7 +19,13 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
   const { calls } = active
   const bridge: BrowserBridge = {
     withEngine: active.withEngine,
-    async start({ messages, config, options, includeChunks }: BrowserRequest) {
+    async start({
+      messages,
+      config,
+      options,
+      includeChunks,
+      structuredOutputRetry: retry,
+    }: BrowserRequest) {
       active.checkOpen()
       const id = crypto.randomUUID()
       const controller = new AbortController()
@@ -30,6 +37,7 @@ export function createBrowserBridge(engine: MLCEngineInterface): BrowserBridge {
       })
       const stream = model.stream(messages.map(Message.fromJSON), {
         ...options,
+        ...(retry && { [structuredOutputRetry]: true }),
         cancelSignal: controller.signal,
       })
       calls.set(id, {

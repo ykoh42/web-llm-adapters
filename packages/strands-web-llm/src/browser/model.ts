@@ -106,6 +106,7 @@ function encodeRequest(
   const prompt = formatSystemPrompt(systemPrompt)
   const request: BrowserRequest = {
     ...(includeChunks && { includeChunks }),
+    ...(options.structuredOutputSchema && { structuredOutputRetry: true }),
     messages: messages.map((message) => {
       const standard = message.toJSON === Message.prototype.toJSON
       const foreign = standard && checkMediaBytes(message.content)

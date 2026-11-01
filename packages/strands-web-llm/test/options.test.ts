@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import {
   Agent,
   Message,
@@ -80,6 +81,158 @@ function open(browser: boolean) {
     : new WebLLMModel({ engine: native.engine, ...config })
   return { ...native, model, bridge, page, observed }
 }
+
+it.each([false, true])('uses the SDK model info configuration (browser: %s)', async (browser) => {
+  const { model, bridge } = open(browser)
+  try {
+    model.updateConfig({
+      contextWindowLimit: 4096,
+      modelInfo: { capabilities: { promptCaching: 'unsupported' } },
+    })
+    expect(model.modelInfo).toMatchObject({
+      limits: { contextWindow: 4096 },
+      capabilities: { promptCaching: 'unsupported' },
+    })
+    model.updateConfig({ modelInfo: { limits: { contextWindow: 8192 } } })
+    expect(model.modelInfo.limits?.contextWindow).toBe(8192)
+    expect(model.modelInfo.capabilities?.promptCaching).toBeUndefined()
+  } finally {
+    await bridge.close()
+  }
+})
+
+it.each([
+  [false, 'test-model'],
+  [true, 'test-model'],
+  [false, 'Qwen3-4B-q4f16_1-MLC'],
+  [true, 'Qwen3-4B-q4f16_1-MLC'],
+  [false, 'Qwen3.5-4B-q4f16_1-MLC'],
+  [true, 'Qwen3.5-4B-q4f16_1-MLC'],
+])(
+  'lets the SDK validate JSON text on a structured output retry (browser: %s, model: %s)',
+  async (browser, modelId) => {
+    const { model, create, bridge } = open(browser)
+    model.updateConfig({ modelId, request: {} })
+    create.mockResolvedValueOnce(chunks(chunk({ content: 'I will answer.' }, 'stop')))
+    create.mockResolvedValueOnce(chunks(chunk({ content: '{"answer":42}' }, 'stop')))
+    try {
+      const agent = new Agent({
+        model,
+        printer: false,
+        structuredOutputSchema: z.object({ answer: z.number() }),
+      })
+      const result = await agent.invoke('Return the answer.')
+      expect(result.structuredOutput).toEqual({ answer: 42 })
+      expect(create).toHaveBeenCalledTimes(2)
+      if (modelId === 'test-model')
+        expect(create.mock.calls[1]![0].tool_choice).toEqual({
+          type: 'function',
+          function: { name: 'strands_structured_output' },
+        })
+    } finally {
+      await bridge.close()
+    }
+  },
+)
+
+it.each([false, true])(
+  'leaves invalid structured output to the SDK retry limit (browser: %s)',
+  async (browser) => {
+    const { model, create, bridge } = open(browser)
+    model.updateConfig({ request: {} })
+    create.mockResolvedValueOnce(chunks(chunk({ content: 'I will answer.' }, 'stop')))
+    create.mockResolvedValueOnce(chunks(chunk({ content: '{"answer":"wrong"}' }, 'stop')))
+    try {
+      const agent = new Agent({
+        model,
+        printer: false,
+        structuredOutputSchema: z.object({ answer: z.number() }),
+      })
+      const result = await agent.invoke('Return the answer.', {
+        limits: { structuredOutputAttempts: 1 },
+      })
+      expect(result.stopReason).toBe('limitStructuredOutputAttempts')
+      expect(result.structuredOutput).toBeUndefined()
+    } finally {
+      await bridge.close()
+    }
+  },
+)
+
+it.each([false, true])(
+  'still rejects a different tool during a structured output retry (browser: %s)',
+  async (browser) => {
+    const { model, create, bridge } = open(browser)
+    model.updateConfig({ request: {} })
+    create.mockResolvedValueOnce(
+      chunks(
+        chunk(
+          {
+            tool_calls: [{ index: 0, id: 'call-1', function: { name: 'other', arguments: '{}' } }],
+          },
+          'tool_calls',
+        ),
+      ),
+    )
+    try {
+      await expect(
+        collect(
+          model.stream([new Message({ role: 'user', content: [new TextBlock('Hello')] })], {
+            toolSpecs: [
+              { name: 'answer', description: 'Return the answer.' },
+              { name: 'other', description: 'Another tool.' },
+            ],
+            toolChoice: { tool: { name: 'answer' } },
+            structuredOutputSchema: z.object({ answer: z.number() }),
+          }),
+        ),
+      ).rejects.toThrow('outside tool_choice')
+    } finally {
+      await bridge.close()
+    }
+  },
+)
+
+it.each([false, true])(
+  'supports the SDK structured output retry (browser: %s)',
+  async (browser) => {
+    const { model, create, bridge } = open(browser)
+    model.updateConfig({ request: {} })
+    create.mockResolvedValueOnce(chunks(chunk({ content: 'I will answer.' }, 'stop')))
+    create.mockResolvedValueOnce(
+      chunks(
+        chunk(
+          {
+            tool_calls: [
+              {
+                index: 0,
+                id: 'call-1',
+                function: { name: 'strands_structured_output', arguments: '{"answer":42}' },
+              },
+            ],
+          },
+          'tool_calls',
+        ),
+      ),
+    )
+    try {
+      const agent = new Agent({
+        model,
+        printer: false,
+        structuredOutputSchema: z.object({ answer: z.number() }),
+      })
+      const result = await agent.invoke('Return the answer.')
+      expect(result.structuredOutput).toEqual({ answer: 42 })
+      expect(create).toHaveBeenCalledTimes(2)
+      expect(create.mock.calls[1]![0].tool_choice).toEqual({
+        type: 'function',
+        function: { name: 'strands_structured_output' },
+      })
+    } finally {
+      await bridge.close()
+    }
+  },
+)
 
 it.each([false, true])(
   'keeps model identity current and config snapshots separate (browser: %s)',

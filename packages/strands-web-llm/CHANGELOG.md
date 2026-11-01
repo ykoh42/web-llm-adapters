@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Let Strands validate JSON text returned on a structured output retry.
+
 ## 0.4.0 — 2026-10-30
 
 - Require WebLLM 0.2.86 or later in the 0.2.x series.

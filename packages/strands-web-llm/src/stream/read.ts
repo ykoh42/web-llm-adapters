@@ -35,10 +35,12 @@ export async function* readStream(
     toolNames,
     progressiveTools = false,
     orderedTools = false,
+    allowStructuredText = false,
   }: {
     toolNames?: readonly string[]
     progressiveTools?: boolean
     orderedTools?: boolean
+    allowStructuredText?: boolean
   } = {},
 ): AsyncGenerator<ModelStreamEvent> {
   // Restricted calls must pass validation before any tool block is published.
@@ -111,7 +113,8 @@ export async function* readStream(
     const orderedCalls = [...calls.entries()]
       .sort(([left], [right]) => left - right)
       .map(([, call]) => call)
-    checkToolChoice(orderedCalls, choice, stop, toolNames)
+    if (!(allowStructuredText && !orderedCalls.length && stop === 'endTurn'))
+      checkToolChoice(orderedCalls, choice, stop, toolNames)
     if (stop !== 'maxTokens' && stop !== 'cancelled') checkToolCallIds(orderedCalls)
     const useTools = stop !== 'maxTokens' && stop !== 'cancelled' && calls.size > 0
     if (deferred) yield* emitDeferred(useTools)

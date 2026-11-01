@@ -15,6 +15,7 @@ export function qwenStream(
   options: StreamOptions,
   onChunk?: WebLLMModelOptions['onChunk'],
   onChunkMayMutate = true,
+  allowStructuredText = false,
 ) {
   const request = qwenRequest(config, messages, options)
   return streamCall(
@@ -34,7 +35,7 @@ export function qwenStream(
         }),
         options.cancelSignal,
         options.toolChoice ?? config.request?.tool_choice,
-        { orderedTools: true },
+        { orderedTools: true, allowStructuredText },
       ),
     options.cancelSignal,
   )

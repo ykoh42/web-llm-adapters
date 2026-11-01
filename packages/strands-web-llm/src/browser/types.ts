@@ -8,6 +8,7 @@ export type BrowserModelOptions = Omit<WebLLMModelOptions, 'engine'>
 
 export interface BrowserRequest {
   includeChunks?: boolean
+  structuredOutputRetry?: boolean
   messages: MessageData[]
   config: WebLLMModelConfig
   options: Pick<StreamOptions, 'toolSpecs' | 'toolChoice' | 'dynamicTrailingBlocks'> & {

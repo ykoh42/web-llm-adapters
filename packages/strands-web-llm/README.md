@@ -79,7 +79,7 @@ See the [runnable examples](https://github.com/ykoh42/web-llm-adapters/blob/main
 Install Harness for this example:
 
 ```sh
-npm install @strands-agents/harness@0.3.1
+npm install @strands-agents/harness@~0.3.3
 ```
 
 On a browser page controlled by your application, load the model with
@@ -137,7 +137,7 @@ Before changing the embedding model, wait for pending searches and writes, then 
 
 ## Support
 
-Tested with WebLLM **0.2.86** and Strands SDK **1.18.0** and **1.22.0**. Model availability depends on the installed WebLLM version. Harness **0.3.1** is used by the integration example.
+Tested with WebLLM **0.2.86** and **0.2.87** and Strands SDK **1.18.0**, **1.22.0**, and **1.23.0**. Model availability depends on the installed WebLLM version. Harness **0.3.3** is used by the integration example.
 
 Features depend on the exact model.
 

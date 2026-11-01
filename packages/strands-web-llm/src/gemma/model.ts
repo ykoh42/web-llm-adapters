@@ -14,6 +14,7 @@ export function gemmaStream(
   options: StreamOptions,
   onChunk?: WebLLMModelOptions['onChunk'],
   onChunkMayMutate = true,
+  allowStructuredText = false,
 ) {
   const { request, prefix } = gemmaRequest(config, messages, options)
   return streamCall(
@@ -30,6 +31,7 @@ export function gemmaStream(
         }),
         options.cancelSignal,
         options.toolChoice ?? config.request?.tool_choice,
+        { allowStructuredText },
       ),
     options.cancelSignal,
   )
