@@ -38,6 +38,7 @@ async function prepareManager(
   if (manager === 'npm') return ''
 
   const corepack = join(directory, 'tools/node_modules/corepack/dist')
+  await mkdir(join(directory, 'tools'))
   // Keep tool installation and Corepack's cache outside the consumer and repository.
   run('npm', [
     'install',
