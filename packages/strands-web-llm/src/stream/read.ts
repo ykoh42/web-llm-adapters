@@ -118,13 +118,7 @@ export async function* readStream(
     if (stop !== 'maxTokens' && stop !== 'cancelled') checkToolCallIds(orderedCalls)
     const useTools = stop !== 'maxTokens' && stop !== 'cancelled' && calls.size > 0
     if (deferred) yield* emitDeferred(useTools)
-    else if (useTools) {
-      yield* closeBlock()
-      for (const call of orderedCalls) {
-        signal?.throwIfAborted()
-        yield* finishTool(call, signal)
-      }
-    }
+    else if (useTools) yield* emitToolCalls(orderedCalls, closeBlock, signal)
     if (useTools) stop = 'toolUse'
     else {
       if (!deferred) yield* closeBlock()
@@ -234,6 +228,18 @@ export async function* readStream(
       return
     }
     throw error
+  }
+}
+
+function* emitToolCalls(
+  orderedCalls: ToolCall[],
+  closeBlock: () => Generator<ModelStreamEvent>,
+  signal?: AbortSignal,
+): Generator<ModelStreamEvent> {
+  yield* closeBlock()
+  for (const call of orderedCalls) {
+    signal?.throwIfAborted()
+    yield* finishTool(call, signal)
   }
 }
 
