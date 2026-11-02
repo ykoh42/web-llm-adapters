@@ -3,13 +3,71 @@ import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 interface Consumer {
-  manager: 'yarn-pnp' | 'yarn-node-modules' | 'pnpm'
+  manager: 'npm' | 'yarn-pnp' | 'yarn-node-modules'
   directory: string
   name: string
   archive: string
   dependencies: string[]
   source: string
   commonJS: string
+}
+
+type Run = (command: string, args: string[], cwd?: string) => string
+
+async function getDependencies(run: Run, name: string, archive: string, dependencies: string[]) {
+  const result: Record<string, string> = { [name]: `file:${archive}` }
+  for (const dependency of dependencies) {
+    const separator = dependency.lastIndexOf('@')
+    result[dependency.slice(0, separator)] = dependency.slice(separator + 1)
+    const manifest: {
+      peerDependencies?: Record<string, string>
+      peerDependenciesMeta?: Record<string, { optional?: boolean }>
+    } = JSON.parse(run('npm', ['view', dependency, '--json']))
+    for (const [peer, range] of Object.entries(manifest.peerDependencies ?? {}))
+      if (!manifest.peerDependenciesMeta?.[peer]?.optional) result[peer] ??= range
+  }
+  return result
+}
+
+async function prepareManager(
+  manager: Consumer['manager'],
+  directory: string,
+  consumer: string,
+  run: Run,
+) {
+  if (manager === 'npm') return ''
+
+  const corepack = join(directory, 'tools/node_modules/corepack/dist')
+  // Keep tool installation and Corepack's cache outside the consumer and repository.
+  run('npm', [
+    'install',
+    '--prefix',
+    join(directory, 'tools'),
+    '--no-audit',
+    '--no-fund',
+    'corepack@0.36.0',
+  ])
+  if (manager === 'yarn-node-modules')
+    await writeFile(join(consumer, '.yarnrc.yml'), 'nodeLinker: node-modules\n')
+  return corepack
+}
+
+function installDependencies(manager: Consumer['manager'], execute: (args: string[]) => string) {
+  const devDependencies = ['typescript@5.9.3', '@types/node@26.6.5', 'vite@8.3.5']
+  if (manager === 'npm') {
+    execute([
+      'install',
+      '--save-dev',
+      '--save-exact',
+      '--no-audit',
+      '--no-fund',
+      ...devDependencies,
+    ])
+    execute(['ci'])
+  } else {
+    execute(['add', '--dev', '--exact', ...devDependencies])
+    execute(['install', '--immutable'])
+  }
 }
 
 /** Exercise the packed package outside the repository with each consumer layout. */
@@ -28,22 +86,14 @@ export async function checkManagerInstall({
   const run = (command: string, args: string[], cwd = consumer) =>
     execFileSync(command, args, { cwd, env, encoding: 'utf8', stdio: 'pipe' })
   const yarn = manager.startsWith('yarn-')
-  const { packageManager: rootManager }: { packageManager: string } = JSON.parse(
+  const cli = yarn ? 'yarn' : manager
+  const version =
+    cli === 'npm' ? run('npm', ['--version']).trim() : cli === 'yarn' ? '4.18.1' : '12.16.1'
+  const packageManager = cli + '@' + version
+  const consumerDependencies = await getDependencies(run, name, archive, dependencies)
+  const { allowScripts }: { allowScripts: Record<string, boolean> } = JSON.parse(
     await readFile(new URL('../../package.json', import.meta.url), 'utf8'),
   )
-  const packageManager = yarn ? 'yarn@4.18.1' : rootManager
-  const version = packageManager.slice(packageManager.lastIndexOf('@') + 1)
-  const consumerDependencies: Record<string, string> = { [name]: `file:${archive}` }
-  for (const dependency of dependencies) {
-    const separator = dependency.lastIndexOf('@')
-    consumerDependencies[dependency.slice(0, separator)] = dependency.slice(separator + 1)
-    const manifest: {
-      peerDependencies?: Record<string, string>
-      peerDependenciesMeta?: Record<string, { optional?: boolean }>
-    } = JSON.parse(run('npm', ['view', dependency, '--json']))
-    for (const [peer, range] of Object.entries(manifest.peerDependencies ?? {}))
-      if (!manifest.peerDependenciesMeta?.[peer]?.optional) consumerDependencies[peer] ??= range
-  }
   await writeFile(
     join(consumer, 'package.json'),
     JSON.stringify({
@@ -51,11 +101,12 @@ export async function checkManagerInstall({
       private: true,
       type: 'module',
       packageManager,
+      allowScripts,
       scripts: {
         smoke: 'node consumer.ts',
         commonjs: 'node commonjs.cjs',
-        assets: `node assets.ts ${name} ${manager}`,
-        types: `node check-types.ts ${name}`,
+        assets: 'node assets.ts ' + name + ' ' + manager,
+        types: 'node check-types.ts ' + name,
         build: 'vite build',
       },
       dependencies: consumerDependencies,
@@ -80,33 +131,16 @@ Object.assign(globalThis, { adapter, engine: new MLCEngine(), wasm, manifest })
 `,
   )
 
-  const corepack = join(directory, 'tools/node_modules/corepack/dist/yarn.js')
-  if (yarn) {
-    // Keep tool installation and Corepack's cache outside the consumer and repository.
-    run('npm', [
-      'install',
-      '--prefix',
-      join(directory, 'tools'),
-      '--no-audit',
-      '--no-fund',
-      'corepack@0.36.0',
-    ])
-    if (manager === 'yarn-node-modules')
-      await writeFile(join(consumer, '.yarnrc.yml'), 'nodeLinker: node-modules\n')
-  } else {
-    // These dependency hooks are optional setup, not required to use their libraries.
-    await writeFile(
-      join(consumer, 'pnpm-workspace.yaml'),
-      "allowBuilds:\n  '@google/genai': false\n  protobufjs: false\n",
-    )
+  const corepack = await prepareManager(manager, directory, consumer, run)
+  const execute = (args: string[]) => {
+    if (manager === 'npm') return run('npm', args)
+    const shim = join(corepack, 'yarn.js')
+    return run(process.execPath, [shim, ...args])
   }
-  const execute = (args: string[]) =>
-    yarn ? run(process.execPath, [corepack, ...args]) : run('pnpm', args)
   if (execute(['--version']).trim() !== version) throw new Error(`Expected ${manager} ${version}.`)
 
   // Adding dependencies creates the fresh lockfile; the next install must preserve it.
-  execute(['add', '-D', '-E', 'typescript@5.9.3', '@types/node@26.6.5', 'vite@8.3.5'])
-  execute(['install', yarn ? '--immutable' : '--frozen-lockfile'])
+  installDependencies(manager, execute)
   for (const script of ['smoke', 'commonjs', 'assets', 'types', 'build']) execute(['run', script])
   console.log(
     `${name}: ${manager} ${version} install, API, assets, types, and browser build passed.`,

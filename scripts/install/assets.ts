@@ -9,8 +9,7 @@ if (manager === 'yarn-pnp') {
   await assert.rejects(lstat('node_modules'), { code: 'ENOENT' })
 } else {
   const packageDirectory = await lstat(`node_modules/${name}`)
-  if (manager === 'pnpm') assert.ok(packageDirectory.isSymbolicLink())
-  else assert.ok(packageDirectory.isDirectory())
+  assert.ok(packageDirectory.isDirectory())
 }
 
 const wasm = new URL(import.meta.resolve(`${name}/runtime/gemma-4-e2b.wasm`))

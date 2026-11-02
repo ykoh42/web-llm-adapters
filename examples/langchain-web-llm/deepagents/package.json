@@ -9,7 +9,7 @@
   "dependencies": {
     "@mlc-ai/web-llm": "0.2.87",
     "deepagents": "1.16.2",
-    "langchain-web-llm": "workspace:*",
+    "langchain-web-llm": "0.4.1",
     "playwright": "1.64.1"
   }
 }

@@ -48,13 +48,14 @@ export async function checkInstall({
   const run = (cmd: string, args: string[], cwd = temporary) =>
     execFileSync(cmd, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
   try {
-    const pack: { filename: string; files: PackedFile[] } = JSON.parse(
+    const [pack]: { filename: string; files: PackedFile[] }[] = JSON.parse(
       run(
-        'pnpm',
-        ['--ignore-scripts', 'pack', '--json', '--pack-destination', temporary],
+        'npm',
+        ['pack', '--ignore-scripts', '--json', '--pack-destination', temporary],
         directory,
       ),
     )
+    if (!pack) throw new Error('npm pack returned no package.')
     checkFiles(pack.files)
     if (manager) {
       const dependencies = compatibilityDependencies.at(-1)
@@ -161,9 +162,9 @@ function installManager() {
   const manager = process.argv[2]
   if (
     manager !== undefined &&
+    manager !== 'npm' &&
     manager !== 'yarn-pnp' &&
-    manager !== 'yarn-node-modules' &&
-    manager !== 'pnpm'
+    manager !== 'yarn-node-modules'
   )
     throw new Error(`Unknown consumer package manager: ${manager}`)
   return manager

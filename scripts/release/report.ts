@@ -33,7 +33,7 @@ export type ModelReport = z.infer<typeof modelReport>
 export function checkReport(value: unknown, source: string, webllm: string, claims: string[]) {
   const report = modelReport.parse(value)
   if (report.source !== source || report.webllm !== webllm)
-    throw new Error('Real-model results are stale. Run pnpm test:release:models.')
+    throw new Error('Real-model results are stale. Run npm run test:release:models.')
   if (report.tests.some((test) => test.status !== 'passed'))
     throw new Error('Every release model test must pass without skips or retries.')
   const checks = new Set(

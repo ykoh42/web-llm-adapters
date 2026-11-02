@@ -18,13 +18,21 @@ try {
   const example = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8'))
   const project = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
   console.log('Pack the library and install it outside the workspace.')
-  const packed = JSON.parse(
+  const [packed]: { filename: string }[] = JSON.parse(
     execFileSync(
-      'pnpm',
-      ['--filter', 'strands-web-llm', 'pack', '--pack-destination', directory, '--json'],
+      'npm',
+      [
+        'pack',
+        '--workspace=strands-web-llm',
+        '--ignore-scripts',
+        '--pack-destination',
+        directory,
+        '--json',
+      ],
       { cwd: root, encoding: 'utf8' },
     ),
   )
+  if (!packed) throw new Error('npm pack returned no package.')
   await writeFile(
     join(directory, 'package.json'),
     JSON.stringify({

@@ -19,12 +19,13 @@ jobs:
         with:
           node-version-file: .node-version
           package-manager-cache: false
-      - uses: pnpm/setup@fa36a5ef7dcdefc3a7cb25655c122e00cf6e636e # v3.1.2
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          cache: true
-          require-lockfile: true
-      - run: pnpm install --frozen-lockfile
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
       - name: Update to the latest compatible SDK
-        run: pnpm --filter strands-web-llm update @strands-agents/sdk
-      - run: pnpm --filter strands-web-llm typecheck
-      - run: pnpm exec vitest run packages/strands-web-llm/test
+        run: npm update @strands-agents/sdk --workspace=strands-web-llm
+      - run: npm run typecheck --workspace=strands-web-llm
+      - run: npm exec -- vitest run packages/strands-web-llm/test

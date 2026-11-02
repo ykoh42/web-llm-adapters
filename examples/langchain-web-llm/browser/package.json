@@ -12,7 +12,7 @@
     "@langchain/core": "1.3.2",
     "@mlc-ai/web-llm": "0.2.87",
     "langchain": "1.6.0",
-    "langchain-web-llm": "workspace:*",
+    "langchain-web-llm": "0.4.1",
     "zod": "4.6.7"
   },
   "devDependencies": {

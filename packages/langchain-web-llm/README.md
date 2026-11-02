@@ -7,7 +7,6 @@ npm install langchain-web-llm
 ```
 
 - Yarn: also install `@mlc-ai/web-llm` and `@langchain/core`. Check compatible versions with `yarn explain peer-requirements`.
-- pnpm: if dependency scripts are blocked, run [`pnpm approve-builds`](https://pnpm.io/cli/approve-builds) to allow or deny them, then rerun `pnpm install`.
 - CommonJS: use `require('langchain-web-llm')` on Node.js 22.12 or later. With Yarn PnP on Node 22.12–22.14 or 23.0–23.4, use `import()`.
 - TypeScript: `moduleResolution: "bundler"` retains more WebLLM option types than `NodeNext`. WebLLM's declarations may require `skipLibCheck` and leave some types unchecked.
 

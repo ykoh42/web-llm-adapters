@@ -5,8 +5,8 @@ Run the agent, tools, and model inference in the browser. Model inference uses a
 From the repository root:
 
 ```sh
-pnpm install
-pnpm dev:pi
+npm ci
+npm run dev:pi
 ```
 
 Open the printed `/pi/` URL. Choose an example using the link at the top of either page:

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1 — 2026-11-03
+
+- Preserve browser stream chunks when cancellation is queued.
+
 ## 0.4.0 — 2026-10-30
 
 - Require WebLLM 0.2.86 or later in the 0.2.x series.

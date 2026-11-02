@@ -12,6 +12,6 @@
     "test-results",
     "playwright-report",
     ".cache",
-    "pnpm-lock.yaml"
+    "package-lock.json"
   ]
 }

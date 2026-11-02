@@ -118,15 +118,14 @@ For Qwen JSON/grammar with thinking off, the adapters remove WebLLM's fixed empt
 
 ## Development
 
-For repository development, install the Node.js version in `.node-version` and [pnpm 12.16.1](https://pnpm.io/installation):
+For repository development, use the Node.js version in `.node-version` and npm 11.21.1:
 
 ```sh
-npm install --global pnpm@12.16.1
-pnpm install
-pnpm check
+npm ci
+npm run check
 ```
 
 Registry packages need a publish time and must be at least 24 hours old.
-CI also tests packed consumer installs. Run `pnpm test:install:manager <manager>` with `yarn-pnp`, `yarn-node-modules`, or `pnpm`.
+CI also tests packed installs with npm and both Yarn installation modes.
 
 See [contributing](CONTRIBUTING.md) and [security](SECURITY.md) guidance.

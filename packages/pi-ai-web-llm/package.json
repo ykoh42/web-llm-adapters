@@ -1,6 +1,6 @@
 {
   "name": "pi-ai-web-llm",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Browser-local WebLLM providers for Pi AI and Pi Agent Core.",
   "keywords": [
     "pi-ai",

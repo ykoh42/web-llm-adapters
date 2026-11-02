@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.4.1 — 2026-11-03
 
-- Let Strands validate JSON text returned on a structured output retry.
+- Let Strands validate JSON text returned on structured output retries.
 
 ## 0.4.0 — 2026-10-30
 

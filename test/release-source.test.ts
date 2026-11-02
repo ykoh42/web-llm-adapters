@@ -48,7 +48,7 @@ test('source edits invalidate results, including after commit', () => {
 
 test('lockfile changes invalidate results', () => {
   const original = source()
-  writeFileSync(join(directory, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n')
+  writeFileSync(join(directory, 'package-lock.json'), '{}\n')
   commit()
   expect(source()).not.toBe(original)
 })
