@@ -2,6 +2,17 @@
   "name": "langchain-web-llm",
   "version": "0.4.0",
   "description": "WebLLM chat models and embeddings for LangChain, LangGraph, and Deep Agents.",
+  "keywords": [
+    "langchain",
+    "langgraph",
+    "deepagents",
+    "web-llm",
+    "webllm",
+    "webgpu",
+    "browser",
+    "llm",
+    "embeddings"
+  ],
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -9,6 +20,10 @@
     "url": "git+https://github.com/ykoh42/web-llm-adapters.git",
     "directory": "packages/langchain-web-llm"
   },
+  "bugs": {
+    "url": "https://github.com/ykoh42/web-llm-adapters/issues"
+  },
+  "homepage": "https://github.com/ykoh42/web-llm-adapters/tree/main/packages/langchain-web-llm#readme",
   "files": [
     "CHANGELOG.md",
     "dist"

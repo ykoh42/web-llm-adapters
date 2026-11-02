@@ -2,11 +2,25 @@
   "name": "strands-web-llm",
   "version": "0.4.0",
   "description": "WebLLM model provider for Strands Agents.",
+  "keywords": [
+    "strands-agents",
+    "strands",
+    "web-llm",
+    "webllm",
+    "webgpu",
+    "browser",
+    "llm",
+    "ai-agents"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ykoh42/web-llm-adapters.git",
     "directory": "packages/strands-web-llm"
   },
+  "bugs": {
+    "url": "https://github.com/ykoh42/web-llm-adapters/issues"
+  },
+  "homepage": "https://github.com/ykoh42/web-llm-adapters/tree/main/packages/strands-web-llm#readme",
   "type": "module",
   "files": [
     "CHANGELOG.md",
@@ -37,7 +51,7 @@
   },
   "devDependencies": {
     "@mlc-ai/web-llm": "0.2.87",
-    "@strands-agents/sdk": "1.23.0"
+    "@strands-agents/sdk": "^1.18.0"
   },
   "license": "MIT"
 }
