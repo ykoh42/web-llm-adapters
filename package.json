@@ -27,7 +27,7 @@
     "test:coverage": "vitest run --coverage",
     "test:browser": "npm run build:strands:browser && npm run test:browser:built",
     "test:browser:built": "playwright test",
-    "lint": "oxlint .",
+    "lint": "oxlint . --deny-warnings",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "check:unused": "knip",
