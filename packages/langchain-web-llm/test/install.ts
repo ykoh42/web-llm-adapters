@@ -6,9 +6,9 @@ await checkInstall({
   forbiddenImports: ['@strands-agents/', '@earendil-works/'],
   compatibilityDependencies: [
     ['@langchain/core@1.2.8', '@mlc-ai/web-llm@0.2.86'],
-    ['@langchain/core@1.3.1', '@mlc-ai/web-llm@0.2.86'],
+    ['@langchain/core@1.3.2', '@mlc-ai/web-llm@0.2.87'],
   ],
-  consumerDependencies: ['@langchain/core@1.2.8', '@mlc-ai/web-llm@0.2.86'],
+  consumerDependencies: ['@langchain/core@1.3.2', '@mlc-ai/web-llm@0.2.87'],
   source: `
 import assert from 'node:assert/strict'
 import { MLCEngine } from '@mlc-ai/web-llm'

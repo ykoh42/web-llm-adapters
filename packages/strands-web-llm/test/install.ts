@@ -7,8 +7,9 @@ await checkInstall({
   compatibilityDependencies: [
     ['@strands-agents/sdk@1.18.0', '@mlc-ai/web-llm@0.2.86'],
     ['@strands-agents/sdk@1.22.0', '@mlc-ai/web-llm@0.2.86'],
+    ['@strands-agents/sdk@1.23.0', '@mlc-ai/web-llm@0.2.87'],
   ],
-  consumerDependencies: ['@strands-agents/sdk@1.18.0', '@mlc-ai/web-llm@0.2.86'],
+  consumerDependencies: ['@strands-agents/sdk@1.23.0', '@mlc-ai/web-llm@0.2.87'],
   source: `
 import assert from 'node:assert/strict'
 import { runInNewContext } from 'node:vm'

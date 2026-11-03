@@ -23,12 +23,18 @@ await checkInstall({
       '@earendil-works/pi-schema@1.5.0',
       '@mlc-ai/web-llm@0.2.86',
     ],
+    [
+      '@earendil-works/pi-ai@1.5.0',
+      '@earendil-works/pi-agent-core@1.5.0',
+      '@earendil-works/pi-schema@1.5.0',
+      '@mlc-ai/web-llm@0.2.87',
+    ],
   ],
   consumerDependencies: [
     '@earendil-works/pi-ai@1.5.0',
     '@earendil-works/pi-agent-core@1.5.0',
     '@earendil-works/pi-schema@1.5.0',
-    '@mlc-ai/web-llm@0.2.86',
+    '@mlc-ai/web-llm@0.2.87',
   ],
   source: `
 import assert from 'node:assert/strict'

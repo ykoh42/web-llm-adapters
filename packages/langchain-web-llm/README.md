@@ -130,7 +130,7 @@ Chat retries are off by default; `maxRetries` retries stream setup only.
 For log probabilities, browser transports must preserve non-finite numbers; Playwright does.
 A media message accepts one text segment; text on both sides of media blocks is rejected. Browser transport carries PCM as float WAV without changing samples or sample rate.
 
-Tested with LangChain Core **1.2.8** and **1.3.1**, and WebLLM **0.2.86**.
+Tested with LangChain Core **1.2.8** and **1.3.2**, and WebLLM **0.2.86** and **0.2.87**.
 
 For Qwen agents with tools and a response schema, use `responseFormat: toolStrategy(schema)` ([`toolStrategy`](https://reference.langchain.com/javascript/langchain/index/toolStrategy) from `langchain`); native JSON cannot be combined with Qwen tools.
 For optional [Qwen tool-call constraints](https://github.com/ykoh42/web-llm-adapters#tool-call-constraints), set `request.constrainedToolCalls: true` with WebLLM 0.2.86.
