@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { Type } from '@earendil-works/pi-ai'
+import { num, obj } from '@earendil-works/pi-schema'
 import { createModels } from '@earendil-works/pi-ai/models'
 import { WebLLMModel } from '../../packages/strands-web-llm/src/index.js'
 import { ChatWebLLM } from '../../packages/langchain-web-llm/src/index.js'
@@ -47,7 +47,7 @@ it.each([
       {
         name: tool.name,
         description: tool.description,
-        parameters: Type.Object({ value: Type.Number() }),
+        parameters: obj({ value: num() }, { open: true }),
       },
     ],
   })

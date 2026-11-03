@@ -1,7 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { Message, TextBlock } from '@strands-agents/sdk'
 import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
-import { Type } from '@earendil-works/pi-ai'
 import { BrowserModel, WebLLMModel, createBrowserBridge as strandsBridge } from 'strands-web-llm'
 import {
   BrowserChatWebLLM,
@@ -30,7 +29,11 @@ const bases = new Set([
 const modelIds = prebuiltAppConfig.model_list
   .filter(({ model_id }) => bases.has(model_id.replace(/-q[^-]+-MLC$/, '')))
   .map(({ model_id }) => model_id)
-const schema = Type.Object({ code: Type.String() })
+const schema = {
+  type: 'object' as const,
+  required: ['code'],
+  properties: { code: { type: 'string' as const } },
+}
 const tool = { name: 'lookup', description: 'Look up a code.', inputSchema: schema }
 const definition = {
   type: 'function',

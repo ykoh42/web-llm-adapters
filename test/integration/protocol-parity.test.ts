@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Type, type AssistantMessage } from '@earendil-works/pi-ai'
+import type { AssistantMessage } from '@earendil-works/pi-ai'
 import { createModels } from '@earendil-works/pi-ai/models'
 import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages'
 import {
@@ -75,7 +75,7 @@ function record(modelId: string) {
 const piTool = {
   name: declaration.name,
   description: declaration.description,
-  parameters: Type.Unsafe<{ code: string }>(schema),
+  parameters: schema,
 }
 
 function assistant(modelId: string, content: AssistantMessage['content']): AssistantMessage {

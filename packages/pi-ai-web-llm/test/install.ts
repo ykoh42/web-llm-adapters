@@ -8,23 +8,32 @@ await checkInstall({
     [
       '@earendil-works/pi-ai@1.0.2',
       '@earendil-works/pi-agent-core@1.0.2',
+      '@earendil-works/pi-schema@1.5.0',
       '@mlc-ai/web-llm@0.2.86',
     ],
     [
       '@earendil-works/pi-ai@1.4.0',
       '@earendil-works/pi-agent-core@1.4.0',
+      '@earendil-works/pi-schema@1.5.0',
+      '@mlc-ai/web-llm@0.2.86',
+    ],
+    [
+      '@earendil-works/pi-ai@1.5.0',
+      '@earendil-works/pi-agent-core@1.5.0',
+      '@earendil-works/pi-schema@1.5.0',
       '@mlc-ai/web-llm@0.2.86',
     ],
   ],
   consumerDependencies: [
-    '@earendil-works/pi-ai@1.0.2',
-    '@earendil-works/pi-agent-core@1.0.2',
+    '@earendil-works/pi-ai@1.5.0',
+    '@earendil-works/pi-agent-core@1.5.0',
+    '@earendil-works/pi-schema@1.5.0',
     '@mlc-ai/web-llm@0.2.86',
   ],
   source: `
 import assert from 'node:assert/strict'
 import { MLCEngine } from '@mlc-ai/web-llm'
-import { Type } from '@earendil-works/pi-ai'
+import { obj, str } from '@earendil-works/pi-schema'
 import { createModels } from '@earendil-works/pi-ai/models'
 import { Agent } from '@earendil-works/pi-agent-core'
 import { createWebLLMProvider, withEngine } from 'pi-ai-web-llm'
@@ -86,7 +95,7 @@ const toolContext = {
     {
       name: 'lookup',
       description: 'Look up a code',
-      parameters: Type.Object({ code: Type.String() }),
+      parameters: obj({ code: str() }, { open: true }),
     },
   ],
 }

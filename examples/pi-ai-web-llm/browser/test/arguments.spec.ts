@@ -1,4 +1,4 @@
-import { Type } from '@earendil-works/pi-ai'
+import { bool, obj, str, union } from '@earendil-works/pi-schema'
 import type { ChatCompletionChunk } from '@mlc-ai/web-llm'
 import { test, expect } from './browser.js'
 import type {} from './checks.js'
@@ -8,7 +8,7 @@ test('Qwen preserves a numeric-looking string in a string or boolean tool argume
 }) => {
   await page.goto('http://127.0.0.1:4173/pi/test/checks.html')
   await page.evaluate(() => window.piChecks.load('Qwen3.5-4B-q4f16_1-MLC'))
-  const parameters = Type.Object({ value: Type.Union([Type.String(), Type.Boolean()]) })
+  const parameters = obj({ value: union([str(), bool()]) }, { open: true })
   const result = await page.evaluate(async (parameters) => {
     const { models, model } = await window.piChecks.provider(true)
     let native = ''
@@ -112,7 +112,7 @@ test('Qwen3.5 preserves strings excluded from number arguments through a Pi tool
 }, info) => {
   await page.goto('http://127.0.0.1:4173/pi/test/checks.html')
   await page.evaluate(() => window.piChecks.load('Qwen3.5-4B-q4f16_1-MLC'))
-  const parameters = Type.Object({ code: Type.Any({ not: { type: 'number' } }) })
+  const parameters = { not: { type: 'number' } } as const
   const result = await page.evaluate(async (parameters) => {
     const agent = await window.piChecks.createAgent(true)
     const lookup = agent.state.tools[0]!

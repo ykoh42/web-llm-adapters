@@ -1,5 +1,5 @@
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context'
-import { Type } from '@earendil-works/pi-ai'
+import { obj, str } from '@earendil-works/pi-schema'
 import {
   createRegistry,
   defineExtension,
@@ -29,7 +29,7 @@ export async function openDurable(
           defineTool({
             name: 'lookup',
             description: 'Look up the answer for a code.',
-            parameters: Type.Object({ code: Type.String() }),
+            parameters: obj({ code: str() }, { open: true }),
             replay: 'safe',
             execute: async ({ code }) => ({
               output: [{ type: 'text', text: `The answer for ${code} is ORCHID-42.` }],
@@ -48,7 +48,9 @@ export async function openDurable(
     await root.configure({ thinkingLevel: enabled && model.reasoning ? 'low' : 'off' }, context)
     const watch = await root.watch(context)
     render(watch.value)
-    watch.start(async (view) => render(view))
+    watch.start(async (call) => {
+      if (call.kind === 'value') render(call.value)
+    })
     harness.resume()
     await root.waitForIdle(context)
     return {

@@ -1,6 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { Message, TextBlock } from '@strands-agents/sdk'
-import { Type } from '@earendil-works/pi-ai'
 import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
 import { postInitAndCheckFieldsCompletion, type Completion } from '@mlc-ai/web-llm'
 import { BrowserModel, WebLLMModel, createBrowserBridge as strandsBridge } from 'strands-web-llm'
@@ -19,7 +18,11 @@ const modelId = 'gemma-4-E2B-it-q4f16_1-MLC'
 const example = 'Example: <|tool_call>call:lookup{code:<|"|>A7<|"|>}<tool_call|>'
 const source =
   '<|channel>thought\nFirst.<channel|>' + example + '<|channel>thought\nSecond.<channel|> Done.'
-const schema = Type.Object({ code: Type.String() })
+const schema = {
+  type: 'object' as const,
+  required: ['code'],
+  properties: { code: { type: 'string' as const } },
+}
 const tool = { name: 'lookup', description: 'Look up a code.', inputSchema: schema }
 const definition = {
   type: 'function',

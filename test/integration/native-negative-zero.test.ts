@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { Type } from '@earendil-works/pi-ai'
+import { arr, num, obj } from '@earendil-works/pi-schema'
 import { createModels } from '@earendil-works/pi-ai/models'
 import { WebLLMModel } from '../../packages/strands-web-llm/src/index.js'
 import { ChatWebLLM } from '../../packages/langchain-web-llm/src/index.js'
@@ -54,7 +54,7 @@ it('preserves native negative zero in all three frameworks', async () => {
       {
         name: 'lookup',
         description: '',
-        parameters: Type.Object({ value: Type.Number(), nested: Type.Array(Type.Number()) }),
+        parameters: obj({ value: num(), nested: arr(num()) }, { open: true }),
       },
     ],
   })

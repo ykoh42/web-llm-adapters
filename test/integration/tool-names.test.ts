@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest'
-import { Type } from '@earendil-works/pi-ai'
+import { obj } from '@earendil-works/pi-schema'
 import { createModels } from '@earendil-works/pi-ai/models'
 import { Message, TextBlock } from '@strands-agents/sdk'
 import { createWebLLMProvider } from '../../packages/pi-ai-web-llm/src/index.js'
@@ -11,7 +11,9 @@ const toolSpecs = [
   { name: 'lookup', description: 'Look up a value.' },
   { name: 'lookup', description: 'Look up another value.' },
 ]
-const emptyPiTool = [{ name: '', description: 'Look up a value.', parameters: Type.Object({}) }]
+const emptyPiTool = [
+  { name: '', description: 'Look up a value.', parameters: obj({}, { open: true }) },
+]
 const message = new Message({ role: 'user', content: [new TextBlock('Run a tool.')] })
 const reason = 'WebLLM tool names must be unique and non-empty.'
 

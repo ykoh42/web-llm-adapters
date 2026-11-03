@@ -1,10 +1,10 @@
 import { provider } from './engine.js'
+import { obj, str } from '@earendil-works/pi-schema'
 import type { WebLLMRequest } from 'pi-ai-web-llm'
 
 export async function createAgent(enabled: boolean, request: WebLLMRequest = {}) {
-  const [{ Agent }, { Type }, { models, model }] = await Promise.all([
+  const [{ Agent }, { models, model }] = await Promise.all([
     import('@earendil-works/pi-agent-core'),
-    import('@earendil-works/pi-ai'),
     provider(enabled, { request }),
   ])
   return new Agent({
@@ -17,7 +17,7 @@ export async function createAgent(enabled: boolean, request: WebLLMRequest = {})
           name: 'lookup',
           label: 'Lookup',
           description: 'Look up the answer for a code.',
-          parameters: Type.Object({ code: Type.String() }),
+          parameters: obj({ code: str() }, { open: true }),
           execute: async (_id, args) => ({
             content: [
               {

@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest'
-import { Type } from '@earendil-works/pi-ai'
+import { num, obj } from '@earendil-works/pi-schema'
 import { createModels } from '@earendil-works/pi-ai/models'
 import { MLCEngine, type Completion } from '@mlc-ai/web-llm'
 import { Message, TextBlock } from '@strands-agents/sdk'
@@ -108,7 +108,7 @@ it('preserves negative zero in Gemma tool arguments across the frameworks', asyn
       {
         name: tool.name,
         description: tool.description,
-        parameters: Type.Object({ value: Type.Number() }),
+        parameters: obj({ value: num() }, { open: true }),
       },
     ],
   })

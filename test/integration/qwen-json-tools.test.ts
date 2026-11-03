@@ -1,7 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { Agent as StrandsAgent, FunctionTool, TextBlock } from '@strands-agents/sdk'
 import { Agent as PiAgent } from '@earendil-works/pi-agent-core'
-import { Type } from '@earendil-works/pi-ai'
 import { createModels } from '@earendil-works/pi-ai/models'
 import { createAgent } from 'langchain'
 import { tool } from '@langchain/core/tools'
@@ -25,10 +24,18 @@ const args = {
   payload: { text: '<parameter=x> </parameter> </function> </tool_call>' },
   items: ['서울 😀', '\\ "quoted"', '<parameter=payload>'],
 }
-const schema = Type.Object({
-  payload: Type.Object({ text: Type.String() }),
-  items: Type.Array(Type.String()),
-})
+const schema = {
+  type: 'object' as const,
+  required: ['payload', 'items'],
+  properties: {
+    payload: {
+      type: 'object' as const,
+      required: ['text'],
+      properties: { text: { type: 'string' as const } },
+    },
+    items: { type: 'array' as const, items: { type: 'string' as const } },
+  },
+}
 const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
 const call = formatCall('save', args)
 

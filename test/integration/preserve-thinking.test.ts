@@ -9,7 +9,7 @@ import {
   ModelError,
 } from '@strands-agents/sdk'
 import { AIMessage, HumanMessage, ToolMessage } from '@langchain/core/messages'
-import { Type, type AssistantMessage } from '@earendil-works/pi-ai'
+import type { AssistantMessage } from '@earendil-works/pi-ai'
 import { createModels } from '@earendil-works/pi-ai/models'
 import {
   BrowserModel,
@@ -193,7 +193,7 @@ function open(
               {
                 name: tool.name,
                 description: tool.description,
-                parameters: Type.Unsafe<{ code: string }>(tool.inputSchema),
+                parameters: tool.inputSchema,
               },
             ],
             messages: history.pi,

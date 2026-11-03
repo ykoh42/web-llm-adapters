@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest'
 import { Agent as StrandsAgent, FunctionTool } from '@strands-agents/sdk'
 import { Agent as PiAgent } from '@earendil-works/pi-agent-core'
-import { Type } from '@earendil-works/pi-ai'
+import { obj } from '@earendil-works/pi-schema'
 import { createModels } from '@earendil-works/pi-ai/models'
 import { tool } from '@langchain/core/tools'
 import { createAgent } from 'langchain'
@@ -80,7 +80,7 @@ for (const [protocol, modelId] of [
                 name: 'slow',
                 label: 'Slow',
                 description: 'Slow tool.',
-                parameters: Type.Object({}),
+                parameters: obj({}, { open: true }),
                 execute: async () => ({
                   content: [{ type: 'text', text: await slow() }],
                   details: {},
@@ -90,7 +90,7 @@ for (const [protocol, modelId] of [
                 name: 'fast',
                 label: 'Fast',
                 description: 'Fast tool.',
-                parameters: Type.Object({}),
+                parameters: obj({}, { open: true }),
                 execute: async () => ({
                   content: [{ type: 'text', text: await fast() }],
                   details: {},

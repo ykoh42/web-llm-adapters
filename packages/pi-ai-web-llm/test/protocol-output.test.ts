@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest'
-import { Type } from '@earendil-works/pi-ai'
+import { obj, str } from '@earendil-works/pi-schema'
 import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
 import { chunk, chunks, setup } from './helpers.js'
 
@@ -9,7 +9,7 @@ const tools = [
   {
     name: 'lookup',
     description: 'Look up a code.',
-    parameters: Type.Object({ code: Type.String() }),
+    parameters: obj({ code: str() }, { open: true }),
   },
 ]
 const context = normalizeContext({ messages: [user], tools })

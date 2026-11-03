@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Type } from '@earendil-works/pi-ai'
+import { obj, str } from '@earendil-works/pi-schema'
 import type { ChatCompletionRequestStreaming } from '@mlc-ai/web-llm'
 import { pause } from '../../../fixtures/web-llm.js'
 import { chunk, setup } from './helpers.js'
@@ -13,7 +13,7 @@ const constrainedContext = {
     {
       name: 'lookup',
       description: 'Look up a code.',
-      parameters: Type.Object({ code: Type.String() }, { additionalProperties: false }),
+      parameters: obj({ code: str() }),
     },
   ],
 }
@@ -201,7 +201,9 @@ describe('Pi payload format changes', () => {
       model,
       {
         ...context,
-        tools: [{ name: 'lookup', description: 'Look up a code.', parameters: Type.Object({}) }],
+        tools: [
+          { name: 'lookup', description: 'Look up a code.', parameters: obj({}, { open: true }) },
+        ],
       },
       {
         onPayload: (payload) => {
@@ -253,7 +255,9 @@ describe('Pi payload format changes', () => {
       model,
       {
         ...context,
-        tools: [{ name: 'lookup', description: 'Look up a code.', parameters: Type.Object({}) }],
+        tools: [
+          { name: 'lookup', description: 'Look up a code.', parameters: obj({}, { open: true }) },
+        ],
       },
       {
         onPayload: (payload) => {
@@ -412,7 +416,7 @@ describe('Pi payload format changes', () => {
     const tools = ['lookup', 'search'].map((name) => ({
       name,
       description: `${name} a code.`,
-      parameters: Type.Object({ code: Type.String() }),
+      parameters: obj({ code: str() }, { open: true }),
     }))
     const response = await models.complete(
       model,
@@ -461,7 +465,7 @@ describe('Pi payload format changes', () => {
       {
         name: 'lookup',
         description: 'Look up a code.',
-        parameters: Type.Object({ code: Type.String() }),
+        parameters: obj({ code: str() }, { open: true }),
       },
     ]
     const response = await models.complete(
@@ -584,7 +588,9 @@ describe('Pi payload format changes', () => {
         model,
         {
           ...context,
-          tools: [{ name: 'lookup', description: 'Look up a code.', parameters: Type.Object({}) }],
+          tools: [
+            { name: 'lookup', description: 'Look up a code.', parameters: obj({}, { open: true }) },
+          ],
         },
         {
           onPayload: (payload) => {

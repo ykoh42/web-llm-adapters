@@ -1,11 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import {
-  Type,
-  type Context,
-  type Model,
-  type Api,
-  type SimpleStreamOptions,
-} from '@earendil-works/pi-ai'
+import { type Context, type Model, type Api, type SimpleStreamOptions } from '@earendil-works/pi-ai'
+import { obj, str } from '@earendil-works/pi-schema'
 import { ModelType, prebuiltAppConfig, type ChatCompletionTool } from '@mlc-ai/web-llm'
 import { createModels } from '@earendil-works/pi-ai/models'
 import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
@@ -22,7 +17,7 @@ const context: Context = { messages: [{ role: 'user', content: 'Hello', timestam
 const lookup = {
   name: 'lookup',
   description: 'Look up a code.',
-  parameters: Type.Object({ code: Type.String() }),
+  parameters: obj({ code: str() }, { open: true }),
 }
 const tools = { ...context, tools: [lookup] }
 const call = (args = '{"code":"A7"}', name = 'lookup', id = 'call-1') =>

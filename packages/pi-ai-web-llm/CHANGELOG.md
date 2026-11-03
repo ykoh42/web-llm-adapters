@@ -3,6 +3,7 @@
 ## 0.4.1 — 2026-11-03
 
 - Add npm search metadata.
+- Support Pi 1.5 and use its official schema builders in examples.
 
 ## 0.4.0 — 2026-10-30
 

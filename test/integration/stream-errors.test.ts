@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest'
 import type { Completion } from '@mlc-ai/web-llm'
 import { Message, TextBlock } from '@strands-agents/sdk'
-import { Type } from '@earendil-works/pi-ai'
+import { obj } from '@earendil-works/pi-schema'
 import { createModels } from '@earendil-works/pi-ai/models'
 import { WebLLMModel } from '../../packages/strands-web-llm/src/index.js'
 import { ChatWebLLM } from '../../packages/langchain-web-llm/src/index.js'
@@ -264,7 +264,7 @@ it.each(['strands', 'langchain', 'pi'] as const)(
       models.setProvider(provider)
       pending = models.complete(provider.getModels()[0]!, {
         messages: [{ role: 'user', content: 'Find A7.', timestamp: 0 }],
-        tools: [{ ...tools[0]!, parameters: Type.Object({}) }],
+        tools: [{ ...tools[0]!, parameters: obj({}, { open: true }) }],
       })
     }
     pending = pending.catch((error: unknown) => error)

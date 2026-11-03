@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { Type, type AssistantMessage, type Message } from '@earendil-works/pi-ai'
+import { obj } from '@earendil-works/pi-schema'
+import type { AssistantMessage, Message } from '@earendil-works/pi-ai'
 import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
 import { ModelType, postInitAndCheckFieldsChatCompletion } from '@mlc-ai/web-llm'
 import { formatContext } from '../src/messages.js'
@@ -45,7 +46,7 @@ describe('Pi transcript conversion', () => {
     const tool = (name: string, description = name) => ({
       name,
       description,
-      parameters: Type.Object({}),
+      parameters: obj({}, { open: true }),
     })
     const context = normalizeContext({
       systemPrompt: 'Base',
@@ -321,7 +322,7 @@ describe('Pi transcript conversion', () => {
         {
           name: 'lookup',
           description: 'Lookup',
-          parameters: Type.Object({}),
+          parameters: obj({}, { open: true }),
           constrainedSampling: { type: 'json_schema', strict: 'prefer' },
         },
       ],

@@ -1,4 +1,4 @@
-import { Type, validateToolArguments } from '@earendil-works/pi-ai'
+import { validateToolArguments } from '@earendil-works/pi-ai'
 import { expect, it } from 'vitest'
 import { readValue } from '../../shared/web-llm/qwen35/value.js'
 import type { JSONSchema } from '../../shared/web-llm/types.js'
@@ -88,10 +88,12 @@ const cases = [
 ] satisfies { schema: JSONSchema; text: string; value: unknown }[]
 
 it.each(cases)('preserves a valid value with $schema: $text', ({ schema, text, value }) => {
-  const parameters = Type.Object(
-    { code: Type.Any(schema) },
-    { definitions: { number: { type: 'number' }, exclusion: { not: { enum: [123] } } } },
-  )
+  const parameters = {
+    type: 'object',
+    properties: { code: schema },
+    required: ['code'],
+    definitions: { number: { type: 'number' }, exclusion: { not: { enum: [123] } } },
+  }
   const inputSchema: JSONSchema = JSON.parse(JSON.stringify(parameters))
   const tool = { name: 'lookup', description: '', parameters }
   const expected = {
@@ -184,7 +186,7 @@ it.each([
 ] satisfies { schema: JSONSchema; value: unknown }[])(
   'preserves values with an object exclusion: $schema',
   ({ schema, value }) => {
-    const parameters = Type.Object({}, schema)
+    const parameters = { type: 'object', ...schema }
     const inputSchema: JSONSchema = JSON.parse(JSON.stringify(parameters))
     const tool = { name: 'lookup', description: '', parameters }
     const call = {
@@ -206,7 +208,7 @@ it.each([
 ] satisfies JSONSchema[])(
   'rejects an unresolved object exclusion instead of guessing: %j',
   (schema) => {
-    const parameters = Type.Object({}, schema)
+    const parameters = { type: 'object', ...schema }
     const inputSchema: JSONSchema = JSON.parse(JSON.stringify(parameters))
     const tool = { name: 'lookup', description: '', parameters }
     const call = {

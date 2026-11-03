@@ -1,5 +1,5 @@
 import { Agent } from '@earendil-works/pi-agent-core'
-import { Type } from '@earendil-works/pi-ai'
+import { bool, obj, str } from '@earendil-works/pi-schema'
 import { createModels } from '@earendil-works/pi-ai/models'
 import { createWebLLMProvider, type WebLLMChunk } from 'pi-ai-web-llm'
 import { sampling } from '../../sampling.js'
@@ -37,10 +37,7 @@ export async function constrainedAgent() {
             name: 'lookup',
             label: 'Lookup',
             description: 'Look up a code.',
-            parameters: Type.Object(
-              { code: Type.String(), enabled: Type.Boolean() },
-              { additionalProperties: false },
-            ),
+            parameters: obj({ code: str(), enabled: bool() }),
             execute: async (_id, input) => {
               inputs.push(input)
               return { content: [{ type: 'text', text: receipt }], details: {} }

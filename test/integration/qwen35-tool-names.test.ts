@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { Type } from '@earendil-works/pi-ai'
+import { obj } from '@earendil-works/pi-schema'
 import { createModels } from '@earendil-works/pi-ai/models'
 import { Message, TextBlock } from '@strands-agents/sdk'
 import { ChatWebLLM } from '../../packages/langchain-web-llm/src/index.js'
@@ -58,7 +58,7 @@ it.each(invalidNames)(
         {
           name,
           description: 'Read a value.',
-          parameters: Type.Object({}),
+          parameters: obj({}, { open: true }),
         },
       ],
     })
