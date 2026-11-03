@@ -1,12 +1,12 @@
 {
-  "commit": "ef225f9372f0075f60242fcc950c5ed1ec1b7208",
-  "source": "95962932a112bf3c61fd456eee6ca30fa66814d1a139ec671945afb99ef966cd",
-  "webllm": "0.2.86",
-  "checkedAt": "2026-10-31T04:25:21.008Z",
+  "commit": "e13929af7397f3152c4f57c64fd5bfe43a522170",
+  "source": "fcbb1d417f55a68b982f43d1075944b1298ddff6ed6ba7b821a2dec268846bd5",
+  "webllm": "0.2.87",
+  "checkedAt": "2026-11-03T00:34:58.151Z",
   "environment": {
     "platform": "darwin",
     "arch": "arm64",
-    "node": "v26.12.1",
+    "node": "v26.13.0",
     "browser": "156.0.8078.76",
     "gpu": { "vendor": "apple", "architecture": "metal-3", "device": "", "description": "" }
   },
