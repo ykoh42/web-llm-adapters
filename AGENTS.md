@@ -5,4 +5,5 @@
 - Preserve model input and output; add only protocol-required content.
 - Never mistake model limits or choices for adapter bugs.
 - Verify real WebLLM flows; report limits without filler, fakes, or fallbacks.
+- Prepare gated work during the wait and run it as soon as the gate clears.
 - Pass local real-model tests before publishing through GitHub Releases; follow [.github/RELEASING.md](.github/RELEASING.md).
