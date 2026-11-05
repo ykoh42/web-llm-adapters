@@ -16,7 +16,7 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@langchain/langgraph": "1.6.0",
+    "@langchain/langgraph": "1.6.1",
     "deepagents": "1.16.2",
     "vite": "^8.3.5"
   }
