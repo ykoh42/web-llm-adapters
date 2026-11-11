@@ -50,7 +50,7 @@
     "@strands-agents/sdk": "^1.17.0"
   },
   "devDependencies": {
-    "@mlc-ai/web-llm": "0.2.87",
+    "@mlc-ai/web-llm": "0.2.88",
     "@strands-agents/sdk": "^1.17.0"
   },
   "license": "MIT"
