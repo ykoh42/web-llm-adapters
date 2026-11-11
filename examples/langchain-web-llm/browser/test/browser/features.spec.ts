@@ -160,7 +160,7 @@ for (const { name, schema, key = 'code' } of schemaCases) {
   })
 }
 
-test('Qwen3.5 preserves encoded references before LangChain tool validation', async ({
+test('Qwen3.5 preserves encoded references for LangChain tool validation', async ({
   page,
 }, info) => {
   const modelId = 'Qwen3.5-4B-q4f16_1-MLC'
@@ -191,9 +191,8 @@ test('Qwen3.5 preserves encoded references before LangChain tool validation', as
     .invoke('Use lookup to look up code 123. Tell me its secret.')
   expect(response.tool_calls).toMatchObject([{ name: 'lookup', args: { code: '123' } }])
   await writeFile(info.outputPath('schema.json'), JSON.stringify({ schema, response }, null, 2))
-  // This failure also occurs without WebLLM or an adapter.
-  await expect(lookup.invoke({ code: '123' })).rejects.toThrow('Unresolved $ref')
-  expect(inputs).toEqual([])
+  await lookup.invoke({ code: '123' })
+  expect(inputs).toEqual([{ code: '123' }])
 })
 
 for (const modelId of ['Qwen3.5-4B-q4f16_1-MLC', 'gemma-4-E2B-it-q4f16_1-MLC']) {

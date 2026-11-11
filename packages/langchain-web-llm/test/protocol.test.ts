@@ -54,7 +54,7 @@ describe('model protocols', () => {
     expect(create.mock.calls[1]?.[0]).not.toHaveProperty('constrainedToolCalls')
   })
 
-  it('keeps encoded references unchanged before LangChain tool validation', async () => {
+  it('keeps encoded references unchanged for LangChain tool validation', async () => {
     const $ref = '#/properties/code/definitions/value%7E1text'
     const callback = vi.fn()
     const lookup = tool(callback, {
@@ -81,8 +81,9 @@ describe('model protocols', () => {
     const response = await model.bindTools([lookup]).invoke('Find code 123.')
     expect(response.tool_calls).toMatchObject([{ name: 'lookup', args: { code: '123' } }])
     expect(create.mock.calls[0]?.[0].messages[0]?.content).toContain($ref)
-    await expect(lookup.invoke({ code: '123' })).rejects.toThrow('Unresolved $ref')
-    expect(callback).not.toHaveBeenCalled()
+    await lookup.invoke({ code: '123' })
+    expect(callback).toHaveBeenCalledOnce()
+    expect(callback.mock.calls[0]?.[0]).toEqual({ code: '123' })
   })
 
   it('preserves a truncated Gemma tool call as text without exposing it as a tool', async () => {

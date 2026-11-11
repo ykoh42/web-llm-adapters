@@ -10,6 +10,6 @@
     "@mlc-ai/web-llm": "0.2.88",
     "deepagents": "1.16.3",
     "langchain-web-llm": "0.4.1",
-    "playwright": "1.64.1"
+    "playwright": "1.65.0"
   }
 }

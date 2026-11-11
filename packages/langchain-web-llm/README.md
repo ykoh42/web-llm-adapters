@@ -137,7 +137,7 @@ For optional [Qwen tool-call constraints](https://github.com/ykoh42/web-llm-adap
 
 Use Gemma agent response schemas without other tools.
 
-Use literal `~0`/`~1` in `$ref` paths; LangChain's tool validator cannot resolve `%7E0`/`%7E1`.
+Use canonical JSON Pointer escapes `~0` and `~1` for `~` and `/` in `$ref` paths.
 
 ## Models
 
