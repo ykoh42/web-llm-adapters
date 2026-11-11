@@ -92,7 +92,7 @@ try {
       }),
     )
     run(process.execPath, [
-      fileURLToPath(import.meta.resolve('typescript/bin/tsc6')),
+      fileURLToPath(import.meta.resolve('typescript/bin/tsc')),
       '--project',
       'tsconfig.json',
     ])
