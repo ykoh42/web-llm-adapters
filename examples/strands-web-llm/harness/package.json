@@ -10,15 +10,11 @@
   "dependencies": {
     "@strands-agents/harness": "0.3.4",
     "@strands-agents/sdk": "1.24.0",
-    "@tesseract.js-data/eng": "1.0.0",
-    "@tesseract.js-data/kor": "1.0.0",
-    "strands-web-llm": "0.4.1",
-    "tesseract.js": "7.0.0",
-    "unpdf": "1.9.1",
-    "zod": "4.6.7"
+    "strands-web-llm": "0.4.1"
   },
   "devDependencies": {
     "@mlc-ai/web-llm": "0.2.88",
-    "@playwright/test": "^1.65.0"
+    "@playwright/test": "^1.65.0",
+    "zod": "4.6.7"
   }
 }

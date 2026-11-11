@@ -20,7 +20,7 @@ npm run start --workspace=@web-llm-adapters/strands-harness -- 'Say hello.'
 
 The CLI opens Chrome and caches model downloads. Gemma 4 E2B is the example default;
 use `--model <exact model_id>` to choose another [verified model](../../../README.md#models).
-The demo includes Gemma's required runtime setup.
+The example uses Harness's built-in `read` tool in text-only mode for Gemma.
 
 | Option              | Purpose                                                                   |
 | ------------------- | ------------------------------------------------------------------------- |
@@ -37,28 +37,14 @@ npm run start --workspace=@web-llm-adapters/strands-harness -- --think --tool re
 
 ## Source
 
-| Feature                                          | Source                       |
-| ------------------------------------------------ | ---------------------------- |
-| Browser startup, model config, Harness, shutdown | [main.ts](src/main.ts)       |
-| Text and PDF reading                             | [read.ts](src/tools/read.ts) |
-| Local image OCR                                  | [ocr.ts](src/tools/ocr.ts)   |
-| Memory and embedding search                      | [memory.ts](src/memory.ts)   |
+| Feature                                          | Source                     |
+| ------------------------------------------------ | -------------------------- |
+| Browser startup, model config, Harness, shutdown | [main.ts](src/main.ts)     |
+| Memory and embedding search                      | [memory.ts](src/memory.ts) |
 
-The example keeps Harness's sessions, skills, background tasks, and subagents enabled.
-It replaces `read` with a PDF/OCR reader and supplies WebLLM-backed memory.
-State is stored under `.agent/`. Shut agents down before closing the browser.
-
-## Limits
-
-| Feature             | Limit                                                                     |
-| ------------------- | ------------------------------------------------------------------------- |
-| PDF                 | Embedded text only; 20 MiB; scanned pages need OCR                        |
-| Image reading       | Local OCR for PNG/JPEG up to 20 MiB; Gemma has no native image input here |
-| Speech              | Transcription is not enabled                                              |
-| Web search          | Uses Exa; queries leave the machine; `EXA_API_KEY` is optional            |
-| Embedding memory    | 512 tokens per text; scans all entries per search; split long entries     |
-| Concurrent requests | One engine queue, with separate histories and cancellation                |
-| Recovery            | Harness sessions and native generation checkpoints save different state   |
+The example keeps Harness's tools, sessions, skills, background tasks, and subagents enabled.
+It supplies WebLLM-backed memory. State is stored under `.agent/`.
+Shut agents down before closing the browser.
 
 See the [package support table](../../../packages/strands-web-llm/README.md#support)
 for adapter features and the [browser examples](../browser/README.md) for native WebLLM APIs.

@@ -5,7 +5,6 @@ import { chromium } from '@playwright/test'
 import { BrowserModel } from 'strands-web-llm'
 import { useTool } from './tool-choice.ts'
 import { createEmbeddingMemory, createMemory, embeddingModelId } from './memory.ts'
-import { createRead } from './tools/read.ts'
 import { chatOptions } from '../../chat-options.ts'
 import { sampling } from '../../sampling.ts'
 
@@ -75,8 +74,7 @@ try {
       ],
     },
     instructions: 'Answer briefly.',
-    builtinTools: { read: false, web_fetch: { model: auxModel }, web_search: 'exa' },
-    tools: [createRead()],
+    builtinTools: { read: { media: false }, web_fetch: { model: auxModel }, web_search: 'exa' },
     printer: false,
   })
   if (values.tool) useTool(agent, values.tool)
