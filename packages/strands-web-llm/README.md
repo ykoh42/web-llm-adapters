@@ -136,7 +136,7 @@ Before changing the embedding model, wait for pending searches and writes, then 
 
 ## Support
 
-Tested with WebLLM **0.2.86** and **0.2.87** and Strands SDK **1.18.0**, **1.22.0**, and **1.23.0**. Model availability depends on the installed WebLLM version. Harness **0.3.3** is used by the integration example.
+Supports Strands SDK `^1.17.0` and WebLLM `~0.2.86`. Consumer checks cover SDK **1.17.0**, **1.24.0** and WebLLM **0.2.86**, **0.2.88**. Model availability depends on the installed WebLLM version. Harness **0.3.3** is used by the integration example.
 
 Features depend on the exact model.
 

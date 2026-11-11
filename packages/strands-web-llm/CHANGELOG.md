@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Support Strands SDK 1.17.0 and newer compatible 1.x releases.
+
 ## 0.4.1 — 2026-11-03
 
 - Let Strands validate JSON text returned on structured output retries.

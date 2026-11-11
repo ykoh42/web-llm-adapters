@@ -47,11 +47,11 @@
   },
   "peerDependencies": {
     "@mlc-ai/web-llm": "~0.2.86",
-    "@strands-agents/sdk": "^1.18.0"
+    "@strands-agents/sdk": "^1.17.0"
   },
   "devDependencies": {
     "@mlc-ai/web-llm": "0.2.87",
-    "@strands-agents/sdk": "^1.18.0"
+    "@strands-agents/sdk": "^1.17.0"
   },
   "license": "MIT"
 }
