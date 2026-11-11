@@ -1,8 +1,8 @@
 {
-  "commit": "2908030b1fbd8aeae645c91b889680a0e4b542c3",
-  "source": "b9f656d64dd0b1ba3a12f6ee157c60f05ae5b19ae9e5a0972fccd48503e0e1b1",
+  "commit": "eb367692681a43a05d24ad6331af3bdc8ff245e8",
+  "source": "77ee66e4b3f695c8639ece342d6ebf8c09e25c7e096d1b4a64c8967429cbeaf1",
   "webllm": "0.2.88",
-  "checkedAt": "2026-11-11T13:26:36.464Z",
+  "checkedAt": "2026-11-11T16:55:02.668Z",
   "environment": {
     "platform": "darwin",
     "arch": "arm64",
