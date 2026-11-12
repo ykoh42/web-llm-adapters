@@ -1,8 +1,8 @@
 {
-  "commit": "941958e3f0e2fcd0d7d59689adceda6293c580e6",
-  "source": "bd09a2d0251a56f3011882562a1afd4038bebd3de5f55ce5e5263aff2a08c15a",
+  "commit": "5624f747f1f3092cdcdc0503b47676d85f15b8de",
+  "source": "4dfa5e6f29b695ec1ea3437ede3d8108e7c81ff445a61459558893ac863db966",
   "webllm": "0.2.88",
-  "checkedAt": "2026-11-12T21:09:49.893Z",
+  "checkedAt": "2026-11-12T23:04:23.964Z",
   "environment": {
     "platform": "darwin",
     "arch": "arm64",
@@ -309,6 +309,12 @@
     },
     {
       "adapter": "langchain",
+      "name": "examples/langchain-web-llm/browser/test/browser/ignore-eos.spec.ts > gemma-4-E2B-it-q4f16_1-MLC honors ignore_eos for text-only thinking",
+      "status": "passed",
+      "checks": ["gemma-4-E2B-it-q4f16_1-MLC/ignore_eos"]
+    },
+    {
+      "adapter": "langchain",
       "name": "examples/langchain-web-llm/browser/test/browser/models.spec.ts > Qwen3.5-9B-q4f16_1-MLC: Deep Agents tools and final answer",
       "status": "passed",
       "checks": ["Qwen3.5-9B-q4f16_1-MLC/tools", "Qwen3.5-9B-q4f16_1-MLC/thinking"]
@@ -414,6 +420,12 @@
       "name": "examples/pi-ai-web-llm/browser/test/constraints.spec.ts > Qwen3.5-4B-q4f16_1-MLC constrains an Agent tool loop and preserves native output",
       "status": "passed",
       "checks": []
+    },
+    {
+      "adapter": "pi",
+      "name": "examples/pi-ai-web-llm/browser/test/ignore-eos.spec.ts > gemma-4-E2B-it-q4f16_1-MLC honors ignore_eos for text-only thinking",
+      "status": "passed",
+      "checks": ["gemma-4-E2B-it-q4f16_1-MLC/ignore_eos"]
     },
     {
       "adapter": "pi",
