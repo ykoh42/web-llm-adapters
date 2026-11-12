@@ -12,7 +12,7 @@ export function gemmaRequest(
 ) {
   if (choice && choice !== 'none') choice = singleToolChoice(choice, tools)
   const thinking = sampling.extra_body?.enable_thinking === true
-  checkGemmaRequest(sampling)
+  checkGemmaRequest(sampling, tools.length > 0)
   const prompt = gemmaPrompt(history, tools, thinking)
   let prefix = ''
   if (choice && choice !== 'none' && 'any' in choice)
@@ -49,13 +49,9 @@ export function gemmaCompletion(
 
 export function checkGemmaRequest(
   request: Pick<ChatCompletionRequestStreaming, 'response_format' | 'extra_body' | 'ignore_eos'>,
+  hasTools: boolean,
 ) {
-  if (
-    !isTextFormat(request.response_format) ||
-    request.extra_body?.resumable?.enabled ||
-    request.ignore_eos
-  )
-    throw new Error(
-      'Gemma protocol mode does not support constrained response_format, resume, or ignore_eos.',
-    )
+  if (!isTextFormat(request.response_format) || request.extra_body?.resumable?.enabled)
+    throw new Error('Gemma protocol mode does not support constrained response_format or resume.')
+  if (hasTools && request.ignore_eos) throw new Error('Gemma tool calls do not support ignore_eos.')
 }

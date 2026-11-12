@@ -86,6 +86,7 @@ It does not guarantee the intended tool call or argument values.
 Explicit text format is compatible; JSON, grammar, and structural-tag formats are not. WebLLM resumable generation is unsupported.
 The model table's `Tools` column means tool calls work; it does not indicate constrained decoding support.
 Gemma tool and thinking requests use WebLLM's Completion API, which does not accept `response_format`.
+LangChain and Pi allow Gemma `ignore_eos` without tools and preserve a `length` finish. Strands rejects it because its SDK treats a max-token finish as an error. Tool calls need normal end-token handling.
 
 Qwen3.5 accepts closed object schemas (`additionalProperties: false`) with fixed properties.
 String enums and string `const` values can omit `type`.

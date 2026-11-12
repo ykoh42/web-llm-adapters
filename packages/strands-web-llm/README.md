@@ -210,7 +210,7 @@ inside the callback. Direct engine calls bypass the queue. Stop callers before r
 | Main thread, Worker, Service Worker, extension      | Any `MLCEngineInterface`; use WebLLM's factories and handlers |
 | Message `name`                                      | Native chat; SDK messages have no name field                  |
 
-With WebLLM 0.2.86, set `request.extra_body.resumable.enabled` to `true` to checkpoint chat, then call `resumeChatCompletion()` through `withEngine()`. Set `resumable.strictPersistence` to `true` to surface storage errors. WebLLM only resumes text-only requests without structured output or a custom logit processor. Gemma tool and thinking requests use raw completions and cannot resume.
+With WebLLM 0.2.86, set `request.extra_body.resumable.enabled` to `true` to checkpoint chat, then call `resumeChatCompletion()` through `withEngine()`. Set `resumable.strictPersistence` to `true` to surface storage errors. WebLLM only resumes text-only requests without structured output or a custom logit processor. Gemma tool and thinking requests use raw completions and cannot resume. Strands rejects Gemma `ignore_eos` because the SDK treats a max-token finish as an unrecoverable error.
 
 `updateConfig()` merges top-level settings; `modelId` selects an already loaded model.
 Use model-card sampling settings. WebLLM does not expose `top_k` or `min_p`.

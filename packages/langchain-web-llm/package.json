@@ -1,6 +1,6 @@
 {
   "name": "langchain-web-llm",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "WebLLM chat models and embeddings for LangChain, LangGraph, and Deep Agents.",
   "keywords": [
     "langchain",

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2 — 2026-11-13
+
+- Allow `ignore_eos` for Gemma requests without tools; reject it when tool parsing is active.
+
 ## 0.4.1 — 2026-11-03
 
 - Add npm search metadata.

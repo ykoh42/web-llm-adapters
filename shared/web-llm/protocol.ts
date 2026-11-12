@@ -99,7 +99,7 @@ export function protocolStream({
     return stream(
       async () => {
         const prepared = await prepare(createRequest())
-        checkGemmaRequest(prepared)
+        checkGemmaRequest(prepared, tools.length > 0)
         if (
           ('tools' in prepared && prepared.tools != null) ||
           ('tool_choice' in prepared && prepared.tool_choice != null) ||

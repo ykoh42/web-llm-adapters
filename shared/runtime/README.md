@@ -52,8 +52,10 @@ cross-origin hosting also needs CORS. Keep the supplied integrity value.
 
 Gemma tools and thinking use its native prompt template through raw completions.
 That mode accepts text and tool results, but cannot combine media, constrained
-output, native generation recovery, or `ignore_eos`. WebLLM re-prefills raw prompts
-on each turn. Ordinary chat uses WebLLM's chat API and KV cache.
+output, or native generation recovery. WebLLM accepts `ignore_eos` without tool
+parsing; generation may run to `max_tokens` and return `length`. Gemma tool calls
+need the normal end token. WebLLM re-prefills raw prompts on each turn. Ordinary
+chat uses WebLLM's chat API and KV cache.
 Past thoughts stay in agent history. Set `request.extra_body.preserve_thinking: true`
 to replay earlier tool-call reasoning.
 

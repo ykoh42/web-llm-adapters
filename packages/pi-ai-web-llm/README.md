@@ -118,7 +118,7 @@ You own the engine, model loading, and Worker. Creating or replacing a provider 
 
 For other native APIs, import `withEngine` from `pi-ai-web-llm` and await all work inside `withEngine(engine, callback)`, including consuming streams.
 
-With WebLLM 0.2.86, set `request.extra_body.resumable.enabled` to `true` to checkpoint chat, then call `resumeChatCompletion()` through `withEngine()`. Set `resumable.strictPersistence` to `true` to surface storage errors. WebLLM only resumes text-only requests without structured output or a custom logit processor; this does not restore Pi transcripts or agent state. Gemma tool and thinking requests use raw completions and cannot resume.
+With WebLLM 0.2.86, set `request.extra_body.resumable.enabled` to `true` to checkpoint chat, then call `resumeChatCompletion()` through `withEngine()`. Set `resumable.strictPersistence` to `true` to surface storage errors. WebLLM only resumes text-only requests without structured output or a custom logit processor; this does not restore Pi transcripts or agent state. Gemma tool and thinking requests use raw completions and cannot resume. For Gemma, `ignore_eos` is available without tools; generation may run to `max_tokens`, which Pi reports as `length`.
 
 ## Pi Agent Core
 

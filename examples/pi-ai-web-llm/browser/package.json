@@ -15,7 +15,7 @@
     "@earendil-works/pi-durable": "1.5.2",
     "@earendil-works/pi-schema": "1.5.2",
     "@mlc-ai/web-llm": "0.2.88",
-    "pi-ai-web-llm": "0.4.1"
+    "pi-ai-web-llm": "0.4.2"
   },
   "devDependencies": {
     "vite": "^8.3.7"

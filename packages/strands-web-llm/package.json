@@ -1,6 +1,6 @@
 {
   "name": "strands-web-llm",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "WebLLM model provider for Strands Agents.",
   "keywords": [
     "strands-agents",

@@ -11,6 +11,7 @@ export type Feature =
   | 'cancel'
   | 'concurrency'
   | 'resume'
+  | 'ignore_eos'
 
 function names(value: string) {
   if (value === 'All') return [...adapters]

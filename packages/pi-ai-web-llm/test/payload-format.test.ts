@@ -494,7 +494,6 @@ describe('Pi payload format changes', () => {
   })
 
   it.each([
-    { ignore_eos: true },
     { response_format: { type: 'json_object', schema: '{}' } },
     { extra_body: { resumable: { enabled: true } } },
   ])('keeps Gemma protocol limits after onPayload: %j', async (override) => {
@@ -512,10 +511,69 @@ describe('Pi payload format changes', () => {
 
     expect(response).toMatchObject({
       stopReason: 'error',
-      errorMessage:
-        'Gemma protocol mode does not support constrained response_format, resume, or ignore_eos.',
+      errorMessage: 'Gemma protocol mode does not support constrained response_format or resume.',
     })
     expect(create).not.toHaveBeenCalled()
+  })
+
+  it('allows ignore_eos for Gemma thinking without tools', async () => {
+    const { models, model, engine } = setup(undefined, {
+      modelId: 'gemma-4-E2B-it-q4f16_1-MLC',
+    })
+    const complete = vi.spyOn(engine.completions, 'create').mockImplementation(async () =>
+      (async function* () {
+        yield {
+          id: 'raw',
+          object: 'text_completion' as const,
+          model: model.id,
+          created: 0,
+          choices: [
+            {
+              index: 0,
+              text: '<|channel>thought\nPlan<channel|>Answer',
+              finish_reason: 'length' as const,
+            },
+          ],
+        }
+      })(),
+    )
+
+    const response = await models.complete(model, context, {
+      reasoning: 'low',
+      onPayload: (payload) => {
+        if (!payload || typeof payload !== 'object') throw new Error('Expected a native request.')
+        return { ...payload, ignore_eos: true }
+      },
+    })
+
+    expect(complete.mock.calls[0]?.[0].ignore_eos).toBe(true)
+    expect(response).toMatchObject({
+      stopReason: 'length',
+      content: [
+        { type: 'thinking', thinking: 'Plan' },
+        { type: 'text', text: 'Answer' },
+      ],
+    })
+  })
+
+  it('rejects ignore_eos when Gemma tool parsing is enabled through onPayload', async () => {
+    const { models, model, engine } = setup(undefined, {
+      modelId: 'gemma-4-E2B-it-q4f16_1-MLC',
+    })
+    const complete = vi.spyOn(engine.completions, 'create')
+    const response = await models.complete(model, constrainedContext, {
+      reasoning: 'low',
+      onPayload: (payload) => {
+        if (!payload || typeof payload !== 'object') throw new Error('Expected a native request.')
+        return { ...payload, ignore_eos: true }
+      },
+    })
+
+    expect(response).toMatchObject({
+      stopReason: 'error',
+      errorMessage: 'Gemma tool calls do not support ignore_eos.',
+    })
+    expect(complete).not.toHaveBeenCalled()
   })
 
   it.each([{ tool_choice: 'none' }, { tools: [] }, { extra_body: { enable_thinking: false } }])(

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.2 — 2026-11-13
 
 - Support Strands SDK 1.17.0 and newer compatible 1.x releases.
 

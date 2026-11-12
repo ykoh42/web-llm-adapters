@@ -103,6 +103,36 @@ describe('model protocols', () => {
     expect(result.response_metadata.finish_reason).toBe('length')
   })
 
+  it('forwards ignore_eos for Gemma thinking without tools', async () => {
+    const { engine } = setup()
+    const complete = vi.spyOn(engine.completions, 'create').mockResolvedValue(
+      (async function* () {
+        yield raw('<|channel>thought\nPlan<channel|>Answer', 'length')
+      })(),
+    )
+    const model = new ChatWebLLM({
+      engine,
+      modelId: gemmaId,
+      request: { ignore_eos: true, extra_body: { enable_thinking: true } },
+    })
+
+    const result = await model.invoke('Hi')
+
+    expect(complete.mock.calls[0]?.[0].ignore_eos).toBe(true)
+    expect(result.response_metadata.finish_reason).toBe('length')
+  })
+
+  it('rejects ignore_eos when Gemma tool parsing is enabled', async () => {
+    const { engine } = setup()
+    const complete = vi.spyOn(engine.completions, 'create')
+    const model = new ChatWebLLM({ engine, modelId: gemmaId, request: { ignore_eos: true } })
+
+    await expect(model.bindTools([definition]).invoke('Find A7')).rejects.toThrow(
+      'Gemma tool calls do not support ignore_eos.',
+    )
+    expect(complete).not.toHaveBeenCalled()
+  })
+
   it.each(['Qwen2.5-3B-Instruct-q4f16_1-MLC', qwen, 'Qwen3.5-4B-q4f16_1-MLC'])(
     '%s keeps tool syntax as text when no tools are bound',
     async (modelId) => {
@@ -294,7 +324,6 @@ describe('model protocols', () => {
     { response_format: { type: 'text' as const, grammar: 'root ::= "x"' } },
     { response_format: { type: 'text' as const, structural_tag: '{}' } },
     { extra_body: { resumable: { enabled: true } } },
-    { ignore_eos: true },
   ])('rejects incompatible Gemma raw options %j', async (request) => {
     const { engine, create } = setup()
     const complete = vi.spyOn(engine.completions, 'create')
